@@ -4,3 +4,8 @@
 Start log. RTC works but not write to the RTC ram
 Fix to DOW
 Added ALLOW_ANSI conditional and colours in macros
+
+0.1.7
+Rewrite and restyle the README.md
+Fix BLUE colour (typo)
+Fix RTC RAM write

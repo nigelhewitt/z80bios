@@ -225,14 +225,16 @@ rtc_wrclk
 		ld		e, 0x00			; 0x00 = unprotect
 		call	rtc_put			; send value to control register
 		call	rtc_init		; finish it
+		
 		; send the 'clock burst' command
 		ld		e, 0xbe			; command = 0xbe to burst write clock
 		call	rtc_cmd			; send command to rtc
 		ld		b, 7			; b is loop counter
-.dw1	ld		e, (hl)			; get next byte to write
+.cw1	ld		e, (hl)			; get next byte to write
 		call	rtc_put			; put next byte
 		inc		hl				; increment buffer pointer
-		djnz	.dw1			; loop if not done
+		djnz	.cw1			; loop if not done
+		
 		; sent the eighth byte to re-write protect it
 		ld		e, 0x80			; add control reg byte, 0x80 = protect on
 		call	rtc_put			; write required 8th byte
@@ -249,11 +251,11 @@ rtc_rdram
 		ld		e, 0xff			; command = 0xff to burst read ram
 		call	rtc_cmd			; send command to rtc
 		ld		b, 31			; b is loop counter
-.rr2
+.cr1
 		call	rtc_get			; get next byte
 		ld		(hl), e			; save in buffer
 		inc		hl				; inc buf pointer
-		djnz	.rr2			; loop if not done
+		djnz	.cr1			; loop if not done
 		pop		de, bc
 		jp		rtc_init
 
@@ -262,15 +264,31 @@ rtc_rdram
 ;===============================================================================
 rtc_wrram
 		push	bc, de
+
+		; clear the write protect bit to zero
+		ld		e, 0x8e			; command = 0x8e to write control register
+		call	rtc_cmd			; send command
+		ld		e, 0x00			; 0x00 = unprotect
+		call	rtc_put			; send value to control register
+		call	rtc_init		; finish it
+		
 		ld		e, 0xfe			; command = 0xfe to burst write ram
 		call	rtc_cmd			; send command to rtc
 		ld		b, 31			; b is loop counter
-.dw2	ld		e, (hl)			; get next byte to write
+.rw1	ld		e, (hl)			; get next byte to write
 		call	rtc_put			; put next byte
 		inc		hl				; increment buffer pointer
-		djnz	.dw2			; loop if not done
+		djnz	.rw1			; loop if not done
 		and		a, ~RTCCE		; CE low before CLK low (NVH add)
 		out		(RTC), a
+
+		; set the write protect bit to one
+		ld		e, 0x8e			; command = 0x8e to write control register
+		call	rtc_cmd			; send command
+		ld		e, 0x80			; 0x80 = protect
+		call	rtc_put			; send value to control register
+		call	rtc_init		; finish it
+		
 		pop		de, bc
 		jp		rtc_init
 

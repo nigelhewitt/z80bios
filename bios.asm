@@ -4,12 +4,14 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
+VERSION	macro :	db "v0.1.7" : endm		; version number for sign on message
+;
 ;	compile with
 ;			./make.ps1
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "message"		move to local repository
+;   	git commit -m "0.1.0"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ;===============================================================================
@@ -187,7 +189,7 @@ GREEN	macro
 		db		"\e[92m"
 		endm
 BLUE	macro
-		db		"\e[91m"
+		db		"\e[94m"
 		endm
  else
 WHITE	macro
@@ -299,7 +301,9 @@ size_table	equ	$ - start_table		; table size for copy
 
 signon		db		"\r"
 			RED
-			db		"Nigsoft Z80 BIOS v0.1.6 "
+			db		"Nigsoft Z80 BIOS "
+			VERSION
+			db		" "
 			db		__DATE__
 			db		" "
 			db		__TIME__
