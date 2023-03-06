@@ -27,11 +27,7 @@
 ;############################################################################
 ;
 ; An SD card library suitable for talking to SD cards in SPI mode 0.
-;
-; XXX As of 2022-02-14, this code has been tested on house-brand (Inland)
-; MicroCenter SD version 2.0 SDHC cards:
-;	https://www.microcenter.com/product/486146/micro-center-16gb-microsdhc-card-class-10-flash-memory-card-with-adapter
-;
+;;
 ; WARNING: SD cards are 3.3v ONLY!
 ; Must provide a pull up on MISO to 3.3V.
 ; SD cards operate on SPI mode 0.
@@ -199,14 +195,14 @@ sd_cmd0
 
  if sd_debug
 		push	af
-		call	iputs
-		db		'CMD0: \0'
+		call	stdio_str
+		db		"CMD0: ",0
 		ld		hl, sd_cmd0_buf
 		ld		bc, sd_cmd0_len
 		ld		e, 0
 		call	hexdump
-		call	iputs
-		db		'  R1: \0'
+		call	stdio_str
+		db		"  R1: ",0
 		pop		af
 		push	af
 		call	hexdump_a		; dump the reply message
@@ -246,15 +242,15 @@ sd_cmd8
 		call	sd_cmd_r7
 
  if sd_debug
-		call	iputs
-		db		'CMD8: \0'
+		call	stdio_str
+		db		"CMD8: ",0
 		ld		hl, sd_cmd8_buf
 		ld		bc, sd_cmd8_len
 		ld		e, 0
 		call	hexdump
-		call	iputs
-		db		'  R7: \0'
-		pop		hl			; POP buffer address
+		call	stdio_str
+		db		"  R7: ",0
+		pop		hl				; POP buffer address
 		ld		bc, 5
 		ld		e, 0
 		call	hexdump			; dump the reply message
@@ -282,14 +278,14 @@ sd_cmd58
 		call	sd_cmd_r3
 
  if sd_debug
-		call	iputs
-		db		'CMD58: \0'
+		call	stdio_str
+		db		"CMD58: ",0
 		ld		hl, sd_cmd58_buf
 		ld		bc, sd_cmd58_len
 		ld		e, 0
 		call	hexdump
-		call	iputs
-		db		'  R3: \0'
+		call	stdio_str
+		db		"  R3: ", 0
 		pop		hl			; POP buffer address
 		ld		bc, 5
 		ld		e, 0
@@ -315,14 +311,14 @@ sd_cmd55
 
  if sd_debug
 		push	af
-		call	iputs
-		db		'CMD55: \0'
+		call	stdio_str
+		db		"CMD55: ",0
 		ld		hl, sd_cmd55_buf
 		ld		bc, sd_cmd55_len
 		ld		e, 0
 		call	hexdump
-		call	iputs
-		db		'  R1: \0'
+		call	stdio_str
+		db		"  R1: ", 0
 		pop		af
 		push	af
 		call	hexdump_a	; dump the response byte
@@ -355,18 +351,19 @@ sd_acmd41
 
  if sd_debug
 		push	af
-		call	iputs
-		db		'ACMD41: \0'
+		call	stdio_str
+		db		"ACMD41: ",0
 		ld		hl, sd_acmd41_buf
 		ld		bc, sd_acmd41_len
 		ld		e, 0
 		call	hexdump
-		call	iputs
-		db		'   R1: \0'
+		call	stdio_str
+		db		"   R1: ",0
 		pop		af
 		push	af
 		call	hexdump_a	; dump the status byte
-		call    puts_crlf
+		call    stdio_str
+		db		"\r\n",0
 		pop		af
  endif
 		ret
@@ -407,8 +404,8 @@ sd_reset_ac41
 		jr      z, sd_reset_done
 		djnz    sd_reset_ac41
 
-		call	iputs
-		db		"SD_RESET FAILED!\r\n\0"
+		call	stdio_str
+		db		"SD_RESET FAILED!\r\n",0
 		ld		a, 0x01
 		ret
 
@@ -481,8 +478,8 @@ sd_cmd17
 
  if sd_debug_cmd17
 		; print the comand buffer
-		call	iputs
-		db		'CMD17: \0'
+		call	stdio_str
+		db		"CMD17: ",0
 		push	iy
 		pop		hl			; HL = IY = cmd_buffer address
 		ld		bc, 6		; B = command buffer length
@@ -490,8 +487,8 @@ sd_cmd17
 		call	hexdump
 
 		; print the target address
-		call	iputs
-		db		'  Target: \0'
+		call	stdio_str
+		db		"  Target: ",0
 
 		pop		de			; restore DE = target buffer address
 		push	de			; and keep it on the stack too
@@ -517,8 +514,8 @@ sd_cmd17
 
  if sd_debug_cmd17
 		push	af
-		call	iputs
-		db		'  R1: \0'
+		call	stdio_str
+		db		"  R1: ",0
 		pop		af
 		push	af
 		call	hexdump_a
@@ -532,11 +529,12 @@ sd_cmd17
 
 		; print the R1 status byte
 		push	af
-		call	iputs
-		db		"\r\nSD CMD17 R1 error = 0x\0"
+		call	stdio_str
+		db		"\r\nSD CMD17 R1 error = 0x",0
 		pop		af
-		call	hexdump_a
-		call	puts_crlf
+		call	stdio_byte
+		call	stdio_str
+		db		"\r\n",0
 
 		jp		sd_cmd17_err
 
@@ -554,8 +552,8 @@ sd_cmd17_loop
 		or		c
 		jr		nz, sd_cmd17_loop
 
-		call	iputs
-		db		"SD CMD17 data timeout\r\n\0"
+		call	stdio_str
+		db		"SD CMD17 data timeout\r\n",0
 		jp		sd_cmd17_err		; no flag ever arrived
 
 sd_cmd17_token
@@ -563,12 +561,12 @@ sd_cmd17_token
 		jr		z, sd_cmd17_tokok
 
 		push	af
-		call	iputs
-		db		"SD CMD17 invalid response token: 0x\0"
+		call	stdio_str
+		db		"SD CMD17 invalid response token: 0x",0
 		pop		af
-		call	hexdump_a
-		call	iputs
-		db		"\r\n\0"
+		call	stdio_byte
+		call	stdio_str
+		db		"\r\n",0
 		jp		sd_cmd17_err
 
 sd_cmd17_tokok
@@ -680,8 +678,8 @@ sd_cmd24_len equ	6
  if sd_debug_cmd24
 		push	de
 		; print the command buffer
-		call	iputs
-		db		"  CMD24: \0"
+		call	stdio_str
+		db		"  CMD24: ",0
 		push	iy
 		pop		hl			; hl = &cmd_buffer
 		ld		bc, sd_cmd24_len
@@ -689,8 +687,8 @@ sd_cmd24_len equ	6
 		call	hexdump
 
 		; print the target address
-		call	iputs
-		db		"  CMD24: source: \0"
+		call	stdio_str
+		db		"  CMD24: source: ",0
 		ld		a, (ix-5)
 		call	hexdump_a
 		ld		a, (ix-6)
@@ -717,12 +715,12 @@ sd_cmd24_len equ	6
 					; else error...
 
 		push	af
-		call	iputs
-		db		"SD CMD24 status = \0"
+		call	stdio_str
+		db		"SD CMD24 status = ",0
 		pop		af
-		call	hexdump_a
-		call	iputs
-		db		" != SD_READY\r\n\0"
+		call	stdio_byte
+		call	stdio_str
+		db		" != SD_READY\r\n",0
 		jp		sd_cmd24_err		; then error
 
 sd_cmd24_r1ok
@@ -761,8 +759,8 @@ sd_cmd24_wdr				; wait for data response message
 		or		c
 		jr		nz, sd_cmd24_wdr
 
-		call    iputs
-		db		"SD CMD24 completion status timeout!\r\n\0"
+		call    stdio_str
+		db		"SD CMD24 completion status timeout!\r\n",0
 		jp		sd_cmd24_err	; timed out
 
 
@@ -774,17 +772,17 @@ sd_cmd24_drc
 
 
 		push	bc
-		call	iputs
-		db		"ERROR: SD CMD24 completion status != 0x05 (count=\0"
+		call	stdio_str
+		db		"ERROR: SD CMD24 completion status != 0x05 (count=",0
 		pop		bc
 		push	bc
 		ld		a, b
-		call	hexdump_a
+		call	stdio_byte
 		pop		bc
 		ld		a, c
-		call	hexdump_a
-		call	iputs
-		db		")\r\n\0"
+		call	stdio_byte
+		call	stdio_str
+		db		")\r\n",0
 
 		jp		sd_cmd24_err
 
@@ -816,7 +814,7 @@ sd_cmd24_err
 	    call    spi_ssel_false
 
  if sd_debug_cmd24
-		call	iputs
+		call	stdio_str
 		db		"SD CMD24 write failed!\r\n\0"
  endif
 

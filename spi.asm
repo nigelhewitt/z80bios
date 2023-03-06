@@ -24,32 +24,6 @@ gpio_out_sd_ssel	equ		0x80	; B7
 
 gpio_in_sd_miso		equ		0x40	; C7
 
-; routines required for debugs et al
-iputs
-		ex		(sp), hl		; HL on stack, get return address in HL
-		push	af
-.i1		ld		a, (hl)			; string character
-		inc		hl
-		or		a
-		jr		z, .i2			; terminator
-		call	serial_sendW
-		jr		.i1
-.i2		ld		a, (hl)
-		; do something with A
-		inc		hl
-		pop		af
-		ex		(sp), hl
-		ret
-
-hexdump_a
-		; do something
-		ret
-
-puts_crlf
-		ld		a, 0x0d
-		call	serial_sendW
-		ld		a, 0x0a
-		jp		serial_sendW
 
 ; Now comes the software I used with my operational changes marked NVH
 ; There is lots of unmarked editing to make it suit my assembler

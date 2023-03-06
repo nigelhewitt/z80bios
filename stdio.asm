@@ -431,13 +431,10 @@ stdio_dump			; C:HL = pointer, DE = count, uses A
 ; buffer HL, max count D, current index E
 ;===============================================================================
 
-; Get char at (HL+E) in A, E++,  return zero and Z if EOL and do not E++
+; Get char at (HL+E) in A, E++,  return zero, Z and NC if EOL and do not E++
 getc		ld		a, e			; current index
 			cp		d				; subtract length of line (must cy)
-			ld		a, 0			; set return but not setting flags
-			; note the assumption that E !> D
-			ret		z				; return NC and Z
-
+			jr		nc, .getc2		; bad
 			push	hl
 			ld		a, l			; HL += A
 			add		e
@@ -447,19 +444,22 @@ getc		ld		a, e			; current index
 .getc1		ld		a, (hl)			; get the next char
 			pop		hl
 			inc		e				; sets NZ
+			scf						; return NZ, CY and data
 			ret
-
-; ungetc would just be 'dec e' so I'm not subroutining that
+.getc2		sub		a				; Z, NC and zero
+			ret
+; ungetc would just be 'dec e' so I'm not wrapping that in a subroutine
 
 ;-------------------------------------------------------------------------------
 ; Skip spaces returning next character (and NZ) or zero for EOL (and Z)
 ;-------------------------------------------------------------------------------
-skip		call	getc			; returns Z on EOL
-			ret		z				; EOL
+skip		call	getc			; returns Z and NC on EOL
+			ret		z				; EOL NC and Z
 			cp		0x20			; space
 			jr		z, skip
 			cp		0x08			; tab
 			jr		z, skip
+			scf
 			ret						; return NZ on not EOL
 
 ; NB: to test if the rest of the line is clear call skip and NZ is error state

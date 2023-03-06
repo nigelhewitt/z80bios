@@ -1,5 +1,5 @@
 ﻿sjasmplus --lst --raw=bios.bin `
-  bios.asm maths.asm serial.asm stdio.asm cpm.asm `
+  bios.asm map.asm maths.asm serial.asm stdio.asm cpm.asm `
   rtc.asm ctc.asm pio.asm spi.asm sd.asm
 
 $f = Get-Item ./bios.bin

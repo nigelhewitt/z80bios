@@ -1,5 +1,10 @@
 ﻿Version logging for BIOS
 
+  update to git repository
+	git add -u					move updates to staging area
+   	git commit -m "0.1.0"		move to local repository, use version number
+   	git push -u origin main		move to github
+
 0.1.6
 Start log. RTC works but not write to the RTC ram
 Fix to DOW
@@ -9,3 +14,7 @@ Added ALLOW_ANSI conditional and colours in macros
 Rewrite and restyle the README.md
 Fix BLUE colour (typo)
 Fix RTC RAM write
+
+0.1.8
+add map.asm to contain page mapping stuff
+write the 'stack free' routines to get/put data anywhere

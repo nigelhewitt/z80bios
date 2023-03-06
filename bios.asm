@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-VERSION	macro :	db "v0.1.7" : endm		; version number for sign on message
+	define	VERSION	"v0.1.8"		; version number for sign on message
 ;
 ;	compile with
 ;			./make.ps1
@@ -110,7 +110,7 @@ RAM3		equ		35
 RAM4		equ		36	; and on to RAM31
 
 ;===============================================================================
-;	macros to add things that won't or can't subroutine nicely
+;	macros to add things that can't or won't subroutine nicely
 ;===============================================================================
 
 ; Force stdio to go to the serial port and then restore it 'as was' so we can
@@ -302,7 +302,7 @@ size_table	equ	$ - start_table		; table size for copy
 signon		db		"\r"
 			RED
 			db		"Nigsoft Z80 BIOS "
-			VERSION
+			db		VERSION
 			db		" "
 			db		__DATE__
 			db		" "
@@ -513,46 +513,48 @@ good_end	ld		a, (ram_test)	; running in RAM?
 ;===============================================================================
 
 ; The jump table matches a letter to an address
-cmd_list	db	'E'					; echo command
-			dw	cmd_e
-			db	'H'					; hex test
-			dw	cmd_h
-			db	'R'					; read memory
-			dw	cmd_r
-			db	'W'					; write memory
-			dw	cmd_w
-			db	'F'					; fill memory
-			dw	cmd_f
-			db	'I'					; input from a port
-			dw	cmd_i
-			db	'O'					; output to a port
-			dw	cmd_o
-			db	'X'					; execute from an address
-			dw	cmd_x
-			db	'D'					; dump from an address
-			dw	cmd_d
-			db	'B'					; read a block of data to an address
+cmd_list	db	'B'					; read a block of data to an address
 			dw	cmd_b
-			db	'T'					; time set/get
-			dw	cmd_t
-			db	'Z'					; anything test
-			dw	cmd_z
-			db	'K'					; kill
-			dw	cmd_k
  if ALLOW_ANSI
  			db	'C'					; clear screen
 			dw	cmd_c
  endif
+			db	'D'					; dump from an address
+			dw	cmd_d
+			db	'E'					; echo command
+			dw	cmd_e
+			db	'F'					; fill memory
+			dw	cmd_f
+			db	'H'					; hex test
+			dw	cmd_h
+			db	'I'					; input from a port
+			dw	cmd_i
+			db	'K'					; kill
+			dw	cmd_k
  if LEDS_EXIST
 			db	'L'					; set the LEDs
 			dw	cmd_l
  endif
+			db	'N'					; program ROM
+			dw	cmd_n
+			db	'O'					; output to a port
+			dw	cmd_o
  if DIGITS_EXIST
 			db	'P'					; panel command
 			dw	cmd_p
  endif
+			db	'R'					; read memory
+			dw	cmd_r
 			db	'S'					; save command
 			dw	cmd_s
+			db	'T'					; time set/get
+			dw	cmd_t
+			db	'W'					; write memory
+			dw	cmd_w
+			db	'X'					; execute from an address
+			dw	cmd_x
+			db	'Z'					; anything test
+			dw	cmd_z
 			db	0
 
 ; Called with HL pointer to line, D buffer count, use E as index
@@ -585,75 +587,6 @@ do_commandline
 			ld		ix, bc
 			ld		e, 1			; set index to second character
 			jp		(ix)
-
-;===============================================================================
-; Memory page addressing
-;===============================================================================
-; Called with a 20 bit address in C:IX
-; b0-13 are just address bus stuff
-; b14-18 are the 0-31 page
-; bit 19 is ROM select
-; bits 20-23 are an error
-; uses AF, returns value in IX
-; fixes IX to point to the correct CPU address16 to access the memory
-setPage		push	ix
-			ld		a, c			; bits 16-23
-			and		0x0f			; mask to 16-19
-			push	hl
-			ld		hl, ix
-			rl		h				; move bits 14-15 into A b0-1
-			rl		a
-			rl		h
-			rl		a				; giving bits 19-14 in A b5-0
-			pop		hl
-			xor		0x20			; swap ROM and RAM
-			out		(MPGSEL1), a	; swap the page in
-			pop		ix
-			ld		a, ixh			; !
-			and		a, 0x3f			; mask out the page address
-			or		a, 0x40			; set for PAGE1
-			ld		ixh, a
-			ret
-
-; restore the usual RAM1 to PAGE1
-; uses AF
-resPage		ld		a, RAM1			; page RAM1
-			out		(MPGSEL1), a	; back into PAGE1
-			ret
-
-; get a byte from C:IX in A leaving everything unchanged
-getPageByte	push	ix
-			call	setPage
-			ld		a, (IX)
-			push	af
-			call	resPage
-			pop		af
-			pop		ix
-			ret
-
-; set the byte in C:IX to A
-putPageByte	push	ix
-			push	af
-			call	setPage
-			pop		af
-			ld		(IX), a
-			push	af
-			call	resPage
-			pop		af
-			pop		ix
-			ret
-
-; increment C:IX  a useful utility
-incCIX		push	de
-			ld		de, 1
-			add		ix, de
-			ld		d, a		; preserve A
-			ld		a, c
-			adc		0
-			ld		c, a
-			ld		a, d
-			pop		de
-			ret
 
 ;===============================================================================
 ; E text echo test			E anything you like
@@ -919,76 +852,111 @@ cmd_d		ld		ix, (def_address)		; default address
 			jp		good_end
 
 ;===============================================================================
-; B block command    B address20 count16	then read data from serial port
+; B block command    B address20|count8|count*data8|checksum
+;		The idea is we send a solid block of data to keep the bytes down
+;			  AAAAANNDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDCS
+;			B 1280010c39de80000c316f6c39de80000c316f6xx where xx is a checksum
+;		and it writes 16 bytes to RAM4:2800 et al. and responds with "\r\r"
+;		hence we can upload blocks to any where in memory and as nobody sends a
+;		\n they all just flash past on the display
+;		NB count >=1 and <=0x10
+;		send a block, ignore the echoes and after the second \r send another
+;		if anything is wrong it the response is space or escape
+;		The program doing this can respond with text when it finishes.
 ;===============================================================================
-STX			equ		0x02					; 'term' sends STX to start block
-ACK			equ		0x06					; checksum OK send next block
-NAK			equ		0x15					; checksum bad resend block
+; short subs to handle packed data
+; get nibble, return NC on error or CY with 0-0xf in A
+gn			call	getc			; get the next character from the buffer
+			ret		nc				; end of buffer is bad
+			call	ishex
+			ret		nc				; not hex
+			call	tohex			; return 0-0xf in A
+			scf						; good end
+			ret
+; get byte in A uses C, return CY on good
+gb			call	gn				; high nibble
+			ret		nc
+			sla		a				; slide 4 bits left
+			sla		a
+			sla		a
+			sla		a
+			ld		c, a			; save in C
+			call	gn				; low nibble
+			ret		nc
+			or		c				; add the high bits
+			scf						; set carry for OK
+			ret
 
-;; UNTESTED
+cmd_b		call	skip			; skip spaces
+			jp		z, bad_end		; end of buffer so nothing to do
+			dec		e				; unget
+			AUTO	25				; get some variable space
+; 0: address in three bytes
+; 3: count in one byte
+; 4: used to save checksum
+; 5: up to 16 bytes of data
+; BEWARE getc is using HL DE
+									; the address is 5 hex 'digits'
+			call	gb				; only a nibble of the address high byte
+			jp		nc, .cb3
+			ld		(iy+2), a		; save it
+			and		0xf8			; check for a RAM address (b0-b18)
+			jp		nz, .cb3		; not 0x3ffff or below
+			call	gb				; address middle byte
+			jr		nc, .cb3
+			ld		(iy+1), a
+			call	gb				; address low byte
+			jr		nc, .cb3
+			ld		(iy), a
+		
+			call	gb				; count byte
+			jr		nc, .cb3
+			ld		(iy+3), a
+			or		a				; count must not be zero
+			jr		z, .cb3
+			cp		17				; or >=17
+			jr		nc, .cb3
 
-cmd_b		ld		ix, (def_address)		; default address
-			ld		a, (def_address+2)
-			ld		c, a
-			call	gethex20					; in C:IX
-			jp		nc, bad_end				; address syntax
-			push	ix						;						SP+2
-			ld		ix, 0					; no default
-			call	gethexW
-			jp		nc, bad_end				; count syntax
-			call	skip					; more on line?
-			jp		nz, bad_end				; pop ix, bad_end
-			ld		(def_address), ix
-			push	ix						;						SP+4
-			pop		de						; count					SP+2
-			pop		hl						; address				SP+0
-			ld		a, d					; test count
-			or		e
-			jp		z, bad_end
-; do a block of 80 or less
-.cb1		push	hl						; address
-			push	de						; count
-; limit the count to 1-80
-			ld		a, d					; count msbyte
-			or		a
-			jr		nz, .cb2				; D>1 so DE>256
-			ld		a, e
-			cp		81						; set cy if a<=80
-			jr		c, .cb3
-.cb2		ld		a, 80
-.cb3		ld		c, a					; save for subtract at the end
-			ld		b, 0
-			call	stdio_getc				; blocks start with STX
-			cp		STX
-			jr		z, .cb4					; OK, let's go!
-			pop		hl
-			pop		de
-			jp		bad_end
-.cb4		call	stdio_getc
-			ld		(hl), a
-			add		c						; accumulate checksum in C
-			ld		c, a
+			push	hl, de
+			ld		hl, iy
+			ld		de, 5
+			add		hl, de			; start of data
+			ld		ix, hl
+			pop		de, hl
+			ld		b, (iy+3)		; count
+			ld		(iy+4), 0		; checksum
+.cb1		call	gb
+			jr		nc, .cb3		; bad data
+			ld		(ix), a
+			inc		ix
+			add		a, (iy+4)
+			ld		(iy+4), a
+			djnz	.cb1
+			
+			call	gb				; get checksum
+			jr		nc, .cb3
+			cp		(iy+4)
+			jr		nz, .cb3		; failed checksum
+			call	skip			; must be end of line
+			jr		nz, .cb3		; more stuff is bad
+; output the data
+			ld		l, (iy)			; destination in C:IX
+			ld		h, (iy+1)
+			ld		ix, hl
+			ld		c, (iy+2)
+			ld		b, (iy+3)		; count in B
+			ld		hl, iy
+			ld		de, 5
+			add		hl, de			; start of data
+.cb2		ld		a, (hl)
+			call	putPageByte		; put A on (C:IX)
 			inc		hl
-			dec		de
-			djnz	.cb4					; using B as down counter
-			call	stdio_getc
-			cp		c						; checksum
-			jr		z, .cb5					; OK
-; fail
-			ld		a, NAK
-			call	stdio_putc
-			pop		hl
-			pop		de
-			jr		.cb1
-; OK
-.cb5		ld		a, ACK
-			call	stdio_putc
-			pop		ix						; discard last block pointer
-			pop		ix
-			ld		a, d
-			or		a, e
-			jr		nz, .cb1				; get next block
+			call	incCIX
+			djnz	.cb2
+			RELEASE	20				; RELEASE does NOT preserve flags
 			jp		good_end
+.cb3		RELEASE	20
+			jp		bad_end
 
 ;===============================================================================
 ; T  Time set/get    T hh:mm:ss  dd/mm/yy
@@ -1167,6 +1135,11 @@ cmd_s		ld		ix, (def_address)		; default address
 			jp		good_end
 
 ;===============================================================================
+; N  program ROM N dest20 source20 count16
+;===============================================================================
+cmd_n		jp		bad_end					; manana
+
+;===============================================================================
 ;
 ;  Interrupt handlers
 ;
@@ -1271,12 +1244,13 @@ int3		reti
 ;
 ;===============================================================================
 
-; put numbers on my 7 segment plug in
+; put numbers on my 7 segment plug-in
  if DIGITS_EXIST
+; to change the wiring just change the macro
 MAKED		macro	V, A,B,C,D,E,F,G,DP
 			db		V, ~(A<<7 | B | C<<2 | D<<4 | E<<5 | F<<6 | G<<1 | DP<<3)
 			endm
-; numbers						;   afed.cgb
+
 digits		;			 A B C D E F G DP
 			MAKED	'0', 1,1,1,1,1,1,0,0	; O
 			MAKED	'1', 0,1,1,0,0,0,0,0	; 1			====A====
