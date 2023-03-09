@@ -18,3 +18,7 @@ Fix RTC RAM write
 0.1.8
 add map.asm to contain page mapping stuff
 write the 'stack free' routines to get/put data anywhere
+
+0.1.9
+Add preliminary bios1/2 handlers breaking out zeta2.inc and macros.inc
+Add error codes and move help to bios1 to gain ram space in PAGE3

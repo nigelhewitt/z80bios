@@ -1,8 +1,11 @@
-﻿sjasmplus --lst --raw=bios.bin `
+﻿sjasmplus --lst=bios0.lst --raw=bios0.bin `
   bios.asm map.asm maths.asm serial.asm stdio.asm cpm.asm `
-  rtc.asm ctc.asm pio.asm spi.asm sd.asm
+  rtc.asm ctc.asm pio.asm rom.asm spi.asm sd.asm
 
-$f = Get-Item ./bios.bin
-$l = $f.Length
-$s = 16384-$l
-Write-Host "Image size:" $l "bytes  space:" $s (' 0x{0:X}' -f $s)
+sjasmplus --lst=bios1.lst --raw=bios1.bin `
+	bios1.asm serial.asm stdio.asm maths.asm rom.asm map.asm error.asm
+
+sjasmplus --lst=bios2.lst --raw=bios2.bin `
+	bios2.asm serial.asm stdio.asm maths.asm rom.asm map.asm
+
+./merge bios.bin bios0.bin bios1.bin bios2.bin

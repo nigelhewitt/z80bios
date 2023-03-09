@@ -117,11 +117,10 @@ resPage		push	bc, iy
 			ret
 
 ;-------------------------------------------------------------------------------
-; getPageByte	get a byte from C:IX in A leaving everything unchanged
-;				works the stack free trick so it can get from anywhere
+; getPageByte	get a byte from C:IX in A leaving everything unchanged.
+;				It works the stack free trick so it can get from anywhere
 ;-------------------------------------------------------------------------------
 getPageByte	push	hl, bc, iy, ix
-;	SNAP "getPageByte start"
 			ld		a, 1			; via PAGE1
 			ld		iy, .gb1
 			jp		_setPage
@@ -130,16 +129,14 @@ getPageByte	push	hl, bc, iy, ix
 			ld		iy, .gb2
 			jr		_resPage
 .gb2		ld		a, h			; result in A
-;	SNAP "getPageByte end"
 			pop		ix, iy, bc, hl
 			ret
 
 ;-------------------------------------------------------------------------------
-; putPageByte	set a byte in C:IX from A
-;				again works the stack free trick
+; putPageByte	set a byte in C:IX from A.
+;				Again it works the stack free trick
 ;-------------------------------------------------------------------------------
 putPageByte	push	de, hl, bc, iy, ix
-;	SNAP "putPageByte start"
 			ld		d, a			; save the byte
 			ld		a, 1			; via PAGE1
 			ld		iy, .pb1
@@ -149,12 +146,12 @@ putPageByte	push	de, hl, bc, iy, ix
 			ld		iy, .pb2
 			jp		_resPage
 .pb2		ld		a, d
-;	SNAP "putPageByte end"
 			pop		ix, iy, bc, hl, de
 			ret
 
 ;-------------------------------------------------------------------------------
-; incCIX	increment C:IX safely if there is a danger of crossing a page
+; incCIX	increment C:IX safely if there is a danger of crossing a page so
+;			just incrementing IX isn't safe
 ;			uses nothing
 ;-------------------------------------------------------------------------------
 incCIX		push	de
@@ -174,9 +171,10 @@ incCIX		push	de
 ;						destination must be RAM, IX==0 results in 64K copy
 ;						works the 'stack free' trick
 ;						return CY = good
-; you are free to read from and write to any memory address. If you overwrite
-; yourself that's your problem. I only protect you from the stack getting
-; switched in and out.
+;
+; You are free to read from and write to any memory address although if you
+; overwrite your own executable code that's your problem. Here I only protect
+; you from the stack getting switched in and out.
 ; You end up with memory restored to PAGE1=RAM1 and PAGE2=RAM2
 ; I will Disable Interrupts, if you want to EI after it returns BMG
 ;===============================================================================

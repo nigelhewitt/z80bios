@@ -639,3 +639,98 @@ getdecimalB	push	bc
 			pop		bc
 			ret							; bad end
 
+;===============================================================================
+; dump the registers
+;===============================================================================
+
+_snap		push	af
+			push	bc
+			push	hl
+			push	af				; a copy to dismantle
+			push	hl				; a copy to output
+			call	stdio_str
+			db		"\r\nA:", 0
+			call	stdio_byte
+			call	stdio_str
+			db		" BC:", 0
+			ld		hl, bc
+			call	stdio_word
+			call	stdio_str
+			db		" DE:", 0
+			ld		hl, de
+			call	stdio_word
+			call	stdio_str
+			db		" HL:", 0
+			pop		hl
+			call	stdio_word
+			call	stdio_str
+			db		" IX:", 0
+			ld		hl, ix
+			call	stdio_word
+			call	stdio_str
+			db		" IY:", 0
+			ld		hl, iy
+			call	stdio_word
+			call	stdio_str
+			db		" SP:", 0
+			; we now need two different versions of the constants
+			;							snap_mode==0	snap_mode=1
+			; stack depth since last call	12				14
+			; return address				8				12
+			; back to start of snap			-19				-1
+			ld		a, (Z.snap_mode)
+			or		a
+			ld		hl, 12			; stack depth since call (14)
+			jr		z, .sn1
+			ld		hl, 14
+.sn1		add		hl, sp
+			call	stdio_word
+			call	stdio_str
+			db		" PC:", 0
+			ld		a, (Z.snap_mode)
+			or		a
+			ld		hl, 8			; return address (12)
+			jr		z, .sn2
+			ld		hl, 12
+.sn2		add		hl, sp
+			ld		a, (hl)
+			inc		hl
+			ld		h, (hl)
+			ld		l, a			; return address of _snap
+			ld		a, (Z.snap_mode)
+			or		a
+			ld		bc, -19			; back to the start of SNAP (-1)
+			jr		z, .sn3
+			ld		bc, -1
+.sn3		add		hl, bc
+			call	stdio_word
+			ld		a, ' '
+			call	stdio_putc
+
+			pop		hl			; saved as AF so flags in L
+
+; I shall show the flags as " V" or "-V" for true false
+
+doFlag		macro	mask, char
+			ld		a, mask
+			and		l
+			ld		a, ' '
+			jr		nz, .df1	; yup, flags are saved inverted
+			ld		a, '-'
+.df1		call	stdio_putc
+			ld		a, char
+			call	stdio_putc
+			endm
+
+			doFlag	0x80, 'S'
+			doFlag	0x40, 'Z'
+			doFlag	0x10, 'H'
+			doFlag	0x04, 'P'
+			doFlag	0x02, 'N'
+			doFlag	0x01, 'C'
+			ld		a, ' '
+			call	stdio_putc
+			pop		hl
+			pop		bc
+			pop		af
+			ret

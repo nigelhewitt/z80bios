@@ -99,7 +99,7 @@ dly1		ret				; call + return = 17+10 T states so 2.7uS
 ;	set all lines to quiescent state
 ;===============================================================================
 rtc_init
-		ld		a, (led_buffer)	; led driver bits b3 and b0
+		ld		a, (Z.led_buffer)	; led driver bits b3 and b0
 		and		0x09			; mask out any noise
 		or		RTCWEN			; initialise A with WE (active low) quiescent
 		out		(RTC), a		; write to port

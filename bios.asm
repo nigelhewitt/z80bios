@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.8"		; version number for sign on message
+	define	VERSION	"v0.1.9"		; version number for sign on message
 ;
 ;	compile with
 ;			./make.ps1
@@ -16,15 +16,12 @@
 ;
 ;===============================================================================
 
+BIOSROM		equ			0				; which ROM page we are compiling
+			include		"zeta2.inc"		; common definitions
+ 			include		"macros.inc"
+
 ; I have two little boards tacked on to the SDC and as they are optional
 ; it seems right to make them optional in the code too.
-
-LEDS_EXIST		equ		1		; LEDS fitted
-DIGITS_EXIST	equ		1		; digit board fitted
-SDC_EXISTS		equ		1		; SDC board fitted
-ALLOW_ANSI		equ		1		; Terminal accepts ANSI strings
-
-ROM_SHIFT		equ		0x2800	; 10K How much of PAGE3 we can give to RAM
 
 ; This code image is in page 0 of the ROM so, on boot, it is replicated in all
 ; four memory slots of the Zeta2 board. However I want it to run in page 3,
@@ -51,9 +48,9 @@ ROM_SHIFT		equ		0x2800	; 10K How much of PAGE3 we can give to RAM
 ; The system boots with ROM0 in all four pages due to the mapping system being
 ; turned off so you can set up the page registers before you turn it on and you
 ; have lots of spare space on hand.
-
+;
 ; The RTC also stashes 31 bytes of battery backed up RAM if needed
-
+;
 ; To program the Flash off line use the TL866 programmer:
 ;	see
 ;		D:\Archive\TL866
@@ -62,145 +59,6 @@ ROM_SHIFT		equ		0x2800	; 10K How much of PAGE3 we can give to RAM
 ; The ANSI colour code I use are in
 ;		https://en.wikipedia.org/wiki/ANSI_escape_code
 ;
-;===============================================================================
-;
-;   Basic definitions about the Zeta2 board
-;
-;===============================================================================
-
-CPUCLK		equ		10000		; master clock in kHz
-
-; IO groups base address
-
-CTC			equ		20H			; counter timer module (Z84C30)
-FDC			equ		30H			; floppy disk controller (WD37C65)
-PIO			equ		60H			; Parallel Port (CP82C55A) 3 x 8 bits
-UART		equ		68H			; UART (16550)
-REDIRECT	equ		UART+7		; 0=stdio goes to serial 1 to (IY++)
-RTC			equ		70H			; RTC (DC1302)
-
-MPGSEL		equ		78H			; memory select registers
-MPGSEL0		equ		MPGSEL+0	; page 0 0000H-3FFFH  (16K pages)
-MPGSEL1		equ		MPGSEL+1	; page 1 4000H-7FFFH
-MPGSEL2		equ		MPGSEL+2	; page 2 8000H-BFFFH
-MPGSEL3		equ		MPGSEL+3	; page 3 C000H-FFFFH
-
-; the 32 ROM pages are 0-31, 32 RAM pages are 32-63
-MPGEN		equ		7CH			; b0 memory page enable
-								; if zero all pages are ROM0
-; useful page numbers
-; Z80 address pages - breaking the 64K space into 4 x 16K blocks
-PAGE_SIZE	equ		0x4000		; 16K
-PAGE0		equ		0x0000		; 0000-3fff
-PAGE1		equ		0x4000		; 4000-7fff
-PAGE2		equ		0x8000		; 8000-bfff
-PAGE3		equ		0xc000		; c000-ffff
-
-; The values for the ROM/RAM pages to put into the four page select registers
-
-ROM0		equ		0
-ROM1		equ		1
-ROM2		equ		2
-ROM3		equ		3
-ROM4		equ		4	; and on to ROM31
-RAM0		equ		32
-RAM1		equ		33
-RAM2		equ		34
-RAM3		equ		35
-RAM4		equ		36	; and on to RAM31
-
-;===============================================================================
-;	macros to add things that can't or won't subroutine nicely
-;===============================================================================
-
-; Force stdio to go to the serial port and then restore it 'as was' so we can
-; just stick debug things in code that may be redirecting
-DOUT	macro	target				; target is 0 for stdio
-		in		a, (REDIRECT)
-		ld 		(spare), a
-		ld		a, target
-		out		(REDIRECT), a
-		endm
-; restore previous
-ROUT	macro
-		ld		a, (spare)
-		out		(REDIRECT), a
-		endm
-
-; Diagnostic register dump to serial port (all pushed)
-SNAP	macro	id
-		push	af
-		DOUT	0					; force serial op
-		xor		a
-		ld		(snap_mode), a
-		pop		af
-		push	af					; get a pristine AF
-		call	_snap
-		call	stdio_str
-		db		id
-		db		0
-		ROUT
-		pop		af
-		endm
-
-; Diagnostic memory dump (all pushed)
-DUMP	macro	ptr, count
-		push	af
-		DOUT	0					; force serial op
-		push	hl
-		push	de
-		push	bc
-		ld		hl, ptr
-		ld		c, 0
-		ld		de, count
-		call	stdio_dump
-		pop		bc
-		pop		de
-		pop		hl
-		ROUT
-		pop		af
-		endm
-
-; Get some auto variables on the stack C style
-; returns IY as pointer to the first byte
-AUTO	macro	nbytes
-		push	iy
-		ld		iy, -nbytes
-		add		iy, sp
-		ld		sp, iy
-		endm
-RELEASE	macro	nbytes
-		ld		iy, nbytes
-		add		iy, sp		; beware DOES NOT preserve flags
-		ld		sp, iy
-		pop		iy
-		endm
-
-; colour sequences
-; to eliminate ANSI stuff redefine these as db ""
- if ALLOW_ANSI
-WHITE	macro
-		db		"\e[37m"
-		endm
-RED		macro
-		db		"\e[91m"			; bright red actually
-		endm
-GREEN	macro
-		db		"\e[92m"
-		endm
-BLUE	macro
-		db		"\e[94m"
-		endm
- else
-WHITE	macro
-		endm
-RED		macro
-		endm
-GREEN	macro
-		endm
-BLUE	macro
-		endm
- endif 
 ;===============================================================================
 ;
 ;	Memory addressing
@@ -233,9 +91,10 @@ BLUE	macro
 
 			org		PAGE3			; where we are in hardware terms
 			jp		rst00			; unmapped start
-			
+
 			ds		ROM_SHIFT-3		; filler to move the BIOS up ROM0
-			
+									; ROM_SHIFT is defined in "zeta2.inc"
+
 BIOS_START	equ		$				; where we actually start
 
 RAM_TOP		equ		PAGE3			; will be top of RAM when we run in ROM
@@ -245,43 +104,33 @@ RAM_TOPEX	equ		$				; RAM 'top' when running in RAM
 ; This is the vector table that will be in PAGE0 at address 0
 ; However as we boot with ROM0 there it seems good to mimic it in ROM to copy
 
+	include	"vt.inc"
+
 ; First the 'rst' vectors (each is 8 bytes)
 start_table
 ; 0x00
 			jp		rst00			; the rst routines match the RST n opcode
-spare		equ		$-start_table
-			dw		0				; spare used by diagnostics
+			ds		2				; spare used by diagnostics
 ; 0x05
 			jp		cpm				; if emulating CPM jump to the handler
 ; 0x08
 			jp		rst08
-
-def_address	equ		$-start_table
-			d24		0				; 3 byte bios default address
-def_port	equ		$-start_table
-			dw		0				; bios default port
+			ds		5
 ; 0x10
 			jp		rst10
-preTick		equ		$-start_table	; uint8	 ticks per second
-			db		0
-Ticks		equ		$-start_table	; uint32 time in seconds
-			dd		0
+			ds		5
 ; 0x18
 			jp		rst18
-led_buffer	equ		$-start_table
-			db		0				; led buffer LD1=b3 LD2=b0 (active low)
-snap_mode	equ		$-start_table
-			db		0				; 0=SNAP macro, 1=RST 0x08
-			db		0,0,0			; spare
+			ds		5
 ; 0x20
 			jp		rst20
-			db		0,0,0,0,0
+			ds		5
 ; 0x28
 			jp		rst28
-			db		0,0,0,0,0
+			ds		5
 ; 0x30
 			jp		rst30
-			db		0,0,0,0,0
+			ds		5
 ; 0x38
 			jp		rst38
 			ds		43
@@ -292,6 +141,7 @@ size_table	equ	$ - start_table		; table size for copy
 
 ; it only take a simple typo to mess this alignment up so
  assert 	size_table == 0x69, Problem with definitions at PAGE0
+ assert		Z == 0x69, Problems with Z structure
 
 ;===============================================================================
 ;
@@ -313,7 +163,7 @@ ram_test	db		0				; set to 1 if we are running in RAM
 rst00		di						; interrupts off
 			xor		a				; mapper off while we get things restarted
 			out		(MPGEN), a
-			
+
 ; WARNING: Until we have some RAM set up we have no stack so don't call subs
 ; Assume we only have ROM0 at 0xc000 as we might be soft restarting
 
@@ -373,12 +223,12 @@ rst00		di						; interrupts off
 			in		a, (RTC)		; read the jumper port
 			and		40H				; set NZ if no jumper is fitted to bit 6
 			jr		nz, .k3			; stick with ROM0
-			
+
 ; put RAM3 in PAGE1
 			ld		a, RAM3
 			out		(MPGSEL1), a
 ; copy BIOS0 in PAGE3 to RAM3 in PAGE1
-			ld		hl, PAGE3		; source pointer 
+			ld		hl, PAGE3		; source pointer
 			ld		de, PAGE1		; destination pointer
 			ld		bc, PAGE_SIZE	; Page size
 			ldir
@@ -386,12 +236,12 @@ rst00		di						; interrupts off
 			ld		a, RAM1
 			out		(MPGSEL1), a
 			jr		.k2				; skip over the switch routine
-			
+
 ; These three opcodes are the code I will copy into RAM to execute the switch:
 .k1			ld		a, RAM3			; select RAM3
 			out		(MPGSEL3), a	; into PAGE3
 			jp		.k3				; continue in RAM
-			
+
 ; copy and switch
 .WEDGE		equ		0xbf00			; place to put the wedge in RAM2 (PAGE2)
 .k2			ld		hl, .k1			; source pointer
@@ -423,7 +273,7 @@ rst00		di						; interrupts off
 			call	pio_init		;
 ; Real Time Clock (and leds)
 			ld		a, 0x09			; both leds off
-			ld		(led_buffer), a
+			ld		(Z.led_buffer), a
 			call	rtc_init		; set default state and leds
 ; Floppy Disk Controller
 ;;			call	fdc_init		; manana
@@ -521,7 +371,7 @@ cmd_list	db	'B'					; read a block of data to an address
  endif
 			db	'D'					; dump from an address
 			dw	cmd_d
-			db	'E'					; echo command
+			db	'E'					; error command
 			dw	cmd_e
 			db	'F'					; fill memory
 			dw	cmd_f
@@ -555,6 +405,8 @@ cmd_list	db	'B'					; read a block of data to an address
 			dw	cmd_x
 			db	'Z'					; anything test
 			dw	cmd_z
+			db	'?'
+			dw	cmd_hlp
 			db	0
 
 ; Called with HL pointer to line, D buffer count, use E as index
@@ -572,54 +424,55 @@ do_commandline
 ; Check for end of table
 .d2			ld		a, (ix)
 			or		a				; end of list?
-			jp		z, bad_end		; yes, so not recognised
+			jr		nz, .d3			; no, so keep going
+			ld		a, ERR_UNKNOWN_COMMAND
+			ld		(Z.last_error), a
+			jp		bad_end
 ; Test for match
-			cp		c				; test command letter
-			jr		z, .d3			; we have a match
+.d3			cp		c				; test command letter
+			jr		z, .d4			; we have a match
 ; No match
 			inc		ix				; ix += 3
 			inc		ix
 			inc		ix
 			jr		.d2
 ; Match
-.d3			ld		c, (ix+1)		; lsbyte
+.d4			ld		c, (ix+1)		; lsbyte
 			ld		b, (ix+2)		; msbyte
 			ld		ix, bc
 			ld		e, 1			; set index to second character
 			jp		(ix)
 
 ;===============================================================================
-; E text echo test			E anything you like
+; ?  Display help text
 ;===============================================================================
-cmd_e		call	stdio_str
-			db		"\r\n\e[94mecho:\e[37m ", 0
-ce1			call	getc						; called from cmd_h
-			jp		z, good_end
-			cp		0x20		; control?
-			jr		c, .ce2		; < 0x20
-			cp		0x07f
-			jr		nc, .ce2	; >= 0x7f
-			call	stdio_putc
-			jr		ce1
-.ce2		push	af
-			ld		a, '\'
-			call	stdio_putc
-			pop		af
-			call	stdio_byte
-			jr		ce1
+cmd_hlp		CALLBIOS	ShowHelp
+			jp			good_end
+
+;===============================================================================
+; E interpret last error value
+;===============================================================================
+cmd_e		call		stdio_str
+			db			"\r\n",0
+			ld			a, (Z.last_error)
+			call		stdio_decimalB
+			ld			a, ' '
+			call		stdio_putc
+			CALLBIOS	ShowError
+			jp			good_end
 
 ;===============================================================================
 ; H hex echo test	H value24  outputs hex and decimal
 ;					H          output the current default address
 ;===============================================================================
-cmd_h		ld		ix, (def_address)		; default value
-			ld		a, (def_address+2)		; !! not ld c,(...) which compiles
+cmd_h		ld		ix, (Z.def_address)		; default value
+			ld		a, (Z.def_address+2)	; !! not ld c,(...) which compiles
 			ld		c, a					; but wrong
 			call	gethex					; in C:IX
-			jp		nc, bad_end				; value syntax
-			ld		(def_address), ix
+			jp		nc, err_badaddress		; value syntax
+			ld		(Z.def_address), ix
 			ld		a, c					; no ld (addr),c in Z80 speak
-			ld		(def_address+2), a
+			ld		(Z.def_address+2), a
 
 			push	hl						; preserve command string stuff
 			call	stdio_str
@@ -630,30 +483,34 @@ cmd_h		ld		ix, (def_address)		; default value
 			db		" decimal: ",0
 			call	stdio_decimal24			; C:HL again
 			pop		hl
-			
+
 			call	skip					; more data on line?
 			jp		z, good_end				; none so ok
 			call	stdio_str
 			db		" delimited by: ",0
 			dec		e						; unget
-			jr		ce1						; use cmd_e
+
+.ch1		call	getc					; echo
+			jp		nc, good_end			; end of buffer
+			call	stdio_putc
+			jr		.ch1
 
 ;===============================================================================
 ; R read memory command		R address20  (not 24)
 ;===============================================================================
-cmd_r		ld		ix, (def_address)		; default value
-			ld		a, (def_address+2)
+cmd_r		ld		ix, (Z.def_address)		; default value
+			ld		a, (Z.def_address+2)
 			ld		c, a
 			call	gethex20				; in C:IX
-			jp		nc, bad_end				; address syntax
+			jp		nc, err_badaddress		; address syntax
 			call	skip					; more data on line?
-			jp		z, bad_end
+			jp		z, err_toomuch
 			ld		a, c
 			and		0xf0					; bad address
-			jp		nz, bad_end
-			ld		(def_address), ix		; save as default
+			jp		nz, err_outofrange
+			ld		(Z.def_address), ix		; save as default
 			ld		a, c
-			ld		(def_address+2), a
+			ld		(Z.def_address+2), a
 
 			call	stdio_str
 			db		"\r\n",0
@@ -664,23 +521,23 @@ cmd_r		ld		ix, (def_address)		; default value
 			call	getPageByte				; aka ld a, (C:IX)
 			call	stdio_byte
 			jp		good_end
-
+			
 ;===============================================================================
 ; W write memory command 	W address20 data8 [data8] ...
 ;	NB: if the third data item is bad the first two have already been written
 ;		so I do not complain on data errors, they are just terminators
 ;===============================================================================
-cmd_w		ld		ix, (def_address)		; default value
-			ld		a, (def_address+2)
+cmd_w		ld		ix, (Z.def_address)		; default value
+			ld		a, (Z.def_address+2)
 			ld		c, a
 			call	gethex20				; in C:IX
-			jp		nc, bad_end				; address syntax
+			jp		nc, err_badaddress		; address syntax
 			ld		a, c
 			and		0xf0					; illegal for an address
-			jp		nz, bad_end
-			ld		(def_address), ix		; useful so I can use R to check it
+			jp		nz, err_outofrange
+			ld		(Z.def_address), ix		; useful so I can use R to check it
 			ld		a, c
-			ld		(def_address+2), a
+			ld		(Z.def_address+2), a
 			ld		iy, ix					; save the address in B:IY
 			ld		b, c
 
@@ -689,7 +546,7 @@ cmd_w		ld		ix, (def_address)		; default value
 			dec		e						; 'unget'
 			ld		ix, 0					; default data
 			call	gethexB					; in C:IX
-			jp		nc, bad_end				; syntax error
+			jp		nc, .cw2				; syntax error
 			ld		a, ixl					; data in a
 
 			ld		c, b					; recover address B:IY->C:IX
@@ -704,42 +561,45 @@ cmd_w		ld		ix, (def_address)		; default value
 			ld		b, a
 			pop		de
 			jr		.cw1
+			
+.cw2		ld		a, ERR_BADBYTE
+			jp		cmd_err
 
 ;===============================================================================
 ; F fill memory command 	F address20 count16 data8
 ;===============================================================================
-cmd_f		ld		ix, (def_address)		; default value
-			ld		a, (def_address+2)
+cmd_f		ld		ix, (Z.def_address)		; default value
+			ld		a, (Z.def_address+2)
 			ld		c, a
-			call	gethex20					; in C:IX
-			jp		nc, bad_end				; address syntax
+			call	gethex20				; in C:IX
+			jp		nc, err_badaddress		; address syntax
 			ld		a, c
 			and		0xf0					; legal address?
-			jp		nz, bad_end				; no
+			jp		nz, .cf2				; no
 			ld		a, c
-			ld		(def_address), ix		; useful so I can use R to check it
-			ld		(def_address+2), a
+			ld		(Z.def_address), ix		; useful so I can use R to check it
+			ld		(Z.def_address+2), a
 
 			ld		ix, 0					; default count (0=error)
 			call	gethexW
-			jp		nc, bad_end
+			jr		nc, .cf3
 			ld		bc, ix					; BC = count
 			ld		a, b					; !=0 safety trap
 			or		c
-			jp		z, bad_end
+			jp		z, err_outofrange
 			ld		iy, bc					; save it as gethex uses BC
 
 			ld		ix, 0					; default data
 			call	gethexB
-			jp		nc, bad_end
+			jr		nc, cmd_w.cw2
 
 			call	skip					; any data left?
-			jp		nz, bad_end				; that's wrong
+			jp		nz, err_toomuch			; that's wrong
 			ld		b, ixl
 
 ; right we have data in B, count in IY and address in (default buffer)
-			ld		ix, (def_address)
-			ld		a, (def_address+2)
+			ld		ix, (Z.def_address)
+			ld		a, (Z.def_address+2)
 			ld		c, a
 			ld		a, b
 
@@ -755,40 +615,48 @@ cmd_f		ld		ix, (def_address)		; default value
 			or		iyl
 			jr		nz, .cf1
 			jp		good_end
+			
+.cf2		ld		a, ERR_OUTOFRANGE
+			jp		cmd_err
+.cf3		ld		a, ERR_BADCOUNT
+			jp		cmd_err
 
 ;===============================================================================
 ; I input command			I port
 ;===============================================================================
-cmd_i		ld		ix, (def_port)			; default address
+cmd_i		ld		ix, (Z.def_port)		; default address
 			call	gethexB					; in IXL
-			jp		nc, bad_end				; address syntax
+			jp		nc, .ci1				; address syntax
 			call	skip					; more data on line?
-			jp		nz, bad_end
-			ld		(def_port), ix
+			jp		nz, err_toomuch
+			ld		(Z.def_port), ix
 
 			call	stdio_str
 			db		"\r\n",0
 			in		a, (C)					; get the byte
 			call	stdio_byte
 			jp		good_end
+			
+.ci1		ld		a, ERR_BADPORT
+			jp		cmd_err
 
 ;===============================================================================
 ; O output command			O port data
 ;===============================================================================
-cmd_o		ld		ix, (def_port)			; default address
+cmd_o		ld		ix, (Z.def_port)		; default address
 			call	gethexB					; port in IXL
-			jp		nc, bad_end				; syntax in address
+			jp		nc, cmd_i.ci1			; syntax in address
 			ld		iy,	ix					; save port
 
 			ld		ix, 0					; default data
 			call	gethexB					; data in IXL
-			jp		nc, bad_end				; syntax in data
+			jp		nc, cmd_w.cw2			; syntax in data
 			call	skip					; more data on line?
-			jp		nz, bad_end
+			jp		nz, err_toomuch
 			ld		hl, ix					; data in L
 
 			ld		bc, iy					; recover port in C
-			ld		(def_port), bc
+			ld		(Z.def_port), bc
 			ld		a, l
 			out		(c), a
 			jp		good_end
@@ -798,9 +666,9 @@ cmd_o		ld		ix, (def_port)			; default address
 ;===============================================================================
 cmd_x		ld		ix, BIOS_START			; BIOS0 start is default address
 			call	gethexW					; port in IX
-			jp		nc, bad_end				; syntax in address
+			jp		nc, err_badaddress		; syntax in address
 			call	skip					; more on line?
-			jp		nz, bad_end
+			jp		nz, err_toomuch
 			ld		iy, good_end			; make a 'return address'
 			push	iy						; so the command can just 'ret'
 			jp		(ix)
@@ -808,23 +676,23 @@ cmd_x		ld		ix, BIOS_START			; BIOS0 start is default address
 ;===============================================================================
 ; D dump command    D address20 count16 (default=256)
 ;===============================================================================
-cmd_d		ld		ix, (def_address)		; default address
-			ld		a, (def_address+2)
+cmd_d		ld		ix, (Z.def_address)		; default address
+			ld		a, (Z.def_address+2)
 			ld		c, a
 			call	gethex20				; in C:IX
-			jp		nc, bad_end				; address syntax
+			jp		nc, err_badaddress		; address syntax
 			ld		iy, ix					; address in B:IY
 			ld		b, c
 
 			ld		ix, 256					; default on count is 0x100
 			call	gethexW
-			jp		nc, bad_end				; count syntax
+			jp		nc, err_badcount		; count syntax
 			call	skip					; more on line?
-			jp		nz, bad_end
+			jp		nz, err_toomuch
 
-			ld		(def_address), iy		; all details OK
+			ld		(Z.def_address), iy		; all details OK
 			ld		a, b
-			ld		(def_address), a
+			ld		(Z.def_address), a
 
 			; we have the address in B:IY and count in IX
 			; Add a quick decode to stop mistakes
@@ -888,9 +756,10 @@ gb			call	gn				; high nibble
 			ret
 
 cmd_b		call	skip			; skip spaces
-			jp		z, bad_end		; end of buffer so nothing to do
+			jp		z, err_runout	; end of buffer so nothing to do
 			dec		e				; unget
 			AUTO	25				; get some variable space
+; definition of 'auto' memory pointed to by IY
 ; 0: address in three bytes
 ; 3: count in one byte
 ; 4: used to save checksum
@@ -908,7 +777,7 @@ cmd_b		call	skip			; skip spaces
 			call	gb				; address low byte
 			jr		nc, .cb3
 			ld		(iy), a
-		
+
 			call	gb				; count byte
 			jr		nc, .cb3
 			ld		(iy+3), a
@@ -932,7 +801,7 @@ cmd_b		call	skip			; skip spaces
 			add		a, (iy+4)
 			ld		(iy+4), a
 			djnz	.cb1
-			
+
 			call	gb				; get checksum
 			jr		nc, .cb3
 			cp		(iy+4)
@@ -956,7 +825,7 @@ cmd_b		call	skip			; skip spaces
 			RELEASE	20				; RELEASE does NOT preserve flags
 			jp		good_end
 .cb3		RELEASE	20
-			jp		bad_end
+			jp		err_badblock
 
 ;===============================================================================
 ; T  Time set/get    T hh:mm:ss  dd/mm/yy
@@ -977,7 +846,7 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 			call	packRTC			; from command line to IY
 			jr		c, .ct2			; good string
 .ct1		RELEASE	7				; error exit
-			jp		bad_end
+			jp		err_baddatetime
 .ct2		ld		hl, iy
 			call	rtc_wrclk		; write to clock
 ; unpack buffer to stdio
@@ -986,17 +855,17 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 			ld		ix, iy
 			call	unpackRTC		; unpacks (IX)
 			RELEASE 7
-			
+
 ; put the CTC dump here
 			call	stdio_str
 			db		"\n\rCTC time since reboot: ", 0
-			ld		hl, (Ticks)
-			ld		a, (Ticks+2)
+			ld		hl, (Z.Ticks)
+			ld		a, (Z.Ticks+2)
 			ld		c, a
 			call	stdio_decimal24
 			ld		a, '.'
 			call	stdio_putc
-			ld		a, (preTick)		// @50Hz
+			ld		a, (Z.preTick)		// @50Hz
 			add		a					// as hundredths of a second
 			call	stdio_decimalB3
 			call	stdio_str
@@ -1006,31 +875,16 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 ;===============================================================================
 ; Z  the anything test Z for temporary
 ;===============================================================================
-cmd_z		rst		0x08			; SNAP alternative
-			ld		ix, 0
-			ld		c, 0
-			call	getdecimal
-			jp		nc, bad_end
-			ld		iy, ix
-			ld		ix, 1
-			call	getdecimal
-			jp		nc, bad_end
-; mul8x8		; multiply H by E, 16 bit result in HL
-			ld		de, ix			; second argument in E
-			ld		hl, iy			; first argument in L
-			ld		h, l
+cmd_z		ld		a, 0
+			ld		hl, 0x1234
+			ld		bc, 0x2345
+			ld		de, 0x3456
+			ld		ix, 0x4567
+			ld		iy, 0x5678
 			call	stdio_str
-			db		"\r\n8x8 mply: ", 0
-			ld		a, h
-			call	stdio_decimalB
-			call	stdio_str
-			db		" x ", 0
-			ld		a, e
-			call	stdio_decimalB
-			call	stdio_str
-			db		" = ", 0
-			call	mul8x8
-			call	stdio_decimalW
+			db		"\r\n",0
+			CALLBIOS ShowLogo1			; see macros.inc and rom.asm
+			CALLBIOS ShowLogo2
 			jp		good_end
 
 ;===============================================================================
@@ -1055,7 +909,7 @@ cmd_c		call	stdio_str
 cmd_l		ld		a, (led_buffer)		; previous state
 			ld		b, a				; hold in B
 			call	skip				; skip blanks return next char
-			jp		z, bad_end			; EOL so got nothing
+			jp		z, err_runout		; EOL so got nothing
 			cp		'0'					; LED1 off?
 			jr		nz, .cl1
 			ld		a, b
@@ -1081,7 +935,7 @@ cmd_l		ld		a, (led_buffer)		; previous state
 			and		~0x01				; clear b0
 			ld		b, a
 .cl4		call	skip
-			jp		nz, bad_end			; more stuff on line is error
+			jp		nz, err_toomuch		; more stuff on line is error
 .cl5		ld		a, b
 			ld		(led_buffer), a
 			call	rtc_init
@@ -1093,7 +947,7 @@ cmd_l		ld		a, (led_buffer)		; previous state
 ;===============================================================================
  if DIGITS_EXIST
 cmd_p		call	skip
-			jp		z, bad_end
+			jp		z, err_runout
 			call	dodigit
 			jp		good_end
  endif
@@ -1101,18 +955,18 @@ cmd_p		call	skip
 ;===============================================================================
 ; S  read/write the rtc's ram		S address16 (not 20) R|W
 ;===============================================================================
-cmd_s		ld		ix, (def_address)		; default address
+cmd_s		ld		ix, (Z.def_address)		; default address
 			call	gethexW					; in IX
-			jp		nc, bad_end				; address syntax
+			jp		nc, err_badaddress		; address syntax
 
 			call	skip					; get the command letter
-			jp		z, bad_end
+			jp		z, err_runout
 			call	islower					; lower case
 			jr		nc, .cp1				; no
 			and		~0x20					; to uppercase
 .cp1		ld		b, a					; save the 'R' or 'W'
 			call	skip					; end of line
-			jp		nz, bad_end				; oops, no
+			jp		nz, err_toomuch			; oops, no
 			ld		hl, ix					; address for transfer
 			ld		a, b
 			cp		'R'
@@ -1123,8 +977,8 @@ cmd_s		ld		ix, (def_address)		; default address
 			jr		z, .cp4					; read clock
 			cp		'S'
 			jr		z, .cp5					; set clock
-			jp		bad_end
-			
+			jp		err_unknownaction
+
 .cp2		call	rtc_rdram				; read ram
 			jp		good_end
 .cp3		call	rtc_wrram				; write ram
@@ -1137,7 +991,44 @@ cmd_s		ld		ix, (def_address)		; default address
 ;===============================================================================
 ; N  program ROM N dest20 source20 count16
 ;===============================================================================
-cmd_n		jp		bad_end					; manana
+cmd_n		jp		err_manana
+
+
+
+;===============================================================================
+; Error loaders so I can just jp cc, readable_name
+;===============================================================================
+err_badaddress
+			ld		a, ERR_BAD_ADDRESS
+cmd_err		ld		(Z.last_error), a
+			jp		bad_end
+err_toomuch
+			ld		a, ERR_TOOMUCH
+			jr		cmd_err
+err_outofrange
+			ld		a, ERR_OUTOFRANGE
+			jr		cmd_err
+err_badcount
+			ld		a, ERR_BADCOUNT
+			jr		cmd_err
+err_runout
+			ld		a, ERR_RUNOUT
+			jr		cmd_err
+err_badblock
+			ld		a, ERR_BADBLOCK
+			jr		cmd_err
+err_baddatetime
+			ld		a, ERR_BADDATETIME
+			jr		cmd_err
+err_unknownaction
+			ld		a, ERR_UNKNOWNACTION
+			jr		cmd_err
+err_manana	
+			ld		a, ERR_MANANA
+			jr		cmd_err
+err_badrom
+			ld		a, ERR_BADROM
+			jr		cmd_err
 
 ;===============================================================================
 ;
@@ -1148,7 +1039,7 @@ cmd_n		jp		bad_end					; manana
 rst08	push	af
 		DOUT	0					; force serial op
 		ld		a, 1
-		ld		(snap_mode), a
+		ld		(Z.snap_mode), a
 		pop		af
 		push	af
 		call	_snap
@@ -1204,15 +1095,15 @@ int0		reti
 int1		di
 			push	af
 			push	hl
-			ld		a, (preTick)		; uint8 counts 0-49
+			ld		a, (Z.preTick)		; uint8 counts 0-49
 			inc		a
-			ld		(preTick), a
+			ld		(Z.preTick), a
 			cp		50
 			jr		nz, .q1
 			xor		a
-			ld		(preTick), a
+			ld		(Z.preTick), a
 
-			ld		hl, Ticks			; unit32 counts seconds
+			ld		hl, Z.Ticks			; unit32 counts seconds
 			inc		(hl)				; b0-7
 			jr		nz, .q1				; beware, inc does not set carry
 			inc		hl
@@ -1367,98 +1258,3 @@ flasher		ld		de, 0
 			jr		.j1
  endif
 
-;===============================================================================
-; dump the registers
-;===============================================================================
-
-_snap		push	af
-			push	bc
-			push	hl
-			push	af				; a copy to dismantle
-			push	hl				; a copy to output
-			call	stdio_str
-			db		"\r\nA:", 0
-			call	stdio_byte
-			call	stdio_str
-			db		" BC:", 0
-			ld		hl, bc
-			call	stdio_word
-			call	stdio_str
-			db		" DE:", 0
-			ld		hl, de
-			call	stdio_word
-			call	stdio_str
-			db		" HL:", 0
-			pop		hl
-			call	stdio_word
-			call	stdio_str
-			db		" IX:", 0
-			ld		hl, ix
-			call	stdio_word
-			call	stdio_str
-			db		" IY:", 0
-			ld		hl, iy
-			call	stdio_word
-			call	stdio_str
-			db		" SP:", 0
-			; we now need two different versions of the constants
-			;							snap_mode==0	snap_mode=1
-			; stack depth since last call	12				14
-			; return address				8				12
-			; back to start of snap			-19				-1
-			ld		a, (snap_mode)
-			or		a
-			ld		hl, 12			; stack depth since call (14)
-			jr		z, .sn1
-			ld		hl, 14
-.sn1		add		hl, sp
-			call	stdio_word
-			call	stdio_str
-			db		" PC:", 0
-			ld		a, (snap_mode)
-			or		a
-			ld		hl, 8			; return address (12)
-			jr		z, .sn2
-			ld		hl, 12
-.sn2		add		hl, sp
-			ld		a, (hl)
-			inc		hl
-			ld		h, (hl)
-			ld		l, a			; return address of _snap
-			ld		a, (snap_mode)
-			or		a
-			ld		bc, -19			; back to the start of SNAP (-1)
-			jr		z, .sn3
-			ld		bc, -1
-.sn3		add		hl, bc
-			call	stdio_word
-			ld		a, ' '
-			call	stdio_putc
-
-			pop		hl			; saved as AF so flags in L
-
-; I shall show the flags as " V" or "-V" for true false
-
-doFlag		macro	mask, char
-			ld		a, mask
-			and		l
-			ld		a, ' '
-			jr		nz, .df1	; yup, flags are saved inverted
-			ld		a, '-'
-.df1		call	stdio_putc
-			ld		a, char
-			call	stdio_putc
-			endm
-
-			doFlag	0x80, 'S'
-			doFlag	0x40, 'Z'
-			doFlag	0x10, 'H'
-			doFlag	0x04, 'P'
-			doFlag	0x02, 'N'
-			doFlag	0x01, 'C'
-			ld		a, ' '
-			call	stdio_putc
-			pop		hl
-			pop		bc
-			pop		af
-			ret

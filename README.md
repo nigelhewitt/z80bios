@@ -41,8 +41,8 @@ play in.
 
 ## Commands
 
-**E echo stuff**. Whatever you type is echoed back. As it is for argument
-testing so it removes any ANSI \e[stuff
+**E decode last_error**. Checks the last_error data and returns a hopefully
+mode useful message.
 
 **H hex echo**. You type a hex number up to 24 bits (123456) and echoes it back
 in hex and with the decimal equivalent. This also loads and saves the 'default
