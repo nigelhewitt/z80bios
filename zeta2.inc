@@ -9,7 +9,7 @@ DIGITS_EXIST	equ		0		; digit board fitted
 SDC_EXISTS		equ		1		; SDC board fitted
 ALLOW_ANSI		equ		1		; Terminal accepts ANSI strings
 
-ROM_SHIFT	equ		10*1024		; 8K How much of PAGE3 we can give to RAM
+ROM_SHIFT	equ		9*1024		; 9K How much of PAGE3 we can give to RAM
 CPUCLK		equ		10000		; master clock in kHz
 
 ; IO groups base address
@@ -44,10 +44,16 @@ ROM0		equ		0
 ROM1		equ		1
 ROM2		equ		2
 ROM3		equ		3
-ROM4		equ		4	; and on to ROM31
+ROM4		equ		4
+ROM5		equ		5
+ROM6		equ		6
+ROM7		equ		7	; and on to ROM31
 RAM0		equ		32
 RAM1		equ		33
 RAM2		equ		34
 RAM3		equ		35
-RAM4		equ		36	; and on to RAM31
+RAM4		equ		36
+RAM5		equ		37
+RAM6		equ		38
+RAM7		equ		39	; and on to RAM31
 

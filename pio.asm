@@ -20,7 +20,7 @@ PIO_BIN		equ		0x02		; PORT B input mode
 PIO_CLIN	equ		0x01		; PORT C upper bits to input mode
 
 ; single bit in C set/reset
-; PIO_MODESET is zero
+; PIO_MODESET is zer
 ; b0 is the set/reset
 ; b3-1 encode the bit number 0-7
 
@@ -30,7 +30,10 @@ PIO_CLIN	equ		0x01		; PORT C upper bits to input mode
 
 pio_init
 ; port A and B as outputs, port C as inputs
-			ld		a, PIO_MODESET+PIO_CUIN+PIO_CLIN
+;			ld		a, PIO_MODESET+PIO_CUIN+PIO_CLIN
+
+; A as inputs (switches), B as outputs (LEDs), CU as outputs, CL as inputs
+			ld		a, PIO_MODESET+PIO_AIN+PIO_CLIN
 			out		(PIO_CON), a
 			xor		a
 			out		(PIO_A), a

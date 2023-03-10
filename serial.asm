@@ -103,9 +103,6 @@ serial_read						; read data
 		ret
 
 serial_tbmt						; transmit buffer empty
-;		in		a, (MSR)
-;		and		CTS
-;		ret		z				; !CTS is a fail
 		in		a, (LSR)
 		and		THRE
 		ret						; TBMT sets NZ and returns true
@@ -158,11 +155,11 @@ si1		in		a, (IIDR)		; interrupt ID
 		ld		l, a
 		jr		nc, .si3
 		inc		h
-.si3	ld		a, (hl)
+.si3	ld		a, [hl]
 		inc		hl
-		ld		h, (hl)
+		ld		h, [hl]
 		ld		l, a
-		jp		(hl)
+		jp		[hl]
 
 ; Modem Status Interrupt
 ; CTS, DSR, RI, DC change

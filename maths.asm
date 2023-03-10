@@ -60,53 +60,54 @@ mul16x16r32			; multiply HL by DE, return 32 bit result in HL,DE
 
 ; set up the storage
 			xor		a
-			ld		(iy+0), a		; xRES = 0
-			ld		(iy+1), a
-			ld		(iy+2), a
-			ld		(iy+3), a
-			ld		(iy+4), l		; xHL = HL
-			ld		(iy+5), h
-			ld		(iy+6), a
-			ld		(iy+7), a
+			ld		[iy+0], a		; xRES = 0
+			ld		[iy+1], a
+			ld		[iy+2], a
+			ld		[iy+3], a
+			ld		[iy+4], l		; xHL = HL
+			ld		[iy+5], h
+			ld		[iy+6], a
+			ld		[iy+7], a
 ; loop of 16 and
 			ld		b, 16
 			jr		.m6
 ; this is the slide xHL left but by doing it here after the DJNZ
 ; I save doing it then exiting on the last pass
 .m5			xor		a				; clear carry
-			rl		(iy+4)
-			rl		(iy+5)
-			rl		(iy+6)
-			rl		(iy+7)
+			rl		[iy+4]
+			rl		[iy+5]
+			rl		[iy+6]
+			rl		[iy+7]
 
 .m6			xor		c				; clear carry
 			rr		b
 			rr		c
 ; if CY add xHL to xRES
 			jr		nc, .m7			; no add required
-			ld		a, (iy+4)		; xRES + xHL
-			add		a, (iy+0)
-			ld		(iy+0), a
-			ld		a, (iy+5)
-			adc		a, (iy+1)
-			ld		(iy+1), a
-			ld		a, (iy+6)
-			adc		a, (iy+2)
-			ld		(iy+2), a
-			ld		a, (iy+7)
-			adc		a, (iy+3)
-			ld		(iy+3), a
+			ld		a, [iy+4]		; xRES + xHL
+			add		a, [iy+0]
+			ld		[iy+0], a
+			ld		a, [iy+5]
+			adc		a, [iy+1]
+			ld		[iy+1], a
+			ld		a, [iy+6]
+			adc		a, [iy+2]
+			ld		[iy+2], a
+			ld		a, [iy+7]
+			adc		a, [iy+3]
+			ld		[iy+3], a
 .m7			ld		a, d			; if DE==0 there is no point in continuing
 			or		e
 			jr		z, .m8
 			djnz	.m5
 ; return in DE,HL
-.m8			ld		l, (iy+0)
-			ld		h, (iy+1)
-			ld		e, (iy+2)
-			ld		d, (iy+3)
+.m8			ld		l, [iy+0]
+			ld		h, [iy+1]
+			ld		e, [iy+2]
+			ld		d, [iy+3]
 			RELEASE	8
 			ret
+
 ;===============================================================================
 ;	div16x16		BC = quotient, DE = divisor, BC = result, HL = remainder
 ;		return CY on divide by zero
@@ -164,22 +165,22 @@ divide32by16			; call with BC,DE = numerator, HL = denominator
 
 ; clear RESULT and REMAINDER
 			xor		a
-			ld		(iy+0), a		; RESULT = 0
-			ld		(iy+1), a
-			ld		(iy+2), a
-			ld		(iy+3), a
-			ld		(iy+4), a		; REMAINDER = 0
-			ld		(iy+5), a
-			ld		(iy+6), a
-			ld		(iy+7), a
+			ld		[iy+0], a		; RESULT = 0
+			ld		[iy+1], a
+			ld		[iy+2], a
+			ld		[iy+3], a
+			ld		[iy+4], a		; REMAINDER = 0
+			ld		[iy+5], a
+			ld		[iy+6], a
+			ld		[iy+7], a
 ; loop for 32
-			ld		(iy+8), 32		; use as a loop counter
+			ld		[iy+8], 32		; use as a loop counter
 ; shift RESULT left one bit
 .d3			xor		a				; clear carry
-			rl		(iy+0)			; through carry
-			rl		(iy+1)
-			rl		(iy+2)
-			rl		(iy+3)
+			rl		[iy+0]			; through carry
+			rl		[iy+1]
+			rl		[iy+2]
+			rl		[iy+3]
 ;   shift BC,DE left into CY
 			xor		a				; should be clear already
 			rl		e
@@ -187,60 +188,60 @@ divide32by16			; call with BC,DE = numerator, HL = denominator
 			rl		c
 			rl		b
 ;   shift CY into REMAINDER
-			rl		(iy+4)
-			rl		(iy+5)
-			rl		(iy+6)
-			rl		(iy+7)
+			rl		[iy+4]
+			rl		[iy+5]
+			rl		[iy+6]
+			rl		[iy+7]
 ;   if (REMAINDER >= HL)
 ;		remember cp n returns CY if n>A so NC for A>=N
 ;		we test for NC
-			ld		a, (iy+7)		; actually I don't think this is possible
-			or		(iy+6)
+			ld		a, [iy+7]		; actually I don't think this is possible
+			or		[iy+6]
 			jr		nz, .d4			; REMAINDER is way bigger than HL
-			ld		a, (iy+5)
+			ld		a, [iy+5]
 			cp		h
 			jr		c, .d5			; H >
 			jr		nz, .d4			; H <
-			ld		a, (iy+4)
+			ld		a, [iy+4]
 			cp		l
 			jr		c, .d5			; L>
 .d4
 ;   {
 ;	   REMAINDER -= HL
-			ld		a, (iy+4)
+			ld		a, [iy+4]
 			sub		l
-			ld		(iy+4), a
-			ld		a, (iy+5)
+			ld		[iy+4], a
+			ld		a, [iy+5]
 			sbc		h
-			ld		(iy+5), a
-			ld		a, (iy+6)
+			ld		[iy+5], a
+			ld		a, [iy+6]
 			sbc		0
-			ld		(iy+6), a
-			ld		a, (iy+7)
+			ld		[iy+6], a
+			ld		a, [iy+7]
 			sbc		0
-			ld		(iy+7), a
+			ld		[iy+7], a
 ;      RESULT |= 1
-			ld		a, (iy+0)
+			ld		a, [iy+0]
 			add		1
-			ld		(iy+0), a
-			ld		a, (iy+1)
+			ld		[iy+0], a
+			ld		a, [iy+1]
 			adc		0
-			ld		(iy+1), a
-			ld		a, (iy+2)
+			ld		[iy+1], a
+			ld		a, [iy+2]
 			adc		0
-			ld		(iy+2), a
-			ld		a, (iy+3)
+			ld		[iy+2], a
+			ld		a, [iy+3]
 			adc		0
-			ld		(iy+3), a
+			ld		[iy+3], a
 ;   }
-.d5			dec		(iy+8)			; loop counter
+.d5			dec		[iy+8]			; loop counter
 			jp		nz, .d3			; dec does Z but not CY
 ; return BC,DE = result, HL = remainder
-			ld		e, (iy+0)
-			ld		d, (iy+1)
-			ld		c, (iy+2)
-			ld		b, (iy+3)
-			ld		l, (iy+4)
-			ld		h, (iy+5)
+			ld		e, [iy+0]
+			ld		d, [iy+1]
+			ld		c, [iy+2]
+			ld		b, [iy+3]
+			ld		l, [iy+4]
+			ld		h, [iy+5]
 			RELEASE	9
 			ret

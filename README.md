@@ -110,8 +110,14 @@ It makes a handy journal when bug hunting.
 it needs to be in Z80 reachable memory and use R and W for read or write the
 RAM and T and S to read and write the clock.
 
-Most of the rest of anything you might need to know is in the code.  
+**N program the flash memory**. Test routines  
+
+Most of the rest that you might need to know is in the code.  
 I've gone for the ELI5 comment style because at 73 I forget stuff.  
 Start from bios.asm and go from there.  
+The make.ps1 compiles the separate biosN.bin and merge.exe glues them together.
+The separate bios blocks have their own copies of the stdio et al as they have
+lots of space while bios1 tries to squeeze down to leave lots of free address
+map for RAM.  
 The RTC clock and the FDC systems are based on reading code from other GitHub
 denizens. Credits are in the files.

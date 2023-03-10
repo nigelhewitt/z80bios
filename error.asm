@@ -38,12 +38,13 @@ err_10		db	"Syntax error in date or time", 0	; ERR_BADDATETIME
 err_11		db	"Unknown qualifier", 0				; ERR_UNKNOWNACTION
 err_12		db	"Sorry, not coded yet", 0			; ERR_MANANA
 err_13		db	"Bad rom selection", 0				; ERR_BADROM
+err_14		db	"This code must run in RAM",0		; ERR_NOTINRAM
 
 err_X		db	"Unknown error", 0
 
 f_error		push	af, hl, de
 			ld		hl, error_list
-			ld		de, (Z.last_error)
+			ld		de, [Z.last_error]
 			ld		a, d
 			or		a
 			jr		nz, .se2
@@ -55,14 +56,14 @@ f_error		push	af, hl, de
 			rl		d
 			ld		hl, error_list
 			add		hl, de
-			ld		a, (hl)			; ld hl, (hl)
+			ld		a, [hl]			; ld hl, (hl)
 			inc		hl
-			ld		h, (hl)
+			ld		h, [hl]
 			ld		l, a
 .se1		call	stdio_text
 ; clear last_error
 			or		a
-			ld		(Z.last_error), a
+			ld		[Z.last_error], a
 			pop		de, hl, af
 			jp		f_good			; exit
 .se2		ld		hl, err_X		; unknown error
@@ -88,7 +89,7 @@ cmd_help	db	"\r\n"
  if LEDS_EXIST
 			db	"L  set the LEDs\r\n"
  endif
-			db	"N  program ROM\r\n"
+			db	"N  program ROM options E|P|W\r\n"
 			db	"O  output to a port\r\n"
  if DIGITS_EXIST
 			db	"P  panel command\r\n"
@@ -96,6 +97,7 @@ cmd_help	db	"\r\n"
 			db	"R  read memory\r\n"
 			db	"S  save command\r\n"
 			db	"T  time set/get\r\n"
+			db	"U  read the manufacturer and device code from the ROM\r\n"
 			db	"W  write memory\r\n"
 			db	"X  execute from an address\r\n"
 			db	"Z  anything test\r\n"

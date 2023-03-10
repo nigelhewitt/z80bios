@@ -86,19 +86,19 @@ sd_r1_done
 
 sd_read_r7
 		call	sd_read_r1	; A = byte #1
-		ld		(hl), a		; save it
+		ld		[hl], a		; save it
 		inc		hl			; advance receive buffer pointer
 		call	spi_read8	; A = byte #2
-		ld		(hl), a		; save it
+		ld		[hl], a		; save it
 		inc		hl			; advance receive buffer pointer
 		call	spi_read8	; A = byte #3
-		ld		(hl), a		; save it
+		ld		[hl], a		; save it
 		inc		hl			; advance receive buffer pointer
 		call	spi_read8	; A = byte #4
-		ld		(hl), a		; save it
+		ld		[hl], a		; save it
 		inc		hl			; advance receive buffer pointer
 		call	spi_read8	; A = byte #5
-		ld		(hl), a		; save it
+		ld		[hl], a		; save it
 		ret
 
 ;############################################################################
@@ -465,16 +465,16 @@ sd_cmd17
 		ld		ix,10			; 10 is the offset from sp to the location of the block number
 		add		ix, sp			; ix = address of uint32_t sd_lba_block number
 
-		ld		(iy+0), 17|0x40	; the command byte
-		ld		a, (ix+3)		; stack = little endian
-		ld		(iy+1),a		; cmd_buffer = big endian
-		ld		a, (ix+2)
-		ld		(iy+2), a
-		ld		a, (ix+1)
-		ld		(iy+3), a
-		ld		a, (ix+0)
-		ld		(iy+4), a
-		ld		(iy+5), 0x00|0x01	; the CRC byte
+		ld		[iy+0], 17|0x40	; the command byte
+		ld		a, [ix+3]		; stack = little endian
+		ld		[iy+1],a		; cmd_buffer = big endian
+		ld		a, [ix+2]
+		ld		[iy+2], a
+		ld		a, [ix+1]
+		ld		[iy+3], a
+		ld		a, [ix+0]
+		ld		[iy+4], a
+		ld		[iy+5], 0x00|0x01	; the CRC byte
 
  if sd_debug_cmd17
 		; print the comand buffer
@@ -575,7 +575,7 @@ sd_cmd17_tokok
 		ld		bc, 0x200	; 512 bytes to read
 sd_cmd17_blk
 		call	spi_read8		; Clobbers A, DE
-		ld		(hl), a
+		ld		[hl], a
 		inc		hl		 		; increment the buffer pointer
 		dec		bc				; decrement the byte counter
 
@@ -664,16 +664,16 @@ sd_cmd24
 
 sd_cmd24_len equ	6
 
-		ld		(iy+0), 24|0x40		; the command byte
-		ld		a, (ix+3)		; stack = little endian
-		ld		(iy+1), a		; cmd_buffer = big endian
-		ld		a, (ix+2)
-		ld		(iy+2), a
-		ld		a, (ix+1)
-		ld		(iy+3), a
-		ld		a, (ix+0)
-		ld		(iy+4), a
-		ld		(iy+5), 0x00|0x01	; the CRC byte
+		ld		[iy+0], 24|0x40		; the command byte
+		ld		a, [ix+3]			; stack = little endian
+		ld		[iy+1], a			; cmd_buffer = big endian
+		ld		a, [ix+2]
+		ld		[iy+2], a
+		ld		a, [ix+1]
+		ld		[iy+3], a
+		ld		a, [ix+0]
+		ld		[iy+4], a
+		ld		[iy+5], 0x00|0x01	; the CRC byte
 
  if sd_debug_cmd24
 		push	de
@@ -689,9 +689,9 @@ sd_cmd24_len equ	6
 		; print the target address
 		call	stdio_str
 		db		"  CMD24: source: ",0
-		ld		a, (ix-5)
+		ld		a, [ix-5]
 		call	hexdump_a
-		ld		a, (ix-6)
+		ld		a, [ix-6]
 		call	hexdump_a
 		call	puts_crlf
 		pop		de
@@ -733,12 +733,12 @@ sd_cmd24_r1ok
 
 		; send 512 bytes
 
-		ld		l, (ix-6)		; HL = source buffer address
-		ld		h, (ix-5)
+		ld		l, [ix-6]		; HL = source buffer address
+		ld		h, [ix-5]
 		ld		bc, 0x200		; BC = 512 bytes to write
 sd_cmd24_blk
 		push	bc			; XXX speed this up
-		ld		c, (hl)
+		ld		c, [hl]
 		call	spi_write8		; Clobbers A and D
 		inc		hl
 		pop		bc			; XXX speed this up

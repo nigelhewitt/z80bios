@@ -6,13 +6,13 @@
 ; just stick debug things in code that may be redirecting
 DOUT		macro	target				; target is 0 for stdio
 			in		a, (REDIRECT)
-			ld 		(Z.spare), a
+			ld 		[Z.spare], a
 			ld		a, target
 			out		(REDIRECT), a
 			endm
 ; restore previous
 ROUT		macro
-			ld		a, (Z.spare)
+			ld		a, [Z.spare]
 			out		(REDIRECT), a
 			endm
 
@@ -21,7 +21,7 @@ SNAP		macro	id
 			push	af
 			DOUT	0					; force serial op
 			xor		a
-			ld		(Z.snap_mode), a
+			ld		[Z.snap_mode], a
 			pop		af
 			push	af					; get a pristine AF
 			call	_snap
@@ -95,7 +95,7 @@ BLUE		macro
 RETERR		macro	nerr
 			push	hl
 			ld		hl, nerr
-			ld		(Z.last_error), hl
+			ld		[Z.last_error], hl
 			pop		hl
 			or		a				; clear carry
 			ret
@@ -107,13 +107,26 @@ CALLBIOS	macro	ROM, FN
 			ld		a, ROM
 			cp		a, 32
 			jp		nc, err_badrom
-			ld		(Z.cr_rom), a
+			ld		[Z.cr_rom], a
 			ld		a, FN
-			ld		(Z.cr_fn), a
+			ld		[Z.cr_fn], a
 			pop		af
 			di
 			call	wedgeROM
 			ei
+			endm
+
+; make an address20 in A:HL from a ROMn/RAMn code and a 14 bit address:
+MAKEA20		macro	PAGE, ADDR14
+			ld		hl, ADDR14
+			sla		h			; push bits 14-15 out of H
+			sla		h
+			ld		a, PAGE		; get the ROM/RAM id
+			xor		0x20		; toggle the ROM/RAM bit
+			rr		a			; slide the address bits back down
+			rr		h
+			rr		a
+			rr		h
 			endm
 
 // Error codes
@@ -131,6 +144,7 @@ ERR_BADDATETIME			equ		10
 ERR_UNKNOWNACTION		equ		11
 ERR_MANANA				equ		12
 ERR_BADROM				equ		13
+ERR_NOTINRAM			equ		14
 
 ; ROM functions
 	define ShowLogo1		ROM1,0

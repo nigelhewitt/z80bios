@@ -3,9 +3,9 @@
   rtc.asm ctc.asm pio.asm rom.asm spi.asm sd.asm
 
 sjasmplus --lst=bios1.lst --raw=bios1.bin `
-	bios1.asm serial.asm stdio.asm maths.asm rom.asm map.asm error.asm
+	bios1.asm serial.asm stdio.asm maths.asm map.asm error.asm
 
 sjasmplus --lst=bios2.lst --raw=bios2.bin `
-	bios2.asm serial.asm stdio.asm maths.asm rom.asm map.asm
+	bios2.asm serial.asm stdio.asm maths.asm map.asm
 
 ./merge bios.bin bios0.bin bios1.bin bios2.bin

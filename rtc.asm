@@ -13,7 +13,7 @@
 RTCCE		equ		0x10	; Chip Enable to the DS1302 pin5 (b4) active high
 RTCWEN		equ		0x20	; Tristate Enable for RTCIN		 (b5) active low
 RTCCLK		equ		0x40	; Clock to DS1302 pin7			 (b6) active high
-RTCIN		equ		0x80	; Data to DS1302 pin6 tristate	 (b7) 
+RTCIN		equ		0x80	; Data to DS1302 pin6 tristate	 (b7)
 ; input bits
 RTCOUT		equ		0x01	; Data Output from the DS1302 p6 (b0) active high
 JP1			equ		0x40	; Jumper JP1	 (b6) high if no jumper in place
@@ -99,11 +99,11 @@ dly1		ret				; call + return = 17+10 T states so 2.7uS
 ;	set all lines to quiescent state
 ;===============================================================================
 rtc_init
-		ld		a, (Z.led_buffer)	; led driver bits b3 and b0
-		and		0x09			; mask out any noise
-		or		RTCWEN			; initialise A with WE (active low) quiescent
-		out		(RTC), a		; write to port
-		ret						; return port state in A
+		ld		a, [Z.led_buffer]	; led driver bits b3 and b0
+		and		0x09				; mask out any noise
+		or		RTCWEN				; set A with WE (active low) quiescent
+		out		(RTC), a			; write to port
+		ret							; return port state in A
 
 ;===============================================================================
 ; Send command in E to RTC
@@ -138,7 +138,7 @@ rtc_cmd
 ;	0) assume entry with CE high, others undefined
 ;	1) set CLK low
 ;	2) wait 250ns
-;	3) set data according to bit value 
+;	3) set data according to bit value
 ;	4) set CLK high (at least 50nS after data so no worries)
 ;	5) wait 250ns (clock reads data bit from bus) (50nS on my datasheet)
 ;	6) loop for 8 data bits
@@ -208,7 +208,7 @@ rtc_rdclk
 		call	rtc_cmd			; send command to RTC
 		ld		b, 7			; b is loop counter
 .rr1	call	rtc_get			; get next byte
-		ld		(hl), e			; save in buffer
+		ld		[hl], e			; save in buffer
 		inc		hl				; inc buf pointer
 		djnz	.rr1			; loop if not done
 		pop		de, bc
@@ -225,16 +225,16 @@ rtc_wrclk
 		ld		e, 0x00			; 0x00 = unprotect
 		call	rtc_put			; send value to control register
 		call	rtc_init		; finish it
-		
+
 		; send the 'clock burst' command
 		ld		e, 0xbe			; command = 0xbe to burst write clock
 		call	rtc_cmd			; send command to rtc
 		ld		b, 7			; b is loop counter
-.cw1	ld		e, (hl)			; get next byte to write
+.cw1	ld		e, [hl]			; get next byte to write
 		call	rtc_put			; put next byte
 		inc		hl				; increment buffer pointer
 		djnz	.cw1			; loop if not done
-		
+
 		; sent the eighth byte to re-write protect it
 		ld		e, 0x80			; add control reg byte, 0x80 = protect on
 		call	rtc_put			; write required 8th byte
@@ -253,7 +253,7 @@ rtc_rdram
 		ld		b, 31			; b is loop counter
 .cr1
 		call	rtc_get			; get next byte
-		ld		(hl), e			; save in buffer
+		ld		[hl], e			; save in buffer
 		inc		hl				; inc buf pointer
 		djnz	.cr1			; loop if not done
 		pop		de, bc
@@ -271,11 +271,11 @@ rtc_wrram
 		ld		e, 0x00			; 0x00 = unprotect
 		call	rtc_put			; send value to control register
 		call	rtc_init		; finish it
-		
+
 		ld		e, 0xfe			; command = 0xfe to burst write ram
 		call	rtc_cmd			; send command to rtc
 		ld		b, 31			; b is loop counter
-.rw1	ld		e, (hl)			; get next byte to write
+.rw1	ld		e, [hl]			; get next byte to write
 		call	rtc_put			; put next byte
 		inc		hl				; increment buffer pointer
 		djnz	.rw1			; loop if not done
@@ -288,7 +288,7 @@ rtc_wrram
 		ld		e, 0x80			; 0x80 = protect
 		call	rtc_put			; send value to control register
 		call	rtc_init		; finish it
-		
+
 		pop		de, bc
 		jp		rtc_init
 
@@ -299,7 +299,7 @@ rtc_wrram
 ;===============================================================================
  if LEDS_EXIST
 set_led	and		0x09
-		ld		(led_buffer), a
+		ld		[led_buffer], a
 		jp		rtc_init
  endif
 
@@ -385,7 +385,7 @@ getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
 ; day of the first of the month
 			ld		ix, DOW
 			jr		.gd2			; start with the decrement as JAN=1
-.gd1		add		(ix)
+.gd1		add		[ix]
 			inc		ix
 .gd2		djnz	.gd1
 ; now add the day of month to get the day of the year(+1)
@@ -414,37 +414,37 @@ unpackRTC		; call with buffer pointer in IX
 			push	hl
 			push	bc
 			push	de
-			ld		a, (ix+rtcdata.hours)	; hours in BCD (0-23)
+			ld		a, [ix+rtcdata.hours]	; hours in BCD (0-23)
 			and		0x3f					; 24hr flag
 			call	unpackBCD
 			call	stdio_decimalB2
 			ld		a, ':'
 			call	stdio_putc
-			ld		a, (ix+rtcdata.minutes)	; minutes (0-59)
+			ld		a, [ix+rtcdata.minutes]	; minutes (0-59)
 			and		0x7f					; should be zero
 			call	unpackBCD
 			call	stdio_decimalB2
 			ld		a, ':'
 			call	stdio_putc
-			ld		a, (ix+rtcdata.seconds)	; seconds (0-59)
+			ld		a, [ix+rtcdata.seconds]	; seconds (0-59)
 			and		0x7f					; charging flag
 			call	unpackBCD
 			call	stdio_decimalB2
 			ld		a, ' '
 			call	stdio_putc
-			ld		a, (ix+rtcdata.days)	; dom (1-31)
+			ld		a, [ix+rtcdata.days]	; dom (1-31)
 			and		0x3f
 			call	unpackBCD
 			call	stdio_decimalB2
 			ld		a, '/'
 			call	stdio_putc
-			ld		a, (ix+rtcdata.months)	; month (1-12)
+			ld		a, [ix+rtcdata.months]	; month (1-12)
 			and		0x1f
 			call	unpackBCD
 			call	stdio_decimalB2
 			ld		a, '/'
 			call	stdio_putc
-			ld		a, (ix+rtcdata.years)	; year (0-99)
+			ld		a, [ix+rtcdata.years]	; year (0-99)
 			call	unpackBCD
 			ld		hl, 2000
 			add		a, l
@@ -457,16 +457,16 @@ unpackRTC		; call with buffer pointer in IX
 			call	stdio_putc
 			; the chip doesn't set what DOW is 1 so I will
 			; go with the classical definition
-			ld		a, (ix+rtcdata.dayofweek) ; day of the week 1-7
+			ld		a, [ix+rtcdata.dayofweek] ; day of the week 1-7
 			and		0x7
 			add		a					; double it to be a word index
 			ld		c, a
 			ld		b, 0
 			ld		hl, DOW				; word table of string pointers
 			add		hl, bc
-			ld		c, (hl)
+			ld		c, [hl]
 			inc		hl
-			ld		b, (hl)
+			ld		b, [hl]
 			ld		hl, bc
 			call	stdio_text
 			pop		de
@@ -538,7 +538,7 @@ packRTC			; call with HL=buffer, D=maxcount, E=index, IY=RTC buffer
 			jp		nc, .pr2			; >= 99
 ; we have B=DD, C=MM, A=YY
 			call	packBCD					; pack A
-			ld		(iy+rtcdata.years), a	; years
+			ld		[iy+rtcdata.years], a	; years
 			push	bc
 			push	de
 			ld		d, b
@@ -548,15 +548,15 @@ packRTC			; call with HL=buffer, D=maxcount, E=index, IY=RTC buffer
 											; B=month(1-12)
 											; C=two digit year(0-99)
 											; returns DOW(1-7) with Sunday=1
-			ld		(iy+rtcdata.dayofweek), a	; DOW
+			ld		[iy+rtcdata.dayofweek], a	; DOW
 			pop		de
 			pop		bc
 			ld		a, c
 			call	packBCD
-			ld		(iy+rtcdata.months), a	; months
+			ld		[iy+rtcdata.months], a	; months
 			ld		a, b
 			call	packBCD
-			ld		(iy+rtcdata.days), a	; days
+			ld		[iy+rtcdata.days], a	; days
 ; end of date so if there is more it is a time but I'll take anything
 .pr4a
 			call	skip
@@ -596,13 +596,13 @@ packRTC			; call with HL=buffer, D=maxcount, E=index, IY=RTC buffer
 ; we have B=HH, C=MM, A=SS so pack it
 			call	packBCD					; pack A
 			and		0x7f
-			ld		(iy+rtcdata.seconds), a	; seconds
+			ld		[iy+rtcdata.seconds], a	; seconds
 			ld		a, c
 			call	packBCD
-			ld		(iy+rtcdata.minutes), a	; minutes
+			ld		[iy+rtcdata.minutes], a	; minutes
 			ld		a, b
 			and		0x3f					; ensure the 12/24 is at 24
 			call	packBCD
-			ld		(iy+rtcdata.hours), a	; hours (with 24hr set)
+			ld		[iy+rtcdata.hours], a	; hours (with 24hr set)
 			jp		.pr4a
 ;

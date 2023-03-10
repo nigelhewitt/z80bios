@@ -12,10 +12,10 @@ BIOSROM		equ			2				; which ROM page are we compiling
 			org		PAGE3
 			jp		bios2
 			db		"BIOS2 ", __DATE__, " ", __TIME__, 0
-			
-			
+
+
 bios2		push	hl, bc, af
-			ld		a, (Z.cr_fn)		; function number
+			ld		a, [Z.cr_fn]		; function number
 			cp		bios2_count			; number of functions
 			jp		nc, f_bad
 			ld		hl, bios2_functions
@@ -24,12 +24,12 @@ bios2		push	hl, bc, af
 			sla		c					; 0->b0, b7->cy
 			rl		b					; through carry
 			add		hl, bc
-			ld		a, (hl)				; ld  hl, (hl)
+			ld		a, [hl]				; ld  hl, (hl)
 			inc		hl
-			ld		h, (hl)
+			ld		h, [hl]
 			ld		l, a
 			pop		af, bc				; restore AF and BC
-			ex		(sp), hl			; restore HL, put 'goto' address on SP
+			ex		[sp], hl			; restore HL, put 'goto' address on SP
 			ret							; aka POP PC
 
 bios2_functions
@@ -45,9 +45,9 @@ f_biosver	call	stdio_str			; uses nothing
 			db		0
 f_good		scf
 			ret
-						
+
 f_trap		jr		f_good
-			
+
 f_kill
 f_bad
 			or		a					; clear carry

@@ -40,18 +40,18 @@
 ; OK so this code is compiled to go in PAGE3 but that might be ROM or RAM
 
 ; What I need are routines that are stack free that I can build from.
-; Macros would be too big so return via JP (IY)
+; Macros would be too big so return via JP [IY]
 ; Then we write wrappers to do the required jobs
 
 ;-------------------------------------------------------------------------------
 ; _setPage	a stack free convert from address20 in C:IX to PAGEn n is in A
 ;			returns IX as a 16 bit address into Z80 address space (in PAGEn)
-;			** Not callable: returns via a JP (IY) **
+;			** Not callable: returns via a JP [IY] **
 ;			uses A HL BC IX IY
 ;-------------------------------------------------------------------------------
 _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			ld		l, a			; save PAGE number in L
-			
+
 			ld		a, c			; bits b23-16 of C:IX
 			and		0x0f			; mask to b19-16 just to be safe
 			ld		h, a			; save in H b3-0
@@ -68,7 +68,7 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			add		a, MPGSEL0		; add the base page select register
 			ld		c, a			; we can use C as an output pointer
 			out		(c), h			; swap the page in
-			
+
 			ld		a, ixh			; get address bits b15-8
 			sla		a
 			sla		a				; slide up two places (discarding top bits)
@@ -79,20 +79,20 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			rr		a				; gives the page number b1-0 in bits b7-6 of A
 									; A = ppaaaaaa p=page, xxxxx address b13-8
 			ld		ixh, a			; put IX back together
-			jp		(iy)
+			jp		[iy]
 
 ;-------------------------------------------------------------------------------
 ; _resPage	stack free restore RAMn to PAGEn where A = page no 0 to 3
-;			uses A BC and returns JP (IY)
+;			uses A BC and returns JP [IY]
 ;-------------------------------------------------------------------------------
 _resPage	and		0x03			; mask
 			ld		b, a			; save page number
 			add		a, MPGSEL0
 			ld		c, a			; gives port address
-			ld		a, b			
+			ld		a, b
 			add		a, RAM0			; page RAMn
 			out		(c), a			; back into PAGEn
-			jp		(iy)
+			jp		[iy]
 
 ;-------------------------------------------------------------------------------
 ; setPage	here is a wrapper that assumes the stack is somewhere safe
@@ -105,7 +105,7 @@ setPage		push	iy, hl, bc
 			jr		_setPage
 .sp1		pop		bc, hl, iy
 			ret
-			
+
 ;-------------------------------------------------------------------------------
 ; resPage	wrapper to restore RAMn to PAGEn, passed in n in A
 ;			uses AF
@@ -124,7 +124,7 @@ getPageByte	push	hl, bc, iy, ix
 			ld		a, 1			; via PAGE1
 			ld		iy, .gb1
 			jp		_setPage
-.gb1		ld		h, (IX)			; get the byte
+.gb1		ld		h, [IX]			; get the byte
 			ld		a, 1			; PAGE1
 			ld		iy, .gb2
 			jr		_resPage
@@ -141,7 +141,7 @@ putPageByte	push	de, hl, bc, iy, ix
 			ld		a, 1			; via PAGE1
 			ld		iy, .pb1
 			jp		_setPage		; does not use DE
-.pb1		ld		(IX), d			; get the byte
+.pb1		ld		[IX], d			; get the byte
 			ld		a, 1			; PAGE1
 			ld		iy, .pb2
 			jp		_resPage
@@ -218,7 +218,7 @@ bank_ldir
 			putRP	de
 			putRP	hl
 ; save IX as count			2 bytes
-			
+
 ; if source + count overflows 1024K return error (beyond actual memory)
 			getRP	bc
 			getRP	hl
@@ -270,8 +270,8 @@ bank_ldir
 			ld		de, 0x4000
 			sub		de, hl		; gives nS
 			; if de<IX IX=de
-			
-			
+
+
 ; nD = 0x4000 - (dest & 0x3fff)
 
 ; n = least of count, nS and nD

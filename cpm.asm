@@ -29,7 +29,7 @@ c2			ld		hl, cpm_table
 			ld		a, h
 			adc		0
 			ld		h, a
-			jp		(hl)
+			jp		[hl]
 
 cpm_table	dw		cpm_reset				; 0
 			dw		cpm_console_input		; 1

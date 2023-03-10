@@ -86,7 +86,7 @@ spi_w1	macro	bitpos
 		endm
 
 spi_write8
-;;		ld		a, (gpio_out_cache)		; NVH			; get current gpio_out value
+;;		ld		a, [gpio_out_cache]		; NVH			; get current gpio_out value
 		in		a, (gpio_out)			; NVH
 		and		0+~(gpio_out_sd_mosi|gpio_out_sd_clk)	; MOSI & CLK = 0
 		ld		d, a									; save in D for reuse
@@ -138,7 +138,7 @@ spi_r1	macro
 spi_read8
 		ld		e, 0				; prepare to accumulate the bits into E
 
-;;;		ld		a, (gpio_out_cache)	; NVH  get current gpio_out value
+;;;		ld		a, [gpio_out_cache]	; NVH  get current gpio_out value
 		in		a, (gpio_out)		; NVH
 		and		~gpio_out_sd_clk	; CLK = 0
 		or		gpio_out_sd_mosi	; MOSI = 1
@@ -168,7 +168,7 @@ spi_ssel_true
 		; read and discard a byte to generate 8 clk cycles
 		call	spi_read8
 
-;;;;	ld		a, (gpio_out_cache)		; NVH
+;;;;	ld		a, [gpio_out_cache]		; NVH
 		in		a, (gpio_out)			; NVH
 
 		; make sure the clock is low before we enable the card
@@ -178,7 +178,7 @@ spi_ssel_true
 
 		; enable the card
 		and		~gpio_out_sd_ssel		; SSEL = 0
-;;;;	ld		(gpio_out_cache), a		; NVH save current state in the cache
+;;;;	ld		[gpio_out_cache], a		; NVH save current state in the cache
 		out		(gpio_out), a
 
 		; generate another 8 clk cycles
@@ -202,7 +202,7 @@ spi_ssel_false
 		; read and discard a byte to generate 8 clk cycles
 		call	spi_read8
 
-;;;		ld		a, (gpio_out_cache)	; NVH
+;;;		ld		a, [gpio_out_cache]	; NVH
 		in		a, (gpio_out)		; NVH
 
 		; make sure the clock is low before we disable the card
@@ -210,7 +210,7 @@ spi_ssel_false
 		out		(gpio_out), a
 
 		or		gpio_out_sd_ssel|gpio_out_sd_mosi	; SSEL=1, MOSI=1
-;;;		ld		(gpio_out_cache), a		; NVH
+;;;		ld		[gpio_out_cache], a		; NVH
 		out		(gpio_out), a
 
 		; generate another 16 clk cycles
@@ -234,7 +234,7 @@ spi_write_loop
 		or		c
 		jp		z, spi_write_done
 		push	bc
-		ld		c, (hl)
+		ld		c, [hl]
 		call	spi_write8
 		inc		hl
 		pop		bc
@@ -253,7 +253,7 @@ spi_write_done
 ;##############################################################
 
 spi_write_str
-		ld		c, (hl)			; get next byte to send
+		ld		c, [hl]			; get next byte to send
 		call	spi_write8		; send it
 		inc		hl				; point to the next byte
 		djnz	spi_write_str	; count the byte & continue of not done

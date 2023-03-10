@@ -24,7 +24,7 @@ stdio_putc
 		pop		af
 		jp		serial_sendW
 .sp1	pop		af
-		ld		(iy), a
+		ld		[iy], a
 		inc		iy
 		ret
 
@@ -33,7 +33,7 @@ stdio_getc
 		in		a, (UART+6)
 		cp		1
 		jp		nz, serial_read
-		ld		a, (iy)
+		ld		a, [iy]
 		or		a
 		ret		z				; stick at a null
 		inc		iy
@@ -42,7 +42,7 @@ stdio_getc
 ; output null terminated string starting at HL
 ; uses AF
 stdio_text
-		ld		a, (hl)				; test the next character
+		ld		a, [hl]				; test the next character
 		or		a					; trailing null?
 		ret		z					; finished
 		call	stdio_putc			; send the character
@@ -59,16 +59,16 @@ stdio_text
 ;===============================================================================
 
 ; uses nothing
-stdio_str	ex		(sp), hl		; old return address in HL, HL on stack
+stdio_str	ex		[sp], hl		; old return address in HL, HL on stack
 			push	af
-.str1		ld		a, (hl)			; character from string
+.str1		ld		a, [hl]			; character from string
 			inc		hl
 			or		a
 			jr		z, .str2
 			call	stdio_putc
 			jr		.str1
 .str2		pop		af
-			ex		(sp), hl		; recover HL, set new return address
+			ex		[sp], hl		; recover HL, set new return address
 			ret
 
 ;===============================================================================
@@ -138,7 +138,7 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 		jr		nc, .g6
 		inc		h
 .g6		ld		a, e				; recover the character
-		ld		(hl), a				; save the char
+		ld		[hl], a				; save the char
 		call	stdio_putc			; echo character to screen (FULL DUPLEX)
 		pop		hl
 		inc		d
@@ -441,7 +441,7 @@ getc		ld		a, e			; current index
 			ld		l, a
 			jr		nc, .getc1
 			inc		h
-.getc1		ld		a, (hl)			; get the next char
+.getc1		ld		a, [hl]			; get the next char
 			pop		hl
 			inc		e				; sets NZ
 			scf						; return NZ, CY and data
@@ -515,7 +515,7 @@ gethex		call	skip			; get the first character
 			call	getc
 			jr		z, .gh2			; EOL so return OK
 			jr		.gh4			; more text must be more hex so go do it
-; process a single ascii character as 'C			
+; process a single ascii character as 'C
 .gh6		call	getc			; get the next character
 			jr		z, gh10			; EOL is a bust
 			ld		ix, 0
@@ -529,7 +529,7 @@ gethex20	call	gethex
 			and		0xf0
 			jr		z, gh8			; good end
 			jr		gh10			; bad end
-			
+
 ; gethexW	as above but preserves BC and returns NC on overflow into C
 gethexW		push	bc
 			ld		c, 0			; default
@@ -678,7 +678,7 @@ _snap		push	af
 			; stack depth since last call	12				14
 			; return address				8				12
 			; back to start of snap			-19				-1
-			ld		a, (Z.snap_mode)
+			ld		a, [Z.snap_mode]
 			or		a
 			ld		hl, 12			; stack depth since call (14)
 			jr		z, .sn1
@@ -687,17 +687,17 @@ _snap		push	af
 			call	stdio_word
 			call	stdio_str
 			db		" PC:", 0
-			ld		a, (Z.snap_mode)
+			ld		a, [Z.snap_mode]
 			or		a
 			ld		hl, 8			; return address (12)
 			jr		z, .sn2
 			ld		hl, 12
 .sn2		add		hl, sp
-			ld		a, (hl)
+			ld		a, [hl]
 			inc		hl
-			ld		h, (hl)
+			ld		h, [hl]
 			ld		l, a			; return address of _snap
-			ld		a, (Z.snap_mode)
+			ld		a, [Z.snap_mode]
 			or		a
 			ld		bc, -19			; back to the start of SNAP (-1)
 			jr		z, .sn3

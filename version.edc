@@ -22,3 +22,7 @@ write the 'stack free' routines to get/put data anywhere
 0.1.9
 Add preliminary bios1/2 handlers breaking out zeta2.inc and macros.inc
 Add error codes and move help to bios1 to gain ram space in PAGE3
+
+0.1.10
+Worked on ROM programming interface and successfully read the device codes
+Switch to the ld a, [some_address] format rather than (some_address)
