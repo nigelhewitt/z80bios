@@ -103,17 +103,14 @@ serial_read						; read data
 		ret
 
 serial_tbmt						; transmit buffer empty
-		in		a, (LSR)
-		and		THRE
 		ret						; TBMT sets NZ and returns true
 
-serial_sendW
-		push	bc				; save the character to send
-		ld		c, a
-.ss1	call	serial_tbmt
+serial_sendW					; uses nothing
+		push	af				; save the character to send
+.ss1	in		a, (LSR)
+		and		THRE
 		jr		z, .ss1			; loop if !CTS || !THRE
-		ld		a, c
-		pop		bc
+		pop		af
 		; then drop through
 serial_send:					; transmit a byte
 		out		(THR), a

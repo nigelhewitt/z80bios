@@ -26,3 +26,7 @@ Add error codes and move help to bios1 to gain ram space in PAGE3
 0.1.10
 Worked on ROM programming interface and successfully read the device codes
 Switch to the ld a, [some_address] format rather than (some_address)
+
+0.1.11
+Wrote to ROM
+add + option to d to show the next sequential block

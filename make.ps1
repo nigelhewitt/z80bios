@@ -8,4 +8,5 @@ sjasmplus --lst=bios1.lst --raw=bios1.bin `
 sjasmplus --lst=bios2.lst --raw=bios2.bin `
 	bios2.asm serial.asm stdio.asm maths.asm map.asm
 
+# ./merge -z 32 bios.bin bios0.bin bios1.bin bios2.bin
 ./merge bios.bin bios0.bin bios1.bin bios2.bin

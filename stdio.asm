@@ -15,22 +15,22 @@
 
 ; stdio redirect: 0=serial (official), 1=IY++ else got to serial (debug)
 
-; write the character in A
+; write the character in A, uses nothing
 stdio_putc
 		push	af				; do the most common first and fastest
 		in		a, (REDIRECT)
 		cp		1
 		jr		z, .sp1
 		pop		af
-		jp		serial_sendW
+		jp		serial_sendW	; uses nothing
 .sp1	pop		af
 		ld		[iy], a
 		inc		iy
 		ret
 
-; wait for and return a character in A
+; wait for and return a character in A, uses A only
 stdio_getc
-		in		a, (UART+6)
+		in		a, (REDIRECT)
 		cp		1
 		jp		nz, serial_read
 		ld		a, [iy]
@@ -39,16 +39,17 @@ stdio_getc
 		inc		iy
 		ret
 
-; output null terminated string starting at HL
-; uses AF
+; output null terminated string starting at HL, uses nothing
 stdio_text
-		ld		a, [hl]				; test the next character
+		push	af
+.st1	ld		a, [hl]				; test the next character
 		or		a					; trailing null?
-		ret		z					; finished
+		jr		z, .st2				; not
 		call	stdio_putc			; send the character
 		inc		hl					; move to the next character
-		jr		stdio_text
-
+		jr		.st1
+.st2	pop		af
+		ret
 ;===============================================================================
 ;
 ; stdio_str		a simple all inline text writer
@@ -81,7 +82,7 @@ stdio_str	ex		[sp], hl		; old return address in HL, HL on stack
 ; This is a very simple routine that runs full duplex so it echoes the
 ; characters typed and only the only editing it accepts is a destructive
 ; backspace. It does not do tabs and it terminates on \r or \n.
-; Added: trash escape sequences aka \e.*[A-Za-z]
+; Will trash escape sequences aka \e.*[A-Za-z]
 ;
 ;===============================================================================
 
@@ -148,51 +149,65 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 ; stdio formatted outputs
 ;===============================================================================
 
-; all use A
-stdio_24bit	ld		a, c			; C:HL in hex
+;-------------------------------------------------------------------------------
+; hex outputs:	all use nothing
+;-------------------------------------------------------------------------------
+
+stdio_24bit	push	af				; C:HL in hex
+			ld		a, c
 			call	stdio_byte
-			jr		stdio_word
-stdio_20bit	ld		a, c
+			jr		stdio_word.sw1
+
+stdio_20bit	push	af				; C:HL in hex
+			ld		a, c
 			call	stdio_nibble
-			; fall through
-stdio_word							; HL in hex
-			ld		a, h
+			jr		stdio_word.sw1
+
+stdio_word	push	af				; HL in hex
+.sw1		ld		a, h
 			call	stdio_byte
 			ld		a, l
-			; fall through
-stdio_byte							; A in hex
-			push	af
+			call	stdio_byte
+			pop		af
+			ret
+
+stdio_byte	push	af				; A in hex
 			srl		a				; a>>=4
 			srl		a
 			srl		a
 			srl		a
 			call	stdio_nibble
 			pop		af
-			and		0x0f
 			; fall through
-stdio_nibble
+stdio_nibble						; A b3-0 in hex
+			push	af
+			and		0x0f
 			add		0x90			; kool trick
 			daa						; if a nibble is >0x9 add 6
 			adc		0x40
 			daa
-			jp		stdio_putc
+			call	stdio_putc		; uses nothing
+			pop		af
+			ret
 
-			; input HL, output HL/10 with remainder in A use nothing else
-			; uses the 16/16 routine it's good
-div10		push	bc
-			push	de
+;-------------------------------------------------------------------------------
+;  decimal outputs : all use nothing
+;-------------------------------------------------------------------------------
+
+; div10	input HL, output HL/10 with remainder in A use nothing else
+;		uses the 16/16 routine as it's good
+div10		push	bc, de
 			ld		bc, hl			; BC = quotient
 			ld		de, 10			; DE = divisor
 			call	div16x16		; BC = result, HL = remainder
 			ld		a, l			; cannot be >=10
 			ld		hl, bc
-			pop		de
-			pop		bc
+			pop		de, bc
 			ret
 
 div10b24			; divide C:HL by 10, result in C:HL, remainder in A
-					; uses B
-			push	de
+					; uses nothing
+			push	de, bc
 			ld		de, hl
 			ld		b, 0
 			ld		hl, 10
@@ -200,11 +215,11 @@ div10b24			; divide C:HL by 10, result in C:HL, remainder in A
 									; returns BC:DE = result, HL = remainder
 			ld		a, l
 			ld		hl, de
-			pop		de
+			pop		bc, de
 			ret
 
 ; The ...B2 and ...W4 versions zero fill to give minimum lengths
-; mainly added for dates and times
+; mainly used for dates and times
 ; you always get one digit so 0 is 0
 
 stdio_decimalB3				; A in decimal with at least three digits
@@ -237,7 +252,8 @@ stdio_decimalB				; A in decimal
 			pop		hl
 			ret
 
-; compare HL to N : return Z for HL==N, NC for HL>=N CY for HL<N
+; compare HL to N : return Z for HL==N, NC for HL>=N CY for HL<N uses A
+; (samee resulrs as with A in CP N)
 CPHL		macro	n
 			ld		a, h
 			cp		high n
@@ -249,6 +265,7 @@ CPHL		macro	n
 			endm
 
 stdio_decimalW4				; HL in decimal with at least 4 digits
+			push	af
 			CPHL	10
 			ld		a, '0'
 			jr		c, .sd1	; HL<10 so prefix with 000
@@ -258,39 +275,40 @@ stdio_decimalW4				; HL in decimal with at least 4 digits
 			CPHL	1000
 			ld		a, '0'
 			jr		c, .sd3	; 0
-			jr		stdio_decimalW
+			jr		stdio_decimalW.sd1
 
 .sd1		call	stdio_putc
 .sd2		call	stdio_putc
 .sd3		call	stdio_putc
-			; fall through
+			jr		stdio_decimalW.sd1
+
 stdio_decimalW				; HL in decimal
-			push	hl				; save the value
+			push	af
+.sd1		push	hl				; save the value
 			call	div10			; HL=HL/10, A=HL%10  (aka remainder)
 			push	af				; save remainder for this digit
 			ld		a, h			; test zero
 			or		a, l
 			call	nz, stdio_decimalW	; recursive
 			pop		af
-			pop		hl
 			add		'0'
-			jp		stdio_putc
+			call	stdio_putc
+			pop		hl, af
+			ret
 
 stdio_decimal24				; C:HL in decimal
-			push	hl				; save the value
-			push	bc
-			push	de
+			push	af, hl, bc, de
 			call	div10b24		; C:HL=C:HL/10, A=C:HL%10  (aka remainder)
 			pop		de
 			push	af				; save remainder for this digit
 			ld		a, h			; test zero
 			or		a, l
 			call	nz, stdio_decimal24	; recursive
-			pop		af
-			pop		bc
-			pop		hl
+			pop		af, bc, hl
 			add		'0'
-			jp		stdio_putc
+			call	stdio_putc
+			pop		af
+			ret
 
 ;===============================================================================
 ; basic text handling
@@ -342,7 +360,7 @@ ishex		call	isdigit				; return C if [0-9]
 			pop		bc					; discard saved char and ret uppercase
 			ret
 
-; Return hex from a pretested hex digit (so only [0-9A-F] is supplied)
+; Return hex value from a pretested hex digit (so only [0-9A-F] is supplied)
 tohex		cp		'A'
 			jr		c, .tx1				; a < 'A' so 0-9
 			sub		'A'-10
@@ -353,9 +371,8 @@ tohex		cp		'A'
 ;===============================================================================
 ;  stdio_dump		format a dump of memory
 ;===============================================================================
-stdio_dump			; C:HL = pointer, DE = count, uses A
-			push	bc
-			push	ix
+stdio_dump			; C:HL = pointer, DE = count, uses HL and DE
+			push	af, bc, ix
 			ld		ix, hl					; move pointer to C:IX
 ; do a line
 .sd1		ld		a, 0x0d					; '\r'
@@ -422,8 +439,7 @@ stdio_dump			; C:HL = pointer, DE = count, uses A
 			ld		e, a
 			ld		a, d
 			jr		nz, .sd1				; do the next line
-			pop		ix
-			pop		bc
+			pop		ix, bc, af
 			ret
 
 ;===============================================================================
@@ -448,6 +464,7 @@ getc		ld		a, e			; current index
 			ret
 .getc2		sub		a				; Z, NC and zero
 			ret
+
 ; ungetc would just be 'dec e' so I'm not wrapping that in a subroutine
 
 ;-------------------------------------------------------------------------------

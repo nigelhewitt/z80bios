@@ -4,7 +4,8 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.10"		; version number for sign on message
+	define	VERSION	"v0.1.11"		; version number for sign on message
+;									  also used for the git commit message
 ;
 ;	compile with
 ;			./make.ps1
@@ -338,9 +339,16 @@ SIZEOF_BUFFER	equ		80
 bad_end		ld		sp, RAM_TOP		; reset to a known value
 			call	stdio_str
 			RED
-			db		"  ?? not understood"
+			db		"  ?? not understood."
 			WHITE
+			db		"err: "
 			db		0
+			ld		a, [Z.last_error]
+			call	stdio_decimalB
+			ld		a, ' '
+			call	stdio_putc
+
+;			CALLBIOS	ShowError
 
 ; This is the point we return to after executing a command
 good_end	ld		a, [ram_test]	; running in RAM?
@@ -405,8 +413,6 @@ cmd_list	db	'B'					; read a block of data to an address
 			dw	cmd_s
 			db	'T'					; time set/get
 			dw	cmd_t
-			db	'U'					; read the ROM id bytes
-			dw	cmd_u
 			db	'W'					; write memory
 			dw	cmd_w
 			db	'X'					; execute from an address
@@ -697,13 +703,13 @@ cmd_d		call	skip					; start by handling the + option
 			inc		ixh						; +=256
 			jr		nz, .cd2				; no C on inc
 			inc		a
+			ld		[Z.def_address+2], a
 .cd2		ld		[Z.def_address], ix		; all details OK
-			ld		a, b
-			ld		[Z.def_address], a
-
+			jr		.cd4
+			
 .cd3		ld		ix, [Z.def_address]		; default address
 			ld		a, [Z.def_address+2]
-			ld		c, a
+.cd4		ld		c, a
 			call	gethex20				; in C:IX
 			jp		nc, err_badaddress		; address syntax
 			ld		iy, ix					; address in B:IY
@@ -717,19 +723,19 @@ cmd_d		call	skip					; start by handling the + option
 
 			ld		[Z.def_address], iy		; all details OK
 			ld		a, b
-			ld		[Z.def_address], a
+			ld		[Z.def_address+2], a
 
 			; we have the address in B:IY and count in IX
-			; Add a quick decode to stop mistakes
+			; Add a quick heading to stop mistakes
 			ld		a, b
 			and		a, 0x08					; set for ROM
-			jr		z, .cd4
+			jr		z, .cd5
 			call	stdio_str
 			db		"  ROM",0
-			jr		.cd5
-.cd4		call	stdio_str
+			jr		.cd6
+.cd5		call	stdio_str
 			db		"  RAM", 0
-.cd5		ld		c, iyh					; get top two bits
+.cd6		ld		c, iyh					; get top two bits
 			ld		a, b
 			rl		c						; left slide C into A
 			rl		a
@@ -1014,12 +1020,44 @@ cmd_s		ld		ix, [Z.def_address]		; default address
 			jp		good_end
 
 ;===============================================================================
-; U  read the firmware flash ROM's id bytes
+; N  program ROM N
 ;===============================================================================
-cmd_u		di						; we are taking low RAM away...
-			call	getROMid		; manufacturer in B and device in C
+
+; set up for a bios writing systems
+cmd_n		ld		ix, ROM5			; provisional ROM number
+; obtain a ROMn number in IXL
+			call	skip				; read the first non-space
+			jp		z, err_runout		; we must have something
+			call	isdigit				; do we have a number?
+			jr		nc, .cn1			; no, process as command with default
+			dec		e					; unget
+			call	getdecimalB			; yes, so it's a ROM number
+			jp		nc, err_outofrange	; not a byte
+			ld		a, ixl
+			cp		32
+			jp		nc, err_outofrange	; NC on A>=N
+			call	skip				; try again for a command
+			jp		z, err_runout
+
+; process a command letter
+.cn1		call	islower
+			jr		nc, .cn2
+			and		~0x20				; to upper
+.cn2		cp		'I'					; read the id bytes
+			jr		z, .cn3
+			cp		'P'					; prep the data
+			jr		z, .cn4
+			cp		'E'					; erase block
+			jr		z, .cn5
+			cp		'W'					; write the data
+			jp		z, .cn6
+			jp		err_unknownaction
+
+; read the ID bytes
+.cn3		di							; BEWARE we are taking low RAM away...
+			call	getROMid			; manufacturer in B and device in C
 			ei
-			call	stdio_str		; expected 0xc2 0xa4 or 0xbf 0xb7
+			call	stdio_str			; expected 0xc2 0xa4 or 0xbf 0xb7
 			db		"\r\nManufacturer's code: ", 0
 			ld		a, b
 			call	stdio_byte
@@ -1029,43 +1067,9 @@ cmd_u		di						; we are taking low RAM away...
 			call	stdio_byte
 			jp		good_end
 
-;===============================================================================
-; N  program ROM N
-;===============================================================================
-
-; set up for a bios writing test
-TESTROM		equ		ROM5			; use the first sector
-
-cmd_n		call	skip
-			jp		z, err_runout
-			call	islower
-			jr		nc, .cn1
-			and		~0x20			; to upper
-.cn1		cp		'E'				; erase block
-			jr		z, .cn2
-			cp		'P'				; prep the data
-			jr		z, .cn3
-			cp		'W'				; write the data
-			jr		z, .cn4
-			jp		err_unknownaction
-
-; test erase block
-.cn2		call	stdio_str
-			db		"\r\nErase block ",0
-			ld		a, TESTROM
-			sla		a				; convert to first sector of TESTROM
-			sla		a
-			call	stdio_decimalB
-
-			ld		a, TESTROM
-			sla		a				; convert ROM 0-31 to sector 0-127
-			sla		a
-			call	eraseROMsector
-			jr		.cn5			; OK
-
 ; prepare the whole of PAGE2 as a test block
-.cn3		ld		hl,	test_block	; source
-			ld		de, PAGE2		; dest
+.cn4		ld		hl,	test_block		; source
+			ld		de, PAGE2			; dest
 			ld		bc, size_test
 			ldir
 			ld		hl, PAGE2
@@ -1077,33 +1081,47 @@ cmd_n		call	skip
 			ld		a, 0
 			ld		hl, PAGE2
 			call	stdio_20bit
-			jr		.cn5			; OK
+			jp		.cn7				; OK
+
+; Erase a 64K block (eg: select ROM9 and erase ROM8,9,10 and 11)
+.cn5		call	stdio_str
+			db		"\r\nErase sector (4xROM): ",0
+			ld		a, ixl
+			srl		a					; /4 to convert to a sector value
+			srl		a
+			call	stdio_decimalB
+
+			di
+			call	eraseROMsector
+			ei
+			jp		.cn7				; OK
 
 ; write a block of ROM
-.cn4		ld		a, TESTROM
-			call	programROMn		; call with ROM number in A
-									; data is the whole of PAGE2 (=RAM2)
-			jr		nc, .cn6		; bad return
+.cn6		ld		a, ixl
+			di
+			call	programROMn			; call with ROM number in A
+			ei							; data is the whole of PAGE2 (=RAM2)
+			jp		nc, .cn8			; bad return
 
 			call	stdio_str
-			db		"\r\nROM at: ", 0
-			MAKEA20	TESTROM, 0
-			call	stdio_20bit
-			jp		good_end		; OK
-
+			db		"\r\nROM at: 0x", 0
+			MAKEA20	ixl, 0
+			ld		c, a
+			call	stdio_20bit			; output C:HL in hex
+			jp		good_end			; OK
 
 ; exit mesages
-.cn5		call	stdio_str
+.cn7		call	stdio_str
 			db		"\r\nOK",0
 			jp		good_end
-.cn6		call	stdio_str
+.cn8		call	stdio_str
 			db		"\r\nFailed", 0
 			jp		bad_end
 
-test_block	db		"Test block for ROM programming 0123456789 "
+test_block	db		"Test block for ROM programming =0123456789 "
 			db		"abcdefghijklmnopqrstuvwxyz "
 			db		"ABCDEFGHIJKLMNOPQRSTUVWXYZ "
-size_test	equ		$-test_block
+size_test	equ		$-test_block	; should be 97 which is a prime
 
 ;===============================================================================
 ; Error loaders so I can just jp cc, readable_name
@@ -1139,6 +1157,31 @@ err_manana
 err_badrom
 			ld		a, ERR_BADROM
 			jr		cmd_err
+
+;===============================================================================
+; 1 mSecond delay
+;===============================================================================
+
+delay1ms			; ie CPUCLK (10000) T states
+					; the routine adds up to 63+(ND-1)*13+MD*3323+OD*4
+					;		= 50+ND*13+MD*3323
+MD			equ		(CPUCLK-50)/3323
+ND			equ		((CPUCLK-50)%3323)/13
+OD			equ		(((CPUCLK-50)%3323)%13)/4
+					; so that should get us within 3T of 1mS in 11 bytes
+
+							; the call cost T=17
+			push	bc		; T=11
+			ld		b, ND	; T=7
+			djnz	$		; T=(N-1)*13+8
+ if MD > 0
+	.(MD)	djnz	$		; T=MD*(255*13+8) = MD*3323
+ endif
+ if OD > 0
+ 	.(OD)	nop				; T=4
+ endif
+			pop		bc		; T=10
+			ret				; T=10
 
 ;===============================================================================
 ;

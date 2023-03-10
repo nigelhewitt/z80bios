@@ -1,7 +1,7 @@
 ﻿;===============================================================================
 ;
 ; ROM.asm		Program a section of ROM
-;				see SST39SF010A.pdf
+;				see MX29F040A.pdf
 ;
 ;===============================================================================
 
@@ -10,7 +10,7 @@
 ; Programming the 39SP1040:
 ; there are four commands
 ; 1: Byte program
-; 2: Sector erase (4Kx8 sectors) to 0xff
+; 2: Sector erase (64Kx8 sectors) to 0xff
 ; 3: Chip erase   (512Kx8) to 0xff
 ; 4: Read the on chip ID values (Manufacturer and Device)
 
@@ -30,6 +30,9 @@
 ;	  use PAGE0 as ROMeven
 ;	  use PAGE1 as ROModd
 
+; WARNING:	I use ROM in 16K pages as that is our mapping granularity.
+;			We can write bytes but only erase 64K pages.
+;
 ;-------------------------------------------------------------------------------
 ; setROM	Set the right blocks of ROM in pages 0 and 1
 ;			call with ROMn block in A
@@ -70,93 +73,93 @@ getROMid	xor		a				; map in ROM0/ROM1
 // send 0xf0 -> anywhere
 
 			ld		a, 0xaa			; run the ID sequence
-			ld		[0x5555], a
+			ld		[0x555], a
 			ld		a, 0x55
-			ld		[0x2aaa], a
+			ld		[0x2aa], a
 			ld		a, 0x90
-			ld		[0x5555], a
+			ld		[0x555], a
 			ld		a, [0x0000]		; get manufacturer code
 			ld		b, a
 			ld		a, [0x0001]		; get device code
 			ld		c, a
-			ld		a, 0xf0
-			ld		[0], a			; leave manufacturer code mode
+			ld		a, 0xf0			; reset mode
+			ld		[0x000], a		; leave manufacturer code mode
 			jr		restoreROM		; uses A
 
 ;-------------------------------------------------------------------------------
-; eraseROMsector	4K Sector erase
-;					call sector in A (0-127)
-;					uses nothing and doesn't know if it succeeded
+; eraseROMsector	64K Sector erase
+;					call sector in A (0-7)
+;					uses nothing
 ;-------------------------------------------------------------------------------
-delay1ms			; ie CPUCLK (10000) T states
-					; the routine adds up to 63+(ND-1)*13+MD*3323+OD*4
-					;		= 50+ND*13+MD*3323
-MD			equ		(CPUCLK-50)/3323
-ND			equ		((CPUCLK-50)%3323)/13
-OD			equ		(((CPUCLK-50)%3323)%13)/4
-					; so that should get us within 3T of 1mS in 11 bytes
 
-							; the call cost T=17
-			push	bc		; T=11
-			ld		b, ND	; T=7
-			djnz	$		; T=(N-1)*13+8
- if MD > 0
-	.(MD)	djnz	$		; T=MD*(255*13+8) = MD*3323
- endif
- if OD > 0
- 	.(OD)	nop				; T=4
- endif
-			pop		bc		; T=10
-			ret				; T=10
+; Call with the address you were writing to in HL and while the internal state
+; controller is busy bit Q6 toggles state on every read. Once it goes steady
+; the job is finished.
+
+romWait		push	af, bc
+.rw1		ld		a, [hl]
+			and		0x40			; bit 'Q6' which flashes
+			ld		b, a
+			ld		a, [hl]
+			and		0x40
+			cp		b
+			jr		nz, .rw1
+			pop		bc, af
+			ret
 
 eraseROMsector
 			push	af, bc, hl
-			ld		b, a			; save
-			and		0x80			; must be 0-127
-			jr		nz, .er2
+			ld		b, a			; save sector number
+			and		0xf8			; must be 0-7
+			jr		nz, .er1
 			ld		a, b			; recover
-			srl		a				; /4 = ROMn block
-			srl		a
+			sla		a				; *4 = first ROMn block in that 64K
+			sla		a
 			call	setROM			; sets up A18-15
 
 ; send	0xaa->0x5555(b15), 0x55->0x2aaa(b15), 0x80->0x5555,
 ;		0xaa->0x5555, 0x55->0x2aaa
 ; send  0x30->(sector)b19
 			ld		a, 0xaa
-			ld		[0x5555], a
+			ld		[0x555], a
 			ld		a, 0x55
-			ld		[0x2aaa], a
+			ld		[0x2aa], a
 			ld		a, 0x80
-			ld		[0x5555], a
+			ld		[0x555], a
 			ld		a, 0xaa
-			ld		[0x5555], a
+			ld		[0x555], a
 			ld		a, 0x55
-			ld		[0x2aaa], a
-
-			ld		a, b				; block in b6-0
-			and		0x07				; bits b2-0 select the 4K slot in 32K
-			sla		a					; *16
-			sla		a
-			sla		a
-			sla		a					; b6-4 are a 4K address
-			ld		h, a				; sector address
-			xor		a
-			ld		l, 0
+			ld		[0x2aa], a
 			ld		a, 0x30
-			ld		[hl], a				; should trigger the erase
-; wait 25mS
-			push	bc
-			ld		b, 25
-.er1		call	delay1ms
-			djnz	.er1
-			pop		bc
+			ld		[0x0000], a			; should trigger the erase
+
+			ld		hl, 0
+			call	romWait				; wait while busy
 
 			call	stdio_str
-			db		"\r\nErased sector ",0
+			db		"\r\nErased sector: ",0
 			ld		a, b
 			call	stdio_decimalB
+			call	stdio_str
+			db		" = ROM",0
+			ld		a, b
+			sla		a
+			sla		a
+			ld		c, a
+			call	stdio_decimalB
+			call	stdio_str
+			db		" through ROM",0
+			ld		a, c
+			add		a, 3
+			call	stdio_decimalB
+
 			call	restoreROM
-.er2		pop		hl, bc, af
+			pop		hl, bc, af
+			scf
+			ret
+
+.er1		pop		hl, bc, af
+			or		a
 			ret
 ;-------------------------------------------------------------------------------
 ; programROMbyte	write byte in B to HL
@@ -164,57 +167,67 @@ eraseROMsector
 ;-------------------------------------------------------------------------------
 programROMbyte
 			ld		a, 0xaa
-			ld		[0x5555], a
+			ld		[0x555], a
 			ld		a, 0x55
-			ld		[0x2aaa], a
+			ld		[0x2aa], a
 			ld		a, 0xa0
 			ld		[0x5555], a
 			ld		a, b			; data
 			ld		[hl], a
-			and		0x80			; bit7
-			ld		b, a
-
-.prb1		ld		a, [hl]
-			and		0x80			; bit7
-			cp		b
-			jr		nz, .prb1		; wait for match
-			ret
+			jp		romWait
 
 ;-------------------------------------------------------------------------------
-; programROMblock	write BC bytes from (DE) to ROM at A:HL
+; programROMblock	write BC bytes from (DE) to ROM at (HL) (15 bit address)
 ;					tests DE not in PAGE0 or PAGE1 as we are using that
 ;						  and DE+BC <=0xc000 ie all in PAGE2
 ;					return CY on good ending
-;					ASSUMES block already erased
+;					ASSUMES block already erased and setROM called
 ;-------------------------------------------------------------------------------
 programROMblock
 ; start with confidence checks
-			and		0xf8			; must not be set for legal ROM address
-			jr		z, .pb2			; must be legal ROMn address
-.pb1		RETERR	ERR_BADROM
-			ret
-.pb2		bit		7, d			; must be set as we are using PAGE0/1
-			jr		nz, .pb4
-.pb3		RETERR	ERR_OUTOFRANGE
-.pb4		push	hl
-			ld		hl, de
-			add		hl, bc
-			pop		hl
-			jr		c, .pb3
-			ld		a, h
-			and		0xc0
-			jr		nz, .pb3
+; we only need the 15 bits of the address as the SETROM has already been done
+; but I'll check it anyway
+; check ROMn
+			push	hl
 
-.pb5		ld		a, [de]			; data byte
+; check source
+			bit		7, d			; must be set as we are using PAGE0/1
+			jr		nz, .pb4
+.pb3		pop		hl
+			RETERR	ERR_OUTOFRANGE
+
+.pb4		call	stdio_str
+			db		"\r\nWriting from 0x",0
+			ld		hl, de
+			call	stdio_word
+
+; check for overlap
+			ld		hl, de			; source data address
+			add		hl, bc			; + count
+			jr		c, .pb3			; overflow
+			dec		hl				; address of last byte
+			ld		a, h			; sum must be <=0xbfff
+			cp		0xc0			; C if <=
+			jr		nc, .pb3
+			call	stdio_str
+			db		" count 0x",0
+			ld		hl, bc
+			call	stdio_word
+
+; loop out the data
+			pop		hl
+.pb5		push	bc
+			ld		a, [de]			; data byte
 			ld		b, a
-			call	programROMbyte
+			call	programROMbyte	; B ->[HL] uses A and B
 			inc		de
 			inc		hl
+			pop		bc
 			dec		bc
 			ld		a, b
 			or		c
 			jr		nz, .pb5
-			scf
+			scf						; good exit
 			ret
 
 ;-------------------------------------------------------------------------------
@@ -224,31 +237,24 @@ programROMblock
 ;-------------------------------------------------------------------------------
 
 programROMn
-; erase the 4 sectors
+; test ROM
 			ld		b, a
 			and		0xe0			; test ROMn is 0-31
 			jr		z, .pn2
-.pn1		RETERR	ERR_BADROM
+			RETERR	ERR_BADROM
+
+; test we are in RAM
 .pn2		ld		a, [ram_test]
 			or		a
 			jr		nz, .pn3		; must be running in RAM
 			RETERR	ERR_NOTINRAM
-.pn3		ld		a, b			; recover ROMn
-			sla		a				; convert to sector number 0-124
-			sla		a
-			call	eraseROMsector
-			inc		a
-			call	eraseROMsector
-			inc		a
-			call	eraseROMsector
-			inc		a
-			call	eraseROMsector
 
-			ld		a, b			; recover the ROM number
-			call	setROM
+; set ROM
+.pn3		ld		a, b			; recover the ROM number
+			call	setROM			; uses nothing
 			ld		bc, 0x4000		; 16K
 			ld		de, 0x8000		; PAGE2
-			ld		hl, 0
+			ld		hl, 0			; destination for even ROM
 			bit		0, a			; odd or even?
 			jr		z, .pn4			; jump if even
 			ld		hl, 0x4000
@@ -268,7 +274,6 @@ programROMn
 
 ; this function is called by the macro CALLBIOS
 wedgeROM	; copy the interface wedge into PAGE0
-	;		SNAP	"wedgeROM"
 			push	bc, de, hl
 			ld		de, Z.bios1_wedge	; destination
 			ld		hl, .cr2			; source
@@ -294,10 +299,7 @@ wedgeROM	; copy the interface wedge into PAGE0
 			ld		sp, PAGE3
 			di							; stop the CTC ticking
 ; and jump in
-	;		SNAP	"call wedge"
-	;		DUMP	Z.bios1_wedge, size_wedge
 			call	Z.bios1_wedge
-	;		SNAP	"return wedge"
 			ld		sp, [Z.cr_sp]
 			ret
 ; the wedge

@@ -110,7 +110,7 @@ It makes a handy journal when bug hunting.
 it needs to be in Z80 reachable memory and use R and W for read or write the
 RAM and T and S to read and write the clock.
 
-**N program the flash memory**. Test routines  
+**N program the flash memory**. N rom_n I|P|E|P  
 
 Most of the rest that you might need to know is in the code.  
 I've gone for the ELI5 comment style because at 73 I forget stuff.  

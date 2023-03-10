@@ -89,7 +89,7 @@ cmd_help	db	"\r\n"
  if LEDS_EXIST
 			db	"L  set the LEDs\r\n"
  endif
-			db	"N  program ROM options E|P|W\r\n"
+			db	"N  program ROM options I|E|P|W\r\n"
 			db	"O  output to a port\r\n"
  if DIGITS_EXIST
 			db	"P  panel command\r\n"
@@ -97,7 +97,6 @@ cmd_help	db	"\r\n"
 			db	"R  read memory\r\n"
 			db	"S  save command\r\n"
 			db	"T  time set/get\r\n"
-			db	"U  read the manufacturer and device code from the ROM\r\n"
 			db	"W  write memory\r\n"
 			db	"X  execute from an address\r\n"
 			db	"Z  anything test\r\n"
