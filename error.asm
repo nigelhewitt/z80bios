@@ -76,6 +76,7 @@ f_error		push	af, hl, de
 ;===============================================================================
 
 cmd_help	db	"\r\n"
+			db	"A  [A-P] set/clear diagnostic flags\r\n"
 			db	"B  read a block of data to an address\r\n"
  if ALLOW_ANSI
  			db	"C  clear screen\r\n"
@@ -91,9 +92,6 @@ cmd_help	db	"\r\n"
  endif
 			db	"N  program ROM options I|E|P|W\r\n"
 			db	"O  output to a port\r\n"
- if DIGITS_EXIST
-			db	"P  panel command\r\n"
- endif
 			db	"R  read memory\r\n"
 			db	"S  save command\r\n"
 			db	"T  time set/get\r\n"

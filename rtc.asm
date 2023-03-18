@@ -299,7 +299,7 @@ rtc_wrram
 ;===============================================================================
  if LEDS_EXIST
 set_led	and		0x09
-		ld		[led_buffer], a
+		ld		[Z.led_buffer], a
 		jp		rtc_init
  endif
 

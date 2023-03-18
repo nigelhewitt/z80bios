@@ -299,7 +299,9 @@ wedgeROM	; copy the interface wedge into PAGE0
 			ld		sp, PAGE3
 			di							; stop the CTC ticking
 ; and jump in
+			di
 			call	Z.bios1_wedge
+			ei
 			ld		sp, [Z.cr_sp]
 			ret
 ; the wedge

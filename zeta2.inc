@@ -4,10 +4,10 @@
 ;
 ;===============================================================================
 
-LEDS_EXIST		equ		0		; LEDS fitted
-DIGITS_EXIST	equ		0		; digit board fitted
+LEDS_EXIST		equ		1		; LEDS fitted
 SDC_EXISTS		equ		1		; SDC board fitted
 ALLOW_ANSI		equ		1		; Terminal accepts ANSI strings
+LIGHTS_EXIST	equ		1		; switches on PIO_A and lights on PIO_B
 
 ROM_SHIFT	equ		9*1024		; 9K How much of PAGE3 we can give to RAM
 CPUCLK		equ		10000		; master clock in kHz

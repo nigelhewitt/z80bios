@@ -9,7 +9,7 @@ PIO_B		equ		PIO+1		; bits B7-B0
 PIO_C		equ		PIO+2		; bits C7-C0
 PIO_CON		equ		PIO+3		; control port
 
-; At reset the control byte is 0x9b
+; At reset the control byte is 0x9b all inputs
 ; mode 0 is simple IO
 PIO_MODESET	equ		0x80		; setting modes (not setting bits)
 PIO_AMODE	equ		0x60		; zero for PORT A mode 0
@@ -20,7 +20,7 @@ PIO_BIN		equ		0x02		; PORT B input mode
 PIO_CLIN	equ		0x01		; PORT C upper bits to input mode
 
 ; single bit in C set/reset
-; PIO_MODESET is zer
+; PIO_MODESET is zero
 ; b0 is the set/reset
 ; b3-1 encode the bit number 0-7
 
@@ -29,9 +29,6 @@ PIO_CLIN	equ		0x01		; PORT C upper bits to input mode
 			db		"<PIO driver>"
 
 pio_init
-; port A and B as outputs, port C as inputs
-;			ld		a, PIO_MODESET+PIO_CUIN+PIO_CLIN
-
 ; A as inputs (switches), B as outputs (LEDs), CU as outputs, CL as inputs
 			ld		a, PIO_MODESET+PIO_AIN+PIO_CLIN
 			out		(PIO_CON), a

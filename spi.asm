@@ -12,45 +12,31 @@ sd_debug_cmd17		equ		0
 sd_debug_cmd24		equ		0
 
 
-; The PIO is set to PORT-A outputs, PORT-B outputs, PORT-C INPUTS
+; The PIO is set to PORT-C LOWER=INPUTS  UPPER=OUTPUTS
 ; ports
-gpio_out			equ		PIO_B
-gpio_in				equ		PIO_C
+spi_out			equ		PIO_C
+spi_in			equ		PIO_C
 
 ; bits
-gpio_out_sd_mosi	equ		0x20	; B5
-gpio_out_sd_clk		equ		0x40	; B6
-gpio_out_sd_ssel	equ		0x80	; B7
+; Dout is b7 and Din is b0 so I can handle data with shifts
+spi_mosi	equ		0x80	; C7
+spi_clk		equ		0x40	; C6
+spi_ssel	equ		0x20	; C5
+;			equ		0x10	; C4  spare output
 
-gpio_in_sd_miso		equ		0x40	; C7
+spi_miso	equ		0x01	; C0
+;			equ		0x02	; C1  spare inputs
+;			equ		0x04	; C2
+;			equ		0x08	; C3
 
-
-; Now comes the software I used with my operational changes marked NVH
-; There is lots of unmarked editing to make it suit my assembler
-
-;****************************************************************************
+;===============================================================================
 ;
-;    Copyright (C) 2021 John Winans
+;	Based on 
+;		SD Specifications Part 1 Physical Layer Simplified Specification
+;		Version 9.00 August 22, 2022
+;		Page 309 onwards
 ;
-;    This library is free software; you can redistribute it and/or
-;    modify it under the terms of the GNU Lesser General Public
-;    License as published by the Free Software Foundation; either
-;    version 2.1 of the License, or (at your option) any later version.
-;
-;    This library is distributed in the hope that it will be useful,
-;    but WITHOUT ANY WARRANTY; without even the implied warranty of
-;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;    Lesser General Public License for more details.
-;
-;    You should have received a copy of the GNU Lesser General Public
-;    License along with this library; if not, write to the Free Software
-;    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301
-;    USA
-;
-; https://github.com/johnwinans/2063-Z80-cpm
-;
-;****************************************************************************
-
+;===============================================================================
 ;############################################################################
 ; An SPI library suitable for talking to SD cards.
 ;
@@ -67,157 +53,122 @@ gpio_in_sd_miso		equ		0x40	; C7
 ;
 ;############################################################################
 
-;############################################################################
-; Write 8 bits in C to the SPI port and discard the received data.
-; It is assumed that the gpio_out_cache value matches the current state
-; of the GP Output port and that SSEL is low.
+;===============================================================================
+; Write 8 bits in C to the SPI port
+; It is assumed that SSEL is already low.
 ; This will leave: CLK=1, MOSI=(the LSB of the byte written)
-; Clobbers: A, D
-;############################################################################
+; Uses: A
+;===============================================================================
 
-spi_w1	macro	bitpos
-		ld		a, d				; a = gpio_out value w/CLK & MOSI = 0
-		bit		bitpos, c			; [8] is the bit of C a 1?
-		jr		z, .lo_bit			; [7/12] (transmit a 0)
-		or		gpio_out_sd_mosi	; [7] prepare to transmit a 1 (only [4] if mask is in a reg)
-.lo_bit out		(gpio_out), a		; set data value & CLK falling edge
-		or		gpio_out_sd_clk		; ready the CLK to send a 1
-		out		(gpio_out), a		; set the CLK's rising edge
-		endm
+ assert spi_mosi==0x80, Bad SPI Dout bit		; so RR moves in from CY 
+
+; Called with spi_ssel=0(active), spi_clk=0, spi_mosi=0
+; Data is sampled on rising clock
+; so should be changed (output) on the falling clock
 
 spi_write8
-;;		ld		a, [gpio_out_cache]		; NVH			; get current gpio_out value
-		in		a, (gpio_out)			; NVH
-		and		0+~(gpio_out_sd_mosi|gpio_out_sd_clk)	; MOSI & CLK = 0
-		ld		d, a									; save in D for reuse
+		push	bc
+		in		a, (spi_out)			; current bits
 
-		;--------- bit 7
-		; special case for the first bit (a already has the gpio_out value)
-		bit		7, c				; check the value of the bit to send
-		jr		z, .spi_lo7			; if sending 0, then A is already prepared
-		or		gpio_out_sd_mosi	; else set the bit to send to 1
-.spi_lo7
-		out		(gpio_out), a		; set data value & CLK falling edge together
-		or		gpio_out_sd_clk		; ready the CLK to send a 1
-		out		(gpio_out), a		; set the CLK's rising edge
-
+		; special case for the first bit as clock is low
+		rr		a					; slide A right
+		rl		c					; data b7 into CY
+		rr		a					; into A b7 
+		and		~spi_clk			; the clock should be low already
+		out		(spi_out), a		; set data value & CLK clock low
+		or		spi_clk				; set the clock
+		out		(spi_out), a		; tell them to read data
+		
+		ld		b, 7
 		; send the other 7 bits
-		spi_w1	6
-		spi_w1	5
-		spi_w1	4
-		spi_w1	3
-		spi_w1	2
-		spi_w1	1
-		spi_w1	0
+.sw1	and		a, ~spi_clk			; a = spi_out value w/CLK & MOSI = 0
+		rr		a					; slide A right
+		rl		c					; data b7 into CY
+		rl		a					; into A 
+		out		(spi_out), a		; set data value & CLK falling edge
+		or		spi_clk				; set the clock
+		out		(spi_out), a
+		djnz	.sw1
+		pop		bc
+		; leaves CLK high as next clock low is part of the next byte
 		ret
 
-;############################################################################
+;===============================================================================
 ; Read 8 bits from the SPI & return it in A.
 ; MOSI will be set to 1 during all bit transfers.
 ; This will leave: CLK=1, MOSI=1
-; Clobbers A, D and E
-; Returns the byte read in the A (and a copy of it also in E)
-;############################################################################
+; Returns the byte read in the A
+; uses A
+;===============================================================================
 
-spi_r1	macro
-		ld		a, d
-		out		(gpio_out), a		; set data value & CLK falling edge
-		or		gpio_out_sd_clk		; set the CLK bit
-		out		(gpio_out), a		; CLK rising edge
-
-		in		a, (gpio_in)		; read MISO
-		and		gpio_in_sd_miso		; strip all but the MISO bit
-		or		e					; accumulate the current MISO value
-		rlca						; The LSB is read last, rotate into proper place
-									; NOTE: note this only works because gpio_in_sd_miso = 0x80
-		ld		e, a				; save a copy of the running value in A and E
-		endm
-
-;XXX consider moving this per-byte overhead into the caller????    XXX
+	assert	spi_miso==0x01, Bad SPI Din bit		; so RR moves it out too CY 
 
 spi_read8
-		ld		e, 0				; prepare to accumulate the bits into E
-
-;;;		ld		a, [gpio_out_cache]	; NVH  get current gpio_out value
-		in		a, (gpio_out)		; NVH
-		and		~gpio_out_sd_clk	; CLK = 0
-		or		gpio_out_sd_mosi	; MOSI = 1
+		push	bc, de
+		ld		e, 0				; accumulate data in E
+		in		a, (spi_out)		; current port outputs		
+		and		~spi_clk			; CLK = 0
+		or		spi_mosi			; MOSI = 1
 		ld		d, a				; save in D for reuse
 
 		; read the 8 bits
-		spi_r1						; 7
-		spi_r1						; 6
-		spi_r1						; 5
-		spi_r1						; 4
-		spi_r1						; 3
-		spi_r1						; 2
-		spi_r1						; 1
-		spi_r1						; 0
-
-		; The final value will be in both the E and A registers
+		ld		b, 0
+.sr1	out		(spi_out), a		; set clock low (the read data moment)
+		in		a, (spi_in)			; read data
+		rr		a					; data into Carry
+		rl		e					; data into E
+		ld		a, d
+		or		spi_clk				; set clock hi
+		djnz	.sr1
+		ld		a, e
+		pop		de, bc
+		; leaves CLK high as next clock low is part of the next byte
 		ret
 
-;##############################################################
-; Assert the select line (set it low)
-; This will leave: SSEL=0, CLK=0, MOSI=1
-; Clobbers A
-;##############################################################
+;===============================================================================
+; Assert the select line
+; This will leave: SSEL=0 (active), CLK=0, MOSI=1
+; Uses A
+;===============================================================================
 
 spi_ssel_true
-		push	de
 		; read and discard a byte to generate 8 clk cycles
 		call	spi_read8
 
-;;;;	ld		a, [gpio_out_cache]		; NVH
-		in		a, (gpio_out)			; NVH
-
 		; make sure the clock is low before we enable the card
-		and		~gpio_out_sd_clk		; CLK = 0
-		or		gpio_out_sd_mosi		; MOSI = 1
-		out		(gpio_out), a
+		in		a, (spi_out)
+		and		~spi_clk				; CLK = 0
+		or		spi_mosi				; MOSI = 1
+		out		(spi_out), a
 
 		; enable the card
-		and		~gpio_out_sd_ssel		; SSEL = 0
-;;;;	ld		[gpio_out_cache], a		; NVH save current state in the cache
-		out		(gpio_out), a
+		and		~spi_ssel				; SSEL = 0
+		out		(spi_out), a
 
 		; generate another 8 clk cycles
 		call	spi_read8
-
-		pop	de
 		ret
 
-;##############################################################
+;===============================================================================
 ; de-assert the select line (set it high)
 ; This will leave: SSEL=1, CLK=0, MOSI=1
-; Clobbers A
-;
-; See section 4 of
-;	Physical Layer Simplified Specification Version 8.00
-;##############################################################
-
+; Uses A
+;===============================================================================
 spi_ssel_false
-		push	de		; save DE because read8 alters it
-
 		; read and discard a byte to generate 8 clk cycles
 		call	spi_read8
 
-;;;		ld		a, [gpio_out_cache]	; NVH
-		in		a, (gpio_out)		; NVH
-
 		; make sure the clock is low before we disable the card
-		and		~gpio_out_sd_clk			; CLK = 0
-		out		(gpio_out), a
+		in		a, (spi_out)
+		and		~spi_clk				; CLK = 0
+		out		(spi_out), a
 
-		or		gpio_out_sd_ssel|gpio_out_sd_mosi	; SSEL=1, MOSI=1
-;;;		ld		[gpio_out_cache], a		; NVH
-		out		(gpio_out), a
+		or		spi_ssel|spi_mosi		; SSEL=1, MOSI=1
+		out		(spi_out), a
 
 		; generate another 16 clk cycles
 		call	spi_read8
 		call	spi_read8
-
-		pop		de
 		ret
 
  if 0
@@ -246,11 +197,11 @@ spi_write_done
 		ret
  endif
 
-;##############################################################
+;===============================================================================
 ; HL = @ of bytes to write
 ; B = byte count
 ; clobbers: A, BC, D, HL
-;##############################################################
+;===============================================================================
 
 spi_write_str
 		ld		c, [hl]			; get next byte to send

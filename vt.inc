@@ -6,8 +6,8 @@
 spare		ds		2
 			ds		3				; JP cpm
 			ds		3				; JP rst08
-def_address	ds		3				; 3 byte bios default address
-def_port	ds		2				; bios default port
+def_address	ds		4				; 3 byte bios default address
+def_port	ds		1				; bios default port
 			ds		3				; JP rst10
 preTick		ds		1				; uint8	 ticks per second
 Ticks		ds		4				; uint32 time in seconds

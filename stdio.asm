@@ -58,8 +58,6 @@ stdio_text
 ;				... more code
 ;				uses nothing so good for debugging
 ;===============================================================================
-
-; uses nothing
 stdio_str	ex		[sp], hl		; old return address in HL, HL on stack
 			push	af
 .str1		ld		a, [hl]			; character from string
@@ -151,7 +149,16 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 
 ;-------------------------------------------------------------------------------
 ; hex outputs:	all use nothing
+; since hex automatically zero fills we have various size variants as we
+; use 20 bit addresses et al.
 ;-------------------------------------------------------------------------------
+
+stdio_32bit	push	af				; BC:HL in hex
+			push	hl
+			ld		hl, bc
+			call	stdio_word
+			pop		hl
+			jr		stdio_word.sw1
 
 stdio_24bit	push	af				; C:HL in hex
 			ld		a, c
@@ -195,7 +202,7 @@ stdio_nibble						; A b3-0 in hex
 ;-------------------------------------------------------------------------------
 
 ; div10	input HL, output HL/10 with remainder in A use nothing else
-;		uses the 16/16 routine as it's good
+;		uses the 16/16 routine as it's good and fast
 div10		push	bc, de
 			ld		bc, hl			; BC = quotient
 			ld		de, 10			; DE = divisor
@@ -205,17 +212,15 @@ div10		push	bc, de
 			pop		de, bc
 			ret
 
-div10b24			; divide C:HL by 10, result in C:HL, remainder in A
-					; uses nothing
-			push	de, bc
+; div10b32  divide BC:HL by 10, result in BC:HL, remainder in A
+div10b32	push	de
 			ld		de, hl
-			ld		b, 0
 			ld		hl, 10
 			call	divide32by16	; call BC:DE = numerator, HL = denominator
 									; returns BC:DE = result, HL = remainder
-			ld		a, l
-			ld		hl, de
-			pop		bc, de
+			ld		a, l			; remainder
+			ld		hl, de			; LSW of result
+			pop		de
 			ret
 
 ; The ...B2 and ...W4 versions zero fill to give minimum lengths
@@ -253,7 +258,7 @@ stdio_decimalB				; A in decimal
 			ret
 
 ; compare HL to N : return Z for HL==N, NC for HL>=N CY for HL<N uses A
-; (samee resulrs as with A in CP N)
+; (same results as with A in CP N)
 CPHL		macro	n
 			ld		a, h
 			cp		high n
@@ -296,17 +301,27 @@ stdio_decimalW				; HL in decimal
 			pop		hl, af
 			ret
 
-stdio_decimal24				; C:HL in decimal
+; I'm not messing about with zero fill on 32 bit
+stdio_decimal32				; BC:HL in decimal
 			push	af, hl, bc, de
-			call	div10b24		; C:HL=C:HL/10, A=C:HL%10  (aka remainder)
+			call	div10b32		; BC:HL=BC:HL/10, A=BC:HL%10  (aka remainder)
 			pop		de
 			push	af				; save remainder for this digit
 			ld		a, h			; test zero
 			or		a, l
-			call	nz, stdio_decimal24	; recursive
+			call	nz, stdio_decimal32	; recursive
 			pop		af, bc, hl
 			add		'0'
 			call	stdio_putc
+			pop		af
+			ret
+
+stdio_decimal24				; C:HL in decimal
+			push	af
+			ld		a, b
+			ld		b, 0
+			call	stdio_decimal32
+			ld		b, a
 			pop		af
 			ret
 
@@ -483,11 +498,10 @@ skip		call	getc			; returns Z and NC on EOL
 
 ;===============================================================================
 ; gethex	Unpack a hex string in buffer HL, max count D, current index E
-; 			Return a 24 bit value in C:IX with CY for OK, NC for syntax error
+; 			Return a 32 bit value in BC:IX with CY for OK, NC for syntax error
 ;			or overflow
-; 			If the line is blank that returns C:IX unchanged as a default with
+; 			If the line is blank that returns BC:IX unchanged as a default with
 ;			CY set
-; 			uses BC
 ;===============================================================================
 ; As a user convenience if gethex is called but the number starts with a '.'
 ; we discard the '.' and divert to get a decimal number similarly a '$' forces
@@ -495,43 +509,53 @@ skip		call	getc			; returns Z and NC on EOL
 ; 'A give you the ascii value of A
 ; # just accepts the default and moves on to the next argument
 
-gethex		call	skip			; get the first character
+gethex32	call	skip			; get the first character
 			jr		nz, .gh3		; jump if not EOL
 			inc		e				; cheaper than jumping over the unget
 .gh1		dec		e				; unget
 .gh2		scf						; return good
 			ret
 .gh3		cp		'.'
-			jr		z, getdecimal
+			jp		z, getdecimal
 			cp		0x27			; '
 			jr		z, .gh6
 			cp		'$'
-			jr		z, gethex
+			jr		z, gethex32
 			cp		'#'
 			jr		z, .gh2
-			ld		ix, 0			; remove default
-			ld		c, 0
+			ld		ix, 0			; remove the default
+			ld		bc, 0
+
 ; Now process the characters
 .gh4		call	ishex			; test for hex and make upper case
 			jr		nc, .gh1		; failed hex test so unget and return
 			call	tohex			; returns 0x00 to 0x0f in A
-; C:IX <<= 4
+
+; BC:IX <<= 4
+			push	de, hl
+			ld		de, bc
+			ld		hl, ix
 			ld		b, 4
-.gh5		add		ix, ix			; aka ix<<1 into CY (yes it does set CY)
-			rl		c				; rotate left through carry
-			ccf						; complement carry
-			ret		nc				; overflow so bad ending
+.gh5		sla		l
+			rl		h
+			rl		e
+			rl		d
+			ccf
+			jp		nc, .gh7		; overflow
 			djnz	.gh5
+			ld		bc, de
+
 ; C:IX |= a
-			push	de
-			ld		d, 0
-			ld		e, a
-			add		ix, de			; we made 4 spaces and de is 0-f so no CY
-			pop		de
+			add		l				; we made 4 spaces and de is 0-f so no CY
+			ld		l, a
+			ld		ix, hl
+			pop		hl, de
+
 ; Next character
 			call	getc
 			jr		z, .gh2			; EOL so return OK
 			jr		.gh4			; more text must be more hex so go do it
+
 ; process a single ascii character as 'C
 .gh6		call	getc			; get the next character
 			jr		z, gh10			; EOL is a bust
@@ -539,34 +563,44 @@ gethex		call	skip			; get the first character
 			ld		ixl, a
 			ld		c, 0
 			jr		.gh2			; return good
+			
+; stack unwind for overflow return
+.gh7		pop		hl, de
+			or		a				; clear carry
+			ret
 
-; gethex20	gets a 20 bit address in C:IC
-gethex20	call	gethex
+; Restricted versions of gethex32 that preserve the registers we don't use and
+; overflow as appropriate			
+
+; gethex20	gets a 20 bit address in C:IX
+gethex20	call	gethex32
 			ld		a, c
 			and		0xf0
+			or		b
 			jr		z, gh8			; good end
 			jr		gh10			; bad end
 
-; gethexW	as above but preserves BC and returns NC on overflow into C
+; gethexW	as above but preserves BC and returns NC on overflow into BC
 gethexW		push	bc
-			ld		c, 0			; default
-			call	gethex
+			ld		bc, 0			; default
+			call	gethex32
 			jr		nc, gh9			; failed
 			ld		a, c
-			or		a
+			or		b
 			jr		nz, gh9			; overflow
 gh7			pop		bc				; good end with pop
 gh8			scf
 			ret
 
-; gethexB	as above but preserves BC and returns NC on overflow into C or IXH
+; gethexB	as above but preserves BC and returns NC on overflow into BC or IXH
 gethexB		push	bc
-			ld		c, 0			; default
-			call	gethex
+			ld		bc, 0			; default
+			call	gethex32
 			jr		nc, gh9			; bad end
 			ld		a, ixh
 			or		c
-			jr		z, gh7			; no overflow
+			or		b
+			jr		z, gh7			; no overflow so good end
 gh9			pop		bc				; bad end with pop
 gh10		xor		a				; clear carry
 			ret						; bad end
@@ -588,11 +622,11 @@ getdecimal	call	skip			; get first char
 .gd3		cp		'.'				; skip '.'
 			jr		z, getdecimal
 			cp		'$'				; is hex
-			jp		z, gethex
+			jp		z, gethex32
 			cp		'#'				; accept default
 			jr		z, .gd2
 			cp		0x27			; '
-			jr		z, gethex.gh6
+			jr		z, gethex32.gh6
 			ld		ix, 0			; remove default
 			ld		c, 0
 ; Now process the characters

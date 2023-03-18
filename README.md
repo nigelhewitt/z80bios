@@ -41,8 +41,24 @@ play in.
 
 ## Commands
 
+**A set bits in the options table** This is really a testing convenience.
+
+**B** Block input.** To unfinished to describe.
+
+**C Clear screen** Using an ANSI sequence. A mere convenience.
+
+**D Dump memory**. This takes a 24 bit hex address and a 16 bit hex count
+that defaults to $100 aka .256. This writes up the usual panel of hex and
+character values for the bytes in memory. It does not display ASCII <$20 or
+>$7e as terminals can act silly.
+
 **E decode last_error**. Checks the last_error data and returns a hopefully
 mode useful message.
+
+**F Fill memory**. This takes a 24 bit hex address, a 16 bit hex count and an
+8 bit hex value.  
+Try not to overwrite the first $69 bytes. If you overwrite the stack the SP
+gets reset before it shows the prompt so it should survive.
 
 **H hex echo**. You type a hex number up to 24 bits (123456) and echoes it back
 in hex and with the decimal equivalent. This also loads and saves the 'default
@@ -53,64 +69,45 @@ value of A. Don't even try the extended 8 bit characters on putty. Also when
 multiple values are required and you want the use the default one enter # and
 it takes the default and moves on to the next argument.
 
-**R Read a byte of memory**. This takes a full 24 bit hex address. The 32x16K
-pages of ROM and RAM are all accessible. RAM is from $0000000 to $7fffff so
-for most cases you are worried about $0 to $ffff and get what you expect. If
-you want to access higher pages you can. If you want to read the ROM that goes
-from $800000 to $ffffff
-
-**W Write memory**. This takes a 24 bit hex address again followed by as many
-8 bit hex values as you can get on an 80 character line. Each value is actioned
-as it is read so if you make a mistake on value seven you have already changed
-the first six that you typed but will have to redo from seven onwards.
-
-**F Fill memory**. This takes a 24 bit hex address, a 16 bit hex count and an
-8 bit hex value.  
-Try not to overwrite the first $69 bytes. If you overwrite the stack the SP
-gets reset before it shows the prompt so it should survive.
-
 **I Input from a port**. This takes an eight bit hex port address and gives you
 back the 8 bit hex it reads from the port.
 
-**O Output to a port**. This takes an eight bit hex port address and an eight
-bit hex data value.
-
-**X Execute from this address**. This takes a 16 bit hex address in the Z80
-address map.  
-The default is the ROM start up address so just X restarts with a full reload.
-
-**D Dump memory**. This takes a 24 bit hex address and a 16 bit hex count
-that defaults to $100 aka .256. This writes up the usual panel of hex and
-character values for the bytes in memory. It does not display ASCII <$20 or
->$7e as terminals can act silly.
-
-**B** Watch this space.
-
-**T Set/read the Real Time Clock**. Use **HH:MM:SS** and **DD/MM/YY** or
-**YYYY** (in decimal) and it will adjust things. It also appends the current
-tick count for the CTC.
-
-**Z** This is just a place I put my current test code
-
-**K Kill**. **DI HALT**. Don't ask why I wanted that...
-
-**C Clear screen** Using an ANSI sequence
+**K Kill**. **DI HALT**. Mostly so I could test the HALT light...
 
 **L Leds**. I soldered two LEDs from the spare pins on the RTC port via 240 ohm
 resistors to 5V. I use it testing states. The pins are U10 pins 7 and 10.
 This is the manual control L 11 puts them both on. L 00 puts them both off
 Lx1 leaves the first in whatever state it was and changes the second.
 
-**P 7-segment display** I also wired a 7 segment display to the PIO PORT A.
-This just puts up a number letter or anything else I could do in 7 segments.  
-&nbsp;&nbsp;&nbsp;&nbsp;0123456789AbCcdEFHhiJLoPtUu[]_=-.  
-It makes a handy journal when bug hunting.
+**N program the flash memory**. N rom_n I|P|E|P  
+
+**O Output to a port**. This takes an eight bit hex port address and an eight
+bit hex data value.
+
+**R Read a byte of memory**. This takes a full 24 bit hex address. The 32x16K
+pages of ROM and RAM are all accessible. RAM is from $0000000 to $7fffff so
+for most cases you are worried about $0 to $ffff and get what you expect. If
+you want to access higher pages you can. If you want to read the ROM that goes
+from $800000 to $ffffff
 
 **S Read/write RTC memory**. S address16 R|W|T|S. A 16 bit hex address as
 it needs to be in Z80 reachable memory and use R and W for read or write the
 RAM and T and S to read and write the clock.
 
-**N program the flash memory**. N rom_n I|P|E|P  
+**T Set/read the Real Time Clock**. Use **HH:MM:SS** and **DD/MM/YY** or
+**YYYY** (in decimal) and it will adjust things. It also appends the current
+tick count for the CTC.
+
+**W Write memory**. This takes a 24 bit hex address again followed by as many
+8 bit hex values as you can get on an 80 character line. Each value is actioned
+as it is read so if you make a mistake on value seven you have already changed
+the first six that you typed but will have to redo from seven onwards.
+
+**X Execute from this address**. This takes a 16 bit hex address in the Z80
+address map.  
+The default is the ROM start up address so just X restarts with a full reload.
+
+**Z** This is just a place I put my current test code
 
 Most of the rest that you might need to know is in the code.  
 I've gone for the ELI5 comment style because at 73 I forget stuff.  

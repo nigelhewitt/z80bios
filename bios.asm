@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.11"		; version number for sign on message
+	define	VERSION	"v0.1.12"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -264,10 +264,6 @@ rst00		di						; interrupts off
 ;===============================================================================
 ; Time to set things up
 ;===============================================================================
- if LEDS_EXIST
-			ld		a, 0x01			; RH LED on only
-			call	set_led
- endif
 
 ; UART and serial stuff in serial.asm
 			call	serial_init		; 19200,8,1,N
@@ -279,7 +275,7 @@ rst00		di						; interrupts off
 ; Parallel port
 			call	pio_init		;
 ; Real Time Clock (and leds)
-			ld		a, 0x09			; both leds off
+			xor		a				; both leds off
 			ld		[Z.led_buffer], a
 			call	rtc_init		; set default state and leds
 ; Floppy Disk Controller
@@ -287,15 +283,6 @@ rst00		di						; interrupts off
 ; Interrupts
 			call	int_init		; at the bottom of this module
 
-; Put a 3 on the number display
- if DIGITS_EXIST
-			ld		a, 3
-			call	progress
- endif
- if LEDS_EXIST
-			ld		a, 0x09			; both leds off
-			call	set_led
- endif
 
 ;===============================================================================
 ; Sign on at the stdio port
@@ -303,6 +290,11 @@ rst00		di						; interrupts off
 
 TEXT_BUFFER		equ		0x80		; arbitrary place for a text input buffer
 SIZEOF_BUFFER	equ		80
+
+	if	LIGHTS_EXIST
+			ld		a, 0xff			; run the led strobe
+			ld		[led_countdown], a
+	endif
 
 ; before we sign on send some zeros to ensure everything is in sync
 			ld		b, 5
@@ -377,7 +369,9 @@ good_end	ld		a, [ram_test]	; running in RAM?
 ;===============================================================================
 
 ; The jump table matches a letter to an address
-cmd_list	db	'B'					; read a block of data to an address
+cmd_list	db	'A'					; set bitflags
+			dw	cmd_a
+			db	'B'					; read a block of data to an address
 			dw	cmd_b
  if ALLOW_ANSI
  			db	'C'					; clear screen
@@ -399,14 +393,12 @@ cmd_list	db	'B'					; read a block of data to an address
 			db	'L'					; set the LEDs
 			dw	cmd_l
  endif
+			db	'M'					; SD interface
+			dw	cmd_m
 			db	'N'					; program ROM
 			dw	cmd_n
 			db	'O'					; output to a port
 			dw	cmd_o
- if DIGITS_EXIST
-			db	'P'					; panel command
-			dw	cmd_p
- endif
 			db	'R'					; read memory
 			dw	cmd_r
 			db	'S'					; save command
@@ -480,22 +472,20 @@ cmd_e		call		stdio_str
 ;					H          output the current default address
 ;===============================================================================
 cmd_h		ld		ix, [Z.def_address]		; default value
-			ld		a, [Z.def_address+2]	; !! not ld c,(...) which compiles
-			ld		c, a					; but wrong
-			call	gethex					; in C:IX
+			ld		bc, [Z.def_address+2]	; !! not ld c,(...) which compiles
+			call	gethex32				; in BC:IX
 			jp		nc, err_badaddress		; value syntax
 			ld		[Z.def_address], ix
-			ld		a, c					; no ld (addr),c in Z80 speak
-			ld		[Z.def_address+2], a
+			ld		[Z.def_address+2], bc
 
 			push	hl						; preserve command string stuff
 			call	stdio_str
 			db		"\r\nhex: ",0
 			ld		hl, ix
-			call	stdio_24bit				; output C:HL
+			call	stdio_32bit				; output BC:HL
 			call	stdio_str
 			db		" decimal: ",0
-			call	stdio_decimal24			; C:HL again
+			call	stdio_decimal32			; BC:HL again
 			pop		hl
 
 			call	skip					; more data on line?
@@ -513,8 +503,7 @@ cmd_h		ld		ix, [Z.def_address]		; default value
 ; R read memory command		R address20  (not 24)
 ;===============================================================================
 cmd_r		ld		ix, [Z.def_address]		; default value
-			ld		a, [Z.def_address+2]
-			ld		c, a
+			ld		bc, [Z.def_address+2]
 			call	gethex20				; in C:IX
 			jp		nc, err_badaddress		; address syntax
 			call	skip					; more data on line?
@@ -523,8 +512,7 @@ cmd_r		ld		ix, [Z.def_address]		; default value
 			and		0xf0					; bad address
 			jp		nz, err_outofrange
 			ld		[Z.def_address], ix		; save as default
-			ld		a, c
-			ld		[Z.def_address+2], a
+			ld		[Z.def_address+2], bc
 
 			call	stdio_str
 			db		"\r\n",0
@@ -542,16 +530,14 @@ cmd_r		ld		ix, [Z.def_address]		; default value
 ;		so I do not complain on data errors, they are just terminators
 ;===============================================================================
 cmd_w		ld		ix, [Z.def_address]		; default value
-			ld		a, [Z.def_address+2]
-			ld		c, a
+			ld		bc, [Z.def_address+2]
 			call	gethex20				; in C:IX
 			jp		nc, err_badaddress		; address syntax
 			ld		a, c
 			and		0xf0					; illegal for an address
 			jp		nz, err_outofrange
 			ld		[Z.def_address], ix		; useful so I can use R to check it
-			ld		a, c
-			ld		[Z.def_address+2], a
+			ld		[Z.def_address+2], bc
 			ld		iy, ix					; save the address in B:IY
 			ld		b, c
 
@@ -583,16 +569,14 @@ cmd_w		ld		ix, [Z.def_address]		; default value
 ; F fill memory command 	F address20 count16 data8
 ;===============================================================================
 cmd_f		ld		ix, [Z.def_address]		; default value
-			ld		a, [Z.def_address+2]
-			ld		c, a
+			ld		bc, [Z.def_address+2]
 			call	gethex20				; in C:IX
 			jp		nc, err_badaddress		; address syntax
 			ld		a, c
 			and		0xf0					; legal address?
 			jp		nz, .cf2				; no
-			ld		a, c
 			ld		[Z.def_address], ix		; useful so I can use R to check it
-			ld		[Z.def_address+2], a
+			ld		[Z.def_address+2], bc
 
 			ld		ix, 0					; default count (0=error)
 			call	gethexW
@@ -638,15 +622,19 @@ cmd_f		ld		ix, [Z.def_address]		; default value
 ;===============================================================================
 ; I input command			I port
 ;===============================================================================
-cmd_i		ld		ix, [Z.def_port]		; default address
+cmd_i		ld		a, [Z.def_port]			; default address
+			ld		ixh, 0
+			ld		ixl, a
 			call	gethexB					; in IXL
 			jp		nc, .ci1				; address syntax
 			call	skip					; more data on line?
 			jp		nz, err_toomuch
-			ld		[Z.def_port], ix
+			ld		a, ixl
+			ld		[Z.def_port], a
 
 			call	stdio_str
 			db		"\r\n",0
+			ld		c, a
 			in		a, (C)					; get the byte
 			call	stdio_byte
 			jp		good_end
@@ -657,7 +645,9 @@ cmd_i		ld		ix, [Z.def_port]		; default address
 ;===============================================================================
 ; O output command			O port data
 ;===============================================================================
-cmd_o		ld		ix, [Z.def_port]		; default address
+cmd_o		ld		ixh, 0
+			ld		a, [Z.def_port]			; default address
+			ld		ixl, a
 			call	gethexB					; port in IXL
 			jp		nc, cmd_i.ci1			; syntax in address
 			ld		iy,	ix					; save port
@@ -670,7 +660,8 @@ cmd_o		ld		ix, [Z.def_port]		; default address
 			ld		hl, ix					; data in L
 
 			ld		bc, iy					; recover port in C
-			ld		[Z.def_port], bc
+			ld		a, c
+			ld		[Z.def_port], a
 			ld		a, l
 			out		(c), a
 			jp		good_end
@@ -699,21 +690,19 @@ cmd_d		call	skip					; start by handling the + option
 			jr		.cd3					; normal operation
 ; + option
 .cd1		ld		ix, [Z.def_address]		; default address
-			ld		a, [Z.def_address+2]
+			ld		bc, [Z.def_address+2]
 			inc		ixh						; +=256
 			jr		nz, .cd2				; no C on inc
-			inc		a
-			ld		[Z.def_address+2], a
+			inc		bc
+			ld		[Z.def_address+2], bc
 .cd2		ld		[Z.def_address], ix		; all details OK
 			jr		.cd4
 			
 .cd3		ld		ix, [Z.def_address]		; default address
-			ld		a, [Z.def_address+2]
-.cd4		ld		c, a
+			ld		bc, [Z.def_address+2]
 			call	gethex20				; in C:IX
 			jp		nc, err_badaddress		; address syntax
-			ld		iy, ix					; address in B:IY
-			ld		b, c
+.cd4		ld		iy, ix					; address in C:IY
 
 			ld		ix, 256					; default on count is 0x100
 			call	gethexW
@@ -721,13 +710,12 @@ cmd_d		call	skip					; start by handling the + option
 			call	skip					; more on line?
 			jp		nz, err_toomuch
 
-			ld		[Z.def_address], iy		; all details OK
-			ld		a, b
-			ld		[Z.def_address+2], a
+			ld		[Z.def_address], iy		; all details OK so save
+			ld		[Z.def_address+2], bc
 
-			; we have the address in B:IY and count in IX
+			; we have the address in C:IY and count in IX
 			; Add a quick heading to stop mistakes
-			ld		a, b
+			ld		a, c
 			and		a, 0x08					; set for ROM
 			jr		z, .cd5
 			call	stdio_str
@@ -735,17 +723,16 @@ cmd_d		call	skip					; start by handling the + option
 			jr		.cd6
 .cd5		call	stdio_str
 			db		"  RAM", 0
-.cd6		ld		c, iyh					; get top two bits
-			ld		a, b
-			rl		c						; left slide C into A
+.cd6		ld		a, c					; get the top bits
+			ld		b, iyh					; get top two bits of IY
+			rl		b						; left slide B into A
 			rl		a
-			rl		c
+			rl		b
 			rl		a
-			and		0x1f
+			and		0x1f					; 0-31
 			call	stdio_decimalB
 			; and output
 			ld		hl, iy					; address in C:HL
-			ld		c, b
 			ld		de, ix					; count in DE
 			call	stdio_dump
 			jp		good_end
@@ -898,7 +885,7 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 			call	stdio_putc
 			ld		a, [Z.preTick]		// @50Hz
 			add		a					// as hundredths of a second
-			call	stdio_decimalB3
+			call	stdio_decimalB2
 			call	stdio_str
 			db		" secs",0
 			jp		good_end
@@ -937,49 +924,39 @@ cmd_c		call	stdio_str
 ; L  LED command	eg:	L 01 = LED1 off, LED2 on  L x1 = leave LED1, LED2 on
 ;===============================================================================
  if LEDS_EXIST
-cmd_l		ld		a, [led_buffer]		; previous state
+cmd_l		ld		a, [Z.led_buffer]	; previous state
 			ld		b, a				; hold in B
 			call	skip				; skip blanks return next char
 			jp		z, err_runout		; EOL so got nothing
 			cp		'0'					; LED1 off?
 			jr		nz, .cl1
 			ld		a, b
-			or		0x08				; set b3
+			and		~0x08				; clear b3
 			ld		b, a
 			jr		.cl2
 .cl1		cp		'1'					; LED1 on?
 			jr		nz, .cl2
 			ld		a, b
-			and		~0x08				; clear b3
+			or		0x08				; set b3
 			ld		b, a
 .cl2		call	skip				; get second character
 			jr		z, .cl5				; clearly only doing LED1 today
 			cp		'0'					; LED2 off?
 			jr		nz, .cl3
 			ld		a, b
-			or		0x01				; set b0
+			and		~0x01				; clear b0
 			ld		b, a
 			jr		.cl4
 .cl3		cp		'1'					; LED2 on?
 			jr		nz, .cl4
 			ld		a, b
-			and		~0x01				; clear b0
+			or		0x01				; set b0
 			ld		b, a
 .cl4		call	skip
 			jp		nz, err_toomuch		; more stuff on line is error
 .cl5		ld		a, b
-			ld		[led_buffer], a
+			ld		[Z.led_buffer], a
 			call	rtc_init
-			jp		good_end
- endif
-
-;===============================================================================
-; P  panel command : display a code
-;===============================================================================
- if DIGITS_EXIST
-cmd_p		call	skip
-			jp		z, err_runout
-			call	dodigit
 			jp		good_end
  endif
 
@@ -1110,7 +1087,7 @@ cmd_n		ld		ix, ROM5			; provisional ROM number
 			call	stdio_20bit			; output C:HL in hex
 			jp		good_end			; OK
 
-; exit mesages
+; exit messages
 .cn7		call	stdio_str
 			db		"\r\nOK",0
 			jp		good_end
@@ -1122,6 +1099,66 @@ test_block	db		"Test block for ROM programming =0123456789 "
 			db		"abcdefghijklmnopqrstuvwxyz "
 			db		"ABCDEFGHIJKLMNOPQRSTUVWXYZ "
 size_test	equ		$-test_block	; should be 97 which is a prime
+
+;===============================================================================
+; M  read/write SD cards  M data_address sector_number R|W
+;===============================================================================
+cmd_m		jp		err_manana
+
+;===============================================================================
+; A  set diagnostic etc bit flags A-X (24 bits)
+;===============================================================================
+cmd_bits	db		0,0,0		; only writable in RAM mode
+
+cmd_a		call	skip
+			jr		z, .a4		; no commands, just display
+			call	isalpha
+			jp		nc, err_outofrange
+			and		~0x20		; force upper case
+			cp		'Y'			; A=0, X=23
+			jp		nc, err_outofrange
+			push	hl, bc
+			ld		hl, 1		; bit 0
+			ld		c, 0		; work 24 bits
+			sub		'A'			; convert to bit number
+			jr		z, .a3		; zero so no slide
+			ld		b, a
+.a2			or		a			; clear carry
+			rl		l			; hl << 1
+			rl		h
+			rl		c
+			djnz	.a2
+.a3			ld		a, [cmd_bits]
+			xor		l
+			ld		[cmd_bits], a
+			ld		a, [cmd_bits+1]
+			xor		h
+			ld		[cmd_bits+1], a
+			ld		a, [cmd_bits+2]
+			xor		c
+			ld		[cmd_bits+2], a
+			pop		bc, hl
+			jr		cmd_a
+
+; display flags
+.a4			call	stdio_str
+			db		"\r\n", 0
+			ld		a, 24
+			ld		b, a
+			ld		c, 'A'
+			ld		hl, [cmd_bits]
+			ld		a, [cmd_bits+2]
+			ld		e, a
+.a5			ld		a, '.'
+			rr		e
+			rr		h
+			rr		l
+			jr		nc, .a6
+			ld		a, c
+.a6			call	stdio_putc		; write A
+			inc		c
+			djnz	.a5
+			jp		good_end
 
 ;===============================================================================
 ; Error loaders so I can just jp cc, readable_name
@@ -1245,17 +1282,26 @@ int0		reti
 ;-------------------------------------------------------------------------------
 ; CTC1		50Hz = 20mS
 ;-------------------------------------------------------------------------------
+		if	LIGHTS_EXIST
+led_countdown	db	0
+strobe_table	db	0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff
+				db	0x7f, 0x3f, 0x1f, 0x0f, 0x07, 0x03, 0x01, 0x00
+				db	0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff
+				db	0x7f, 0x3f, 0x1f, 0x0f, 0x07, 0x03, 0x01, 0x00
+len_strobe		equ	$-strobe_table
+		endif
+		
 int1		di
-			push	af
-			push	hl
+			push	af, hl
+; 50 Hz ticks
 			ld		a, [Z.preTick]		; uint8 counts 0-49
 			inc		a
 			ld		[Z.preTick], a
 			cp		50
-			jr		nz, .q1
+			jr		c, .q2
 			xor		a
 			ld		[Z.preTick], a
-
+; 1Hz ticks
 			ld		hl, Z.Ticks			; unit32 counts seconds
 			inc		[hl]				; b0-7
 			jr		nz, .q1				; beware, inc does not set carry
@@ -1267,8 +1313,45 @@ int1		di
 			jr		nz, .q1
 			inc		hl
 			inc		[hl]				; b24-31	2^32 seconds is 136 years
-.q1			pop		hl
-			pop		af
+.q1		
+; put things for 1Hz service here
+
+
+.q2
+; put things for 50Hz service here
+
+; strobe leds
+		if	LIGHTS_EXIST
+			ld		a, [Z.preTick]		; drop to 25Hz
+			and		a, 1
+			jr		nz, .lr2
+			ld		a, [led_countdown]	; do we want a countdown?
+			or		a
+			jr		z, .lr2				; no
+			cp		len_strobe			; beware the table length
+			jr		c, .lr1
+			ld		a, len_strobe
+.lr1		dec		a
+			ld		[led_countdown], a
+			ld		hl, strobe_table
+			add		a, l
+			ld		l, a
+			ld		a, h
+			adc		0
+			ld		h, a
+			ld		a, [hl]
+			out		(PIO+1), a
+.lr2
+; switches to lights option
+			ld		a, [cmd_bits]
+			and		1					; bit 0 = 'A'
+			jr		z, .q3
+			in		a, (PIO_A)			; read switches
+			out		(PIO_B), a			; write leds
+.q3
+		endif
+; finished and exit
+			pop		hl, af
 			ei
 			reti
 
@@ -1281,133 +1364,4 @@ int2		jp		serial_interrupt
 ; CTC3		Wired to PC3 which is an interrupt output in a smart mode
 ;-------------------------------------------------------------------------------
 int3		reti
-
-;===============================================================================
-;
-;		diagnostic flasher
-;
-;===============================================================================
-
-; put numbers on my 7 segment plug-in
- if DIGITS_EXIST
-; to change the wiring just change the macro
-MAKED		macro	V, A,B,C,D,E,F,G,DP
-			db		V, ~(A<<7 | B | C<<2 | D<<4 | E<<5 | F<<6 | G<<1 | DP<<3)
-			endm
-
-digits		;			 A B C D E F G DP
-			MAKED	'0', 1,1,1,1,1,1,0,0	; O
-			MAKED	'1', 0,1,1,0,0,0,0,0	; 1			====A====
-			MAKED	'2', 1,1,0,1,1,0,1,0	; 2			|		|
-			MAKED	'3', 1,1,1,1,0,0,1,0	; 3			|		|
-			MAKED	'4', 0,1,1,0,0,1,1,0	; 4			F		B
-			MAKED	'5', 1,0,1,1,0,1,1,0	; 5			|		|
-			MAKED	'6', 1,0,1,1,1,1,1,0	; 6			|		|
-			MAKED	'7', 1,1,1,0,0,0,0,0	; 7			====G====
-			MAKED	'8', 1,1,1,1,1,1,1,0	; 8			|		|
-			MAKED	'9', 1,1,1,1,0,1,1,0	; 9			|		|
-			MAKED	'A', 1,1,1,0,1,1,1,0	; A			E		C
-			MAKED	'b', 0,0,1,1,1,1,1,0	; b			|		|
-			MAKED	'C', 1,0,0,1,1,1,0,0	; C			|		|	DP
-			MAKED	'c', 0,0,0,1,1,0,1,0	; c			====D====
-			MAKED	'd', 0,1,1,1,1,0,1,0	; d
-			MAKED	'E', 1,0,0,1,1,1,1,0	; E
-			MAKED	'F', 1,0,0,0,1,1,1,0	; F
-			MAKED	'H', 0,1,1,0,1,1,1,0	; H
-			MAKED	'h', 0,0,1,0,1,1,1,0	; h
-			MAKED	'i', 0,0,1,0,0,0,0,0	; i
-			MAKED	'J', 0,1,1,1,1,0,0,0	; J
-			MAKED	'L', 0,0,0,1,1,1,0,0	; L
-			MAKED	'o', 0,0,1,1,1,0,1,0	; o
-			MAKED	'P', 1,1,0,0,1,1,1,0	; P
-			MAKED	't', 0,0,0,1,1,1,1,0	; t
-			MAKED	'U', 0,1,1,1,1,1,0,0	; U
-			MAKED	'u', 0,0,1,1,1,0,0,0	; u
-			MAKED	'[', 1,0,0,1,1,1,0,0	; [
-			MAKED	']', 1,1,1,1,0,0,0,0	; ]
-			MAKED	'_', 0,0,0,1,0,0,0,0	; _
-			MAKED	'=', 0,0,0,1,0,0,1,0	; =
-			MAKED	'-', 0,0,0,0,0,0,1,0	; -
-			MAKED	'.', 0,0,0,0,0,0,0,1	; .
-max_digit	equ		($-digits)/2
-
-;===============================================================================
-;	progress  character on the display panel
-;===============================================================================
-
-dodigit		push	hl			; character in A
-			ld		hl, digits
-			ld		b, max_digit
-.p1			cp		[hl]
-			jr		z, .p2
-			inc		hl
-			inc		hl
-			djnz	.p1
-			ld		a, 0xff		; all off
-			jr		.p3
-.p2			inc		hl
-			ld		a, [hl]
-.p3			out		(PIO_A), a
-			pop		hl
-			ret
-
-progress	and		0x0f
-			add		a, '0'
-			call	dodigit
-			; fall through into the delay
- endif
-;===============================================================================
-; diagnostic delay of 1/2 second
-;===============================================================================
-
-ddelay		push	hl
-			push	bc
-			ld		b, 4
-.d1			ld		hl, 43103	; 29T per loop = 1/8 secs
-.d2			dec		hl			; 6T
-			ld		a, h		; 4T
-			or		l			; 7T
-			jr		nz, .d2		; 12T if jumps else 7T
-			djnz	.d1
-			pop		bc
-			pop		hl
-			ret
-;===============================================================================
-; flasher		die with style
-;===============================================================================
- if LEDS_EXIST
-flasher		ld		de, 0
-			; read the jumper write the port
-.j1			in		a, [RTC]	; read jumper
-			and		0x40		; in bit 6
-			ld		a, 0x01		; out bit 0 RH led (off)
-			jr		z, .j2
-			ld		a, 0x09		; plus bit 4 LH led (off)
-.j2			or		a, 0x20		; turn odd WE for the RTC
-			out		(RTC), a
-
-			call	ddelay
-
-			; read jumper but change LH led
-			in		a, [RTC]	; read jumper
-			and		0x40		; in bit 6
-			ld		a, 0x00		; out bit 0 RH led (on)
-			jr		z, .j3
-			ld		a, 0x08		; plus bit 4 LH led (off)
-.j3			or		a, 0x20		; turn odd WE for the RTC
-			out		(RTC), a
-
-			call	ddelay
-
-			ld		hl, digits
-			add		hl, de
-			ld		a, [hl]
-			out		(PIO_A), a
-			inc		de
-			ld		a, e
-			cp		20
-			jr		c, .j1
-			ld		de, 0
-			jr		.j1
- endif
 

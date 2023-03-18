@@ -1,5 +1,35 @@
-﻿ ; Now comes the software I used with my operational changes marked NVH
-; There is lots of unmarked editing to make it suit my assembler
+﻿;===============================================================================
+;
+;		sd.asm		My hack on John Winans code
+;
+;===============================================================================
+
+; these are the three interfaces
+; Blocks are 512 bytes
+
+sd_wakeup
+			call	sd_reset
+			ret
+			
+sd_write_block
+; Write one block given by the 32-bit (little endian) number at
+; the top of the stack from the buffer given by address in DE.
+; A = 0 if the write operation was successful. Else A = 1.
+
+; I say pass in the 32 bit number in BC:HL
+			push	ix, hl, bc
+			call	sd_cmd24
+			pop		bc, hl, ix
+			ret
+			
+sd_read_block
+; Read one block given by the 32-bit (little endian) number at
+; the top of the stack into the buffer given by address in DE.
+; A = 0 if the read operation was successful. Else A=1
+			push	ix, hl, bc
+			call	sd_cmd17
+			pop		bc, hl, ix
+			ret
 
 ;****************************************************************************
 ;
@@ -139,7 +169,7 @@ sd_cmd_r1
 		; assert the SSEL line
 		call    spi_ssel_true
 
-		; write a sequence of bytes represending the CMD message
+		; write a sequence of bytes representing the CMD message
 		call    spi_write_str		; write B bytes from HL buffer @
 
 		; read the R1 response message
@@ -658,7 +688,7 @@ sd_cmd24
 		push	hl			; +2
 		push	iy			; +0
 
-		ld		iy, sd_scratch		; iy = buffer to format command
+		ld		iy, sd_scratch	; iy = buffer to format command
 		ld		ix, 10			; 10 is the offset from sp to the location of the block number
 		add		ix, sp			; ix = address of uint32_t sd_lba_block number
 

@@ -30,3 +30,12 @@ Switch to the ld a, [some_address] format rather than (some_address)
 0.1.11
 Wrote to ROM
 add + option to d to show the next sequential block
+
+0.1.12
+Introduce 32 bit numbers primarily for SD sectors. However this gives me an
+opportunity to sort out the mess hex and decimal numbers have become.
+Rewrite the SPI interface and try to make the SD code more approachable.
+Write the FAT32 technology demonstrator for a PC in C++ to read SD cards and
+start to extend it to other FAT variants for the floppy disk drive.
+Reverse the polarity of the LEDs to match the new case wiring
+Add the option flags and copy switches to lights on option A
