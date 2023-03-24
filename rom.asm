@@ -266,6 +266,7 @@ programROMn
 
 ;-------------------------------------------------------------------------------
 ; wedgeROM	call a function in ROMn
+;			(Actually ROM1 is in RAM4 and ROM2 is in RAM5)
 ;			put the parameters on the registers as the function writeup
 ;			call this via the MACRO callBIOS
 ;			if it returns CY all went well

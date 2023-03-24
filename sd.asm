@@ -26,11 +26,20 @@ sd_read_block
 ; Read one block given by the 32-bit (little endian) number at
 ; the top of the stack into the buffer given by address in DE.
 ; A = 0 if the read operation was successful. Else A=1
-			push	ix, hl, bc
-			call	sd_cmd17
-			pop		bc, hl, ix
-			ret
+			jp		sd_cmd17
 
+; this is the command handler
+; read sector BC:IX into address DE
+f_readsector
+			push	bc, ix
+			; ignore the device 'C' in A
+			; target address is already in DE
+			call	sd_read_block
+			pop		ix, bc
+			or		a
+			jp		nz, f_bad
+			jp		f_good
+			
 ;****************************************************************************
 ;
 ;    Copyright (C) 2021 John Winans

@@ -4,11 +4,6 @@
 ;
 ;===============================================================================
 
-PIO_A		equ		PIO+0		; bits A7-A0
-PIO_B		equ		PIO+1		; bits B7-B0
-PIO_C		equ		PIO+2		; bits C7-C0
-PIO_CON		equ		PIO+3		; control port
-
 ; At reset the control byte is 0x9b all inputs
 ; mode 0 is simple IO
 PIO_MODESET	equ		0x80		; setting modes (not setting bits)

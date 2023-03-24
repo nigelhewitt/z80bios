@@ -38,4 +38,18 @@ Rewrite the SPI interface and try to make the SD code more approachable.
 Write the FAT32 technology demonstrator for a PC in C++ to read SD cards and
 start to extend it to other FAT variants for the floppy disk drive.
 Reverse the polarity of the LEDs to match the new case wiring
-Add the option flags and copy switches to lights on option A
+Add the option flags and copy switches to lights on option A.
+
+0.1.13
+Mostly today I was rewiring things now that I have the new parts.
+Copy ROM1 and ROM2 into RAM4 and RAM5 at boot so I can have 'local' variables
+and then modify the CALLBIOS macro to use RAM4/5.
+Add the M command to read the SD. Naturally it doesn't work yet.
+Add date/time to the BIOS1/2 sign on plus a RAM check
+
+
+
+
+
+
+

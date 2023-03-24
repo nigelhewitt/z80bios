@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.12"		; version number for sign on message
+	define	VERSION	"v0.1.13"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.0"		move to local repository, use version number
+;   	git commit -m "0.1.13"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 I use the alternative [] form for an addresses
@@ -260,6 +260,37 @@ rst00		di						; interrupts off
 ; do the ram test
 			ld		a, 1
 			ld		[ram_test], a	; fails in ROM
+
+;-------------------------------------------------------------------------------
+;  More mapping
+;  Put ROM1 in RAM4 and ROM2 in RAM5 for sideways bios extensions
+;-------------------------------------------------------------------------------
+
+; RAM4 in PAGE1 and ROM1 in PAGE2
+			ld		a, RAM4
+			out		(MPGSEL1), a
+			ld		a, ROM1
+			out		(MPGSEL2), a
+; copy
+			ld		hl, PAGE2		; source pointer
+			ld		de, PAGE1		; destination pointer
+			ld		bc, PAGE_SIZE	; Page size
+			ldir
+; RAM5 in PAGE1 and ROM2 in PAGE2
+			ld		a, RAM5
+			out		(MPGSEL1), a
+			ld		a, ROM2
+			out		(MPGSEL2), a
+; copy
+			ld		hl, PAGE2		; source pointer
+			ld		de, PAGE1		; destination pointer
+			ld		bc, PAGE_SIZE	; Page size
+			ldir
+; restore RAM1 to PAGE1 and RAM2 to PAGE2
+			ld		a, RAM1
+			out		(MPGSEL1), a
+			ld		a, RAM2
+			out		(MPGSEL2), a
 
 ;===============================================================================
 ; Time to set things up
@@ -891,7 +922,7 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 			jp		good_end
 
 ;===============================================================================
-; Z  the anything test Z for temporary
+; Z  the current thing being tested
 ;===============================================================================
 cmd_z		ld		a, 0
 			ld		hl, 0x1234
@@ -909,7 +940,7 @@ cmd_z		ld		a, 0
 ; K  the kill command
 ;===============================================================================
 cmd_k		di
-			halt				; push the reset button kiddo
+			halt				; just push the reset button kiddo
 			jr		cmd_k
 
 ;===============================================================================
@@ -1101,9 +1132,16 @@ test_block	db		"Test block for ROM programming =0123456789 "
 size_test	equ		$-test_block	; should be 97 which is a prime
 
 ;===============================================================================
-; M  read/write SD cards  M data_address sector_number R|W
+; M  read/write SD cards  M sector_number read to 0x100
 ;===============================================================================
-cmd_m		jp		err_manana
+cmd_m		call	gethex32		; in BC:IX
+			call	stdio_str
+			db		"\r\n", 0
+			ld		de, 0x100		; DE destination address
+			ld		a, 'C'
+			
+			CALLBIOS ReadSector
+			jp		good_end
 
 ;===============================================================================
 ; A  set diagnostic etc bit flags A-X (24 bits)

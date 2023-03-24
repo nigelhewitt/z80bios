@@ -38,11 +38,27 @@ bios2_functions
 			dw		f_kill				; 3
 bios2_count	equ		($-bios2_functions)/2
 
-f_biosver	call	stdio_str			; uses nothing
+ram_test	db		0
+f_biosver	ld		a, 1
+			ld		[ram_test], a
+			call	stdio_str			; uses nothing
 			RED
-			db		"BIOS2 loaded\r\n"
-			WHITE
+			db		"BIOS2 loaded "
+			db		__DATE__
+			db		" "
+			db		__TIME__
 			db		0
+			ld		a, [ram_test]
+			or		a
+			jr		z, .fb1
+			call	stdio_str
+			BLUE
+			db		" in RAM",0
+.fb1		call	stdio_str
+			WHITE
+			db		"\r\n", 0
+			
+; exit paths from handlers
 f_good		scf
 			ret
 

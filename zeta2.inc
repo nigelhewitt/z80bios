@@ -1,6 +1,6 @@
 ﻿;===============================================================================
 ;
-;   Basic definitions about the Zeta2 board
+;   Basic definitions for the Zeta2 board
 ;
 ;===============================================================================
 
@@ -9,7 +9,7 @@ SDC_EXISTS		equ		1		; SDC board fitted
 ALLOW_ANSI		equ		1		; Terminal accepts ANSI strings
 LIGHTS_EXIST	equ		1		; switches on PIO_A and lights on PIO_B
 
-ROM_SHIFT	equ		9*1024		; 9K How much of PAGE3 we can give to RAM
+ROM_SHIFT	equ		10*1024		; 10K How much of PAGE3 we can give to RAM
 CPUCLK		equ		10000		; master clock in kHz
 
 ; IO groups base address
@@ -56,4 +56,11 @@ RAM4		equ		36
 RAM5		equ		37
 RAM6		equ		38
 RAM7		equ		39	; and on to RAM31
+
+; The PIO sub ports are needed in both ROM0 and ROM1 so they go here
+PIO_A		equ		PIO+0		; bits A7-A0
+PIO_B		equ		PIO+1		; bits B7-B0
+PIO_C		equ		PIO+2		; bits C7-C0
+PIO_CON		equ		PIO+3		; control port
+
 
