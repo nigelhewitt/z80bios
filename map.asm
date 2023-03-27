@@ -119,34 +119,51 @@ resPage		push	bc, iy
 ;-------------------------------------------------------------------------------
 ; getPageByte	get a byte from C:IX in A leaving everything unchanged.
 ;				It works the stack free trick so it can get from anywhere
+;				If C==0xff use [IX] local memory
 ;-------------------------------------------------------------------------------
-getPageByte	push	hl, bc, iy, ix
+getPageByte	ld		a, c
+			cp		0xff
+			jr		nz, .gb1
+			ld		a, [ix]
+			ret
+			
+.gb1		push	hl, bc, iy, ix
 			ld		a, 1			; via PAGE1
-			ld		iy, .gb1
-			jp		_setPage
-.gb1		ld		h, [IX]			; get the byte
+			ld		iy, .gb2		; return address
+			jp		_setPage		; does not ret due to stack, jp [iy]
+.gb2		ld		h, [IX]			; get the byte
 			ld		a, 1			; PAGE1
-			ld		iy, .gb2
+			ld		iy, .gb3
 			jr		_resPage
-.gb2		ld		a, h			; result in A
+.gb3		ld		a, h			; result in A
 			pop		ix, iy, bc, hl
 			ret
 
 ;-------------------------------------------------------------------------------
 ; putPageByte	set a byte in C:IX from A.
 ;				Again it works the stack free trick
+;				if C==0xff use [IX] local memory
 ;-------------------------------------------------------------------------------
-putPageByte	push	de, hl, bc, iy, ix
+putPageByte	push	de
 			ld		d, a			; save the byte
+			ld		a, c			; local page?
+			cp		0xff
+			jr		nz, .pb1		; no
+			ld		a, d
+			ld		[ix], a
+			jr		.pb4
+
+.pb1		push	hl, bc, iy, ix
 			ld		a, 1			; via PAGE1
-			ld		iy, .pb1
-			jp		_setPage		; does not use DE
-.pb1		ld		[IX], d			; get the byte
-			ld		a, 1			; PAGE1
 			ld		iy, .pb2
+			jp		_setPage		; does not use DE
+.pb2		ld		[IX], d			; get the byte
+			ld		a, 1			; PAGE1
+			ld		iy, .pb3
 			jp		_resPage
-.pb2		ld		a, d
-			pop		ix, iy, bc, hl, de
+.pb3		ld		a, d
+			pop		ix, iy, bc, hl
+.pb4		pop		de
 			ret
 
 ;-------------------------------------------------------------------------------

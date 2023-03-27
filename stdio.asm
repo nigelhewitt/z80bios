@@ -387,6 +387,7 @@ tohex		cp		'A'
 ;  stdio_dump		format a dump of memory
 ;===============================================================================
 stdio_dump			; C:HL = pointer, DE = count, uses HL and DE
+					; if C=0xff use local [HL] not [C:HL]
 			push	af, bc, ix
 			ld		ix, hl					; move pointer to C:IX
 ; do a line
@@ -785,3 +786,40 @@ doFlag		macro	mask, char
 			pop		bc
 			pop		af
 			ret
+
+;===============================================================================
+; 1 mSecond delay
+; uses nothing
+;===============================================================================
+
+delay1ms			; ie CPUCLK (10000) T states
+					; the routine adds up to 63+(ND-1)*13+MD*3323+OD*4
+					;		= 50+ND*13+MD*3323
+MD			equ		(CPUCLK-50)/3323
+ND			equ		((CPUCLK-50)%3323)/13
+OD			equ		(((CPUCLK-50)%3323)%13)/4
+					; so that should get us within 3T of 1mS in 11 bytes
+
+							; the call cost T=17
+			push	bc		; T=11
+			ld		b, ND	; T=7
+			djnz	$		; T=(N-1)*13+8
+ if MD > 0
+	.(MD)	djnz	$		; T=MD*(255*13+8) = MD*3323
+ endif
+ if OD > 0
+ 	.(OD)	nop				; T=4
+ endif
+			pop		bc		; T=10
+			ret				; T=10
+;===============================================================================
+; delay BC mSecs
+;===============================================================================
+
+delay		call	delay1ms
+			dec		bc
+			ld		a, b
+			or		c
+			ret		z
+			jr		delay
+			

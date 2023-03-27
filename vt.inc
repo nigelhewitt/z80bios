@@ -15,17 +15,19 @@ Ticks		ds		4				; uint32 time in seconds
 led_buffer	ds		1				; led buffer LD1=b3 LD2=b0 (active low)
 snap_mode	ds		1				; 0=SNAP macro, 1=RST 0x08
 last_error	ds		2				; last error number
-			ds		1				; spare
+cr_a		ds		1				;
 			ds		3				; JP rst20
 cr_sp		ds		2				; call ROM function storage
 cr_rom		ds		1
 cr_fn		ds		1
 cr_ret		ds		1
 			ds		3				; JP rst28
-			ds		5
+			ds		1
+			ds		4
+cr_stack
 			ds		3				; JP rst30
 			ds		5
 			ds		3				; JP rst38
-bios1_wedge	ds		43
+bios_wedge	ds		43
 			ds		3				; JP nmi
 			ends

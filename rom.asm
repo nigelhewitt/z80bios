@@ -271,51 +271,50 @@ programROMn
 ;			call this via the MACRO callBIOS
 ;			if it returns CY all went well
 ;-------------------------------------------------------------------------------
-	if BIOSROM == 0		; only wanted in BIOS0
+;
+; This function is called by the macro CALLBIOS
+; The macro has put the ROM/FN in PAGE0
+;
+; The whole angst with wedgeRom is the fact that the stack will probably all go
+; away when we change the PAGE3 memory. However I really want to keep as many
+; of the register values intact for the receiving function both as input and
+; output. I can't come up with a way to make it re-entrant.
 
-; this function is called by the macro CALLBIOS
-wedgeROM	; copy the interface wedge into PAGE0
-			push	bc, de, hl
-			ld		de, Z.bios1_wedge	; destination
-			ld		hl, .cr2			; source
-			ld		bc, size_wedge		; count
-			ldir
-			pop		hl, de, bc
+wedgeROM
 ; set up the return page
-			push	af
+			push	af					; save A
 			ld		a, [ram_test]		; 0 for ROM and 1 for RAM
 			or		a
 			ld		a, ROM0
 			jr		z, .cr1				; default is ROM0
 			ld		a, RAM3				; return to bios in ram
-			ld		[Z.cr_ret], a
-.cr1
+.cr1		ld		[Z.cr_ret], a
 			pop		af
+			
+; copy the interface wedge into PAGE0
+			push	hl, bc, de
+			ld		de, Z.bios_wedge	; destination
+			ld		hl, .callingWedge	; source
+			ld		bc, size_wedgeC		; count
+			ldir
+			pop		de, bc				; leave HL on stack
 ; save the SP as it is probably in PAGE3
-			push	hl
-			ld		hl, 2				; so we miss the push hl
+			ld		hl, 2				; so we miss the pushed HL
 			add		hl, sp
 			ld		[Z.cr_sp], hl
 			pop		hl
-			ld		sp, PAGE3
 			di							; stop the CTC ticking
-; and jump in
-			di
-			call	Z.bios1_wedge
-			ei
+			ld		sp, Z.cr_stack		; 2 slots!
+; and jump in with all registers as when called
+			call	Z.bios_wedge		; ie: put return address in [Z.cr_stack]
 			ld		sp, [Z.cr_sp]
+			ei
 			ret
-; the wedge
-.cr2		push	af
+			
+; the calling wedge
+.callingWedge
 			ld		a, [Z.cr_rom]
-			out		(MPGSEL3), a	; set which ROM in page3
-			pop		af
-			call	PAGE3
-			push	af
-			ld		a, [Z.cr_ret]
-			out		(MPGSEL3), a
-			pop		af
-			ret
-size_wedge	equ		$-.cr2
-	endif
+			out		(MPGSEL3), a		; set which ROM in page3
+			jp		PAGE3
+size_wedgeC	equ		$-.callingWedge
 

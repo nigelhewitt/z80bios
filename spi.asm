@@ -7,9 +7,9 @@
 ; start with the definitions of the i/o bits
 
 ; flags
-sd_debug			equ		0
-sd_debug_cmd17		equ		0
-sd_debug_cmd24		equ		0
+sd_debug			equ		1
+sd_debug_cmd17		equ		1
+sd_debug_cmd24		equ		1
 
 
 ; The PIO is set to PORT-C LOWER=INPUTS  UPPER=OUTPUTS
@@ -21,7 +21,7 @@ spi_in			equ		PIO_C
 ; Dout is b7 and Din is b0 so I can handle data with shifts
 spi_mosi	equ		0x80	; C7
 spi_clk		equ		0x40	; C6
-spi_ssel	equ		0x20	; C5
+spi_sd_sel	equ		0x20	; C5
 ;			equ		0x10	; C4  spare output
 
 spi_miso	equ		0x01	; C0
@@ -31,107 +31,103 @@ spi_miso	equ		0x01	; C0
 
 ;===============================================================================
 ;
-;	Based on 
+;	Based on
 ;		SD Specifications Part 1 Physical Layer Simplified Specification
 ;		Version 9.00 August 22, 2022
 ;		Page 309 onwards
 ;
+;	Good SPI text
+;		https://www.analog.com/en/analog-dialogue/articles/introduction-to-spi-interface.html
+;
 ;===============================================================================
-;############################################################################
-; An SPI library suitable for talking to SD cards.
-;
-; This library implements SPI mode 0 (SD cards operate on SPI mode 0.)
-; Data changes on falling CLK edge & sampled on rising CLK edge:
+; This library SPI mode 0 (SD cards operate on SPI mode 0)
+; "Data is sampled on rising CLK edge and changes on falling CLK edge"
+; So set your data out, do CLK=1,   read your data in, do CLK=0
+; To assert mode 0 the clock should always be low when CS transitions
+; Data is sent MSB first
+; It appears that all commands have a zero MSB so if the MOSI line is
+; left high you are just receiving.
 ;        __                                             ___
-; /SSEL    \______________________ ... ________________/      Host --> Device
-;                 __    __    __   ... _    __    __
-; CLK    ________/  \__/  \__/  \__     \__/  \__/  \______   Host --> Device
+; /CS      \_____________________ ... ________________/      Host --> Device
+;                __    __    __   ... _    __    __
+; CLK    _______/  \__/  \__/  \__     \__/  \__/  \______   Host --> Device
 ;        _____ _____ _____ _____ _     _ _____ _____ ______
-; MOSI        \_____X_____X_____X_ ... _X_____X_____/         Host --> Device
+; MOSI   _____X_____X_____X_____X_ ... _X_____X_____/         Host --> Device
 ;        _____ _____ _____ _____ _     _ _____ _____ ______
-; MISO        \_____X_____X_____X_ ... _X_____X_____/         Host <-- Device
+; MISO   _____X_____X_____X_____X_ ... _X_____X_____/         Host <-- Device
 ;
-;############################################################################
-
 ;===============================================================================
 ; Write 8 bits in C to the SPI port
-; It is assumed that SSEL is already low.
-; This will leave: CLK=1, MOSI=(the LSB of the byte written)
+; Call with SSEL=0 and CLK=0
+; This will leave: CLK=0, MOSI=(the LSB of the byte written)
 ; Uses: A
 ;===============================================================================
 
- assert spi_mosi==0x80, Bad SPI Dout bit		; so RR moves in from CY 
-
-; Called with spi_ssel=0(active), spi_clk=0, spi_mosi=0
-; Data is sampled on rising clock
-; so should be changed (output) on the falling clock
+ assert spi_mosi==0x80, Bad SPI Dout bit		; so RR moves in from CY
 
 spi_write8
 		push	bc
-		in		a, (spi_out)			; current bits
+		in		a, (spi_out)		; current bits
 
-		; special case for the first bit as clock is low
-		rr		a					; slide A right
+		ld		b, 8
+; set up data bit
+.sw1	rla							; slide A left so MOSI spills out
 		rl		c					; data b7 into CY
-		rr		a					; into A b7 
-		and		~spi_clk			; the clock should be low already
-		out		(spi_out), a		; set data value & CLK clock low
-		or		spi_clk				; set the clock
+		rra							; data into A b7=MOSI getting A straight
+		out		(spi_out), a		; set data value on MOSI
+; CLK hi
+		or		spi_clk				; clock high with data
+		out		(spi_out), a		; CLK=1
+; CLK lo
+		and		~spi_clk			; clock low to trigger sample
 		out		(spi_out), a		; tell them to read data
-		
-		ld		b, 7
-		; send the other 7 bits
-.sw1	and		a, ~spi_clk			; a = spi_out value w/CLK & MOSI = 0
-		rr		a					; slide A right
-		rl		c					; data b7 into CY
-		rl		a					; into A 
-		out		(spi_out), a		; set data value & CLK falling edge
-		or		spi_clk				; set the clock
-		out		(spi_out), a
+; loop
 		djnz	.sw1
 		pop		bc
-		; leaves CLK high as next clock low is part of the next byte
 		ret
 
 ;===============================================================================
-; Read 8 bits from the SPI & return it in A.
+; Read 8 bits from the SPI & return it in A. !! MSB first
 ; MOSI will be set to 1 during all bit transfers.
-; This will leave: CLK=1, MOSI=1
+; should be called with: CLK=0 and MOSI=1
+; This will leave:		 CLK=0 and MOSI=1
 ; Returns the byte read in the A
 ; uses A
 ;===============================================================================
 
-	assert	spi_miso==0x01, Bad SPI Din bit		; so RR moves it out too CY 
+	assert	spi_miso==0x01, Bad SPI Din bit		; so RR moves it out too CY
 
 spi_read8
 		push	bc, de
-		ld		e, 0				; accumulate data in E
-		in		a, (spi_out)		; current port outputs		
-		and		~spi_clk			; CLK = 0
-		or		spi_mosi			; MOSI = 1
-		ld		d, a				; save in D for reuse
+		in		a, (spi_out)		; current port outputs
+;		or		spi_mosi			; MOSI set to 1 ('send' a 0xFF)
+;		out		(spi_out), a
 
 		; read the 8 bits
-		ld		b, 0
-.sr1	out		(spi_out), a		; set clock low (the read data moment)
+		ld		b, 8
+; clk hi
+.sr1	ld		d, a				; save clock low output bits while we use A
+		or		a, spi_clk			; set clock hi
+		out		(spi_out), a
+; read a bit						; if we were uber fast we would delay here
 		in		a, (spi_in)			; read data
-		rr		a					; data into Carry
+		rra							; data into Carry
 		rl		e					; data into E
-		ld		a, d
-		or		spi_clk				; set clock hi
+; clock lo
+		ld		a, d				; get the clock low bits back
+		out		(spi_out), a
 		djnz	.sr1
 		ld		a, e
 		pop		de, bc
-		; leaves CLK high as next clock low is part of the next byte
 		ret
 
 ;===============================================================================
-; Assert the select line
+; Assert the SD select line
 ; This will leave: SSEL=0 (active), CLK=0, MOSI=1
 ; Uses A
 ;===============================================================================
 
-spi_ssel_true
+spi_sd_sel_true
 		; read and discard a byte to generate 8 clk cycles
 		call	spi_read8
 
@@ -142,7 +138,7 @@ spi_ssel_true
 		out		(spi_out), a
 
 		; enable the card
-		and		~spi_ssel				; SSEL = 0
+		and		~spi_sd_sel				; SD_SEL = 0
 		out		(spi_out), a
 
 		; generate another 8 clk cycles
@@ -151,10 +147,10 @@ spi_ssel_true
 
 ;===============================================================================
 ; de-assert the select line (set it high)
-; This will leave: SSEL=1, CLK=0, MOSI=1
+; This will leave: SD_SEL=1, CLK=0, MOSI=1
 ; Uses A
 ;===============================================================================
-spi_ssel_false
+spi_sd_sel_false
 		; read and discard a byte to generate 8 clk cycles
 		call	spi_read8
 
@@ -163,13 +159,12 @@ spi_ssel_false
 		and		~spi_clk				; CLK = 0
 		out		(spi_out), a
 
-		or		spi_ssel|spi_mosi		; SSEL=1, MOSI=1
+		or		spi_sd_sel|spi_mosi		; SD_SEL=1, MOSI=1
 		out		(spi_out), a
 
 		; generate another 16 clk cycles
 		call	spi_read8
-		call	spi_read8
-		ret
+		jp		spi_read8
 
  if 0
 ;##############################################################
@@ -178,7 +173,7 @@ spi_ssel_false
 ;##############################################################
 
 spi_write
-		call	spi_ssel_true
+		call	spi_sd_sel_true
 
 spi_write_loop
 		ld		a, b
@@ -193,7 +188,7 @@ spi_write_loop
 		jp		spi_write_loop
 
 spi_write_done
-		call	spi_ssel_false
+		call	spi_sd_sel_false
 		ret
  endif
 

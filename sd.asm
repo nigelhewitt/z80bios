@@ -1,868 +1,1482 @@
-﻿;===============================================================================
+; nig stuff
+DIO_FNCNT			equ		12		; number of functions
+MID_HD				equ		1		; responses to STATUS check
+MID_NONE			equ		0
+SDTRACE				equ		1
+
+f_readsector	; passed in sector BC:HL to address DE
+			push	de, bc, hl
+			call	stdio_str
+			db		"\r\nSD Started", 0
+			call	SD_INIT
+			call	stdio_str
+			db		"\r\nInitialisation Finished", 0
+			pop		hl
+			pop		de
+			call	SD_SEEK		; to DE:HL
+			call	stdio_str
+			db		"\r\nSeek Finished", 0
+			pop		hl
+			ld		e, 1
+			call	SD_READ		; HL = buffer, E=block count
+			call	stdio_str
+			db		"\r\nRead Finished", 0
+			jp		good_end
+f_spi_test
+			call	SD_RESET
+			jp		good_end
+
+;=============================================================================
+; MMC/SD/SDHC/SDXC CARD STORAGE DRIVER
+;=============================================================================
 ;
-;		sd.asm		My hack on John Winans code
+; 1) TESTING
+; - TRY TO TEST GOIDLE, FIND CARD THAT REQUIRES 2 REQUESTS
+; - DUAL CARDS
+; - TEST XC CARD TYPE DETECTION
+; - TRY TO GET INIT TO FAIL, REMOVE DELAYS AT START OF GOIDLE?
+;
+
+;----------------------------------------------------------------------------------------------
+; SD Signal	Active	JUHA	N8	CSIO	PPI	UART	DSD	MK4	SC	MT
+; ------------	------- ------- ------- ------- ------- ------- ------- -------	-------	-------
+; CS (DAT3)	LO ->	RTC:2	RTC:2	RTC:2	~PC:4	~MCR:3	OPR:2	SD:2	~RTC:2/3OPR:4/5
+; CLK		HI ->	RTC:1	RTC:1	CSIO	PC:1	~MCR:2	OPR:1	CSIO	CSIO	SPI
+; DI (CMD)	HI ->	RTC:0	RTC:0	CSIO	PC:0	~MCR:0	OPR:0	CSIO	CSIO	SPI
+; DO (DAT0)	HI ->	RTC:7	RTC:6	CSIO	PB:7	~MSR:5	OPR:0	CSIO	CSIO	SPI
+;----------------------------------------------------------------------------------------------
+;
+; CS = CHIP SELECT (AKA DAT3 FOR NON-SPI MODE)
+; CLK = CLOCK
+; DI = DATA IN (HOST -> CARD, AKA CMD FOR NON-SPI MODE)
+; DO = DATA OUT (HOST <- CARD, AKA DAT0 FOR NON-SPI MODE)
+;
+; NOTES:
+;   1) SIGNAL NAMES ARE FROM THE SD CARD SPEC AND ARE NAMED FROM THE
+;      PERSPECTIVE OF THE SD CARD (SLAVE):
+;		DI = DATA IN: HOST -> CARD = MOSI (MASTER OUT/SLAVE IN)
+; 		DO = DATA OUT: HOST<- CARD = MISO (MASTER IN/SLAVE OUT)
+;
+;   2) THE QUIESCENT STATE OF THE OUTPUT SIGNALS (HOST -> CARD) IS:
+;		CS = HI (NOT SELECTED)
+;		CLK = LO (HI FOR CSIO)
+;		DI = HI (ACTIVE IS THE NATURAL/DEFAULT STATE FOR DATA IN)
+;
+;	3) SPI MODE 0 IMPLEMENTATION IS USED (CPOL=0, CPHA=0)
+;		THE DATA MUST BE AVAILABLE BEFORE THE FIRST CLOCK SIGNAL RISING.
+;		THE CLOCK IDLE STATE IS ZERO. THE DATA ON MISO AND MOSI LINES
+;		MUST BE STABLE WHILE THE CLOCK IS HIGH AND CAN BE CHANGED WHEN
+;		THE CLOCK IS LOW. THE DATA IS CAPTURED ON THE CLOCK'S LOW-TO-HIGH
+;		TRANSITION AND PROPAGATED ON HIGH-TO-LOW CLOCK TRANSITION.
+;
+;	NOTE: THE CSIO IMPLEMENTATION (INCLUDE MK4) USES SPI MODE 4
+;		(CPOL=1, CPHA=1) BECAUSE THAT IS THE WAY THAT THE Z180 CSIO
+;		INTERFACE WORKS. ALL OF THE CLOCK TRANSITIONS LISTED ABOVE
+;		ARE REVERSED FOR CSIO.
+;
+;	4)	DI SHOULD BE LEFT HI (ACTIVE) WHENEVER UNUSED (FOR EXAMPLE, WHEN
+;		HOST IS RECEIVING DATA (HOST <- CARD)).
+;
+;------------------------------------------------------------------------------
+;
+;	=== R1 RESPONSE ===
+;	ALL COMMAND RESPONSES START WITH R1 ;
+;	  7   6	  5   4	  3   2	  1   0
+;	+---+---+---+---+---+---+---+---+
+;	| 0 | X | X | X | X | X | X | X |
+;	+---+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+;      |   |   |   |   |	  |   |
+;      |   |   |   |   |	  |   +--- IDLE
+;      |   |   |   |   |	  +------- ERASE RESET
+;      |   |   |   |   +----------- ILLEGAL COMMAND
+;      |   |   |   +--------------- COM CRC ERROR
+;      |   |   +------------------- ERASE SEQUENCE ERROR
+;      |   +----------------------- ADDRESS ERROR
+;      +--------------------------- PARAMETER ERROR
+;
+;	=== DATA ERROR TOKEN ===
+;
+;	  7   6	  5   4	  3   2	  1   0
+;	+---+---+---+---+---+---+---+---+
+;	| 0 | 0 | 0 | 0 | X | X | X | X |
+;	+---+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+;					  |   |	  |   |
+;					  |   |	  |   +--- ERROR - GENERAL OR UNKNOWN ERROR
+;					  |   |	  +------- CC ERROR - INTERNAL CARD CONTROLER ERROR
+;					  |   +----------- CARD ECC FAILED - CARD INTERNAL ECC FAILED TO CORRECT DATA
+;					  +--------------- OUT OF RANGE - PARAMAETER OUT OF RANGE ALLOWED FOR CARD
+;
+;------------------------------------------------------------------------------
+;
+; *** HACK FOR MISSING PULLUP RESISTORS ***
+;
+; THERE IS A RECENT TREND FOR SD ADAPTER BOARDS (SUCH AS THOSE USED TO ATTACH AN
+; SD CARD TO AN ARDUINO OR RASPBERRY PI) TO OMIT THE PULLUP RESISTORS THAT ARE SUPPOSED
+; TO BE ON ALL LINES.  DESPITE BEING A CLEAR VIOLATION OF THE SPEC, IT IS SOMETHING THAT
+; WE WILL NOW NEED TO LIVE WITH.  THE CLK, CS, AND MOSI SIGNALS ARE NOT AN ISSUE SINCE
+; WE ARE DRIVING THOSE SIGNALS AS THE HOST.  THE PROBLEM IS WITH THE MISO SIGNAL.
+; FORTUNATELY, MOST OF THE TIME, THE SD CARD WILL BE DRIVING THE SIGNAL.  HOWEVER,
+; THERE ARE TWO SCEANRIOS WE NEED TO ACCOMMODATE IN THE CODE:
+;
+;   1. MISO WILL NOT BE DRIVEN BY THE SD CARD (FLOATING) PRIOR TO RESETING THE
+;      CARD WITH CMD0.  NORMALLY, A COMMAND SEQUENCE INVOLVES WAITING FOR THE
+;      CARD TO BE "READY" BY READING BYTES FROM THE CARD AND LOOKING FOR $FF.
+;      WHEN MISO IS FLOATING THIS WILL NOT BE RELIABLE.  SINCE THE SPEC INDICATES
+;      IT IS NOT NECESSARY TO WAIT FOR READY PRIOR TO CMD0, THE CODE HAS BEEN
+;      MODIFIED TO ISSUE CMD0 WITHOUT WAITING FOR READY.
+;
+;   2. MISO MAY NOT BE DRIVEN IMMEDIATELY AFTER SENDING A COMMAND (POSSIBLY
+;      JUST CMD0, BUT NOT SURE).  NORMALLY, AFTER SENDING A COMMAND, YOU
+;      LOOK FOR "FILL" BYTES OF $FF THAT MAY OCCUR PRIOR TO THE RESULT.  WHEN MISO
+;      IS FLOATING IT IS IMPOSSIBLE TO DETERMINE IF THE BYTE RECEIVED IS A FILL
+;      BYTE OR NOT.  BASED ON WHAT I HAVE READ, THERE WILL ALWAYS BE AT LEAST
+;      ONE FILL BYTE PRIOR TO THE ACTUAL RESULT.  ADDITIONALLY, THE SD CARD WILL
+;      START DRIVING MISO SOMETIME WITHING THAT FIRST FILL BYTE.  SO, WE NOW
+;      JUST DISCARD THE FIRST BYTE RECEIVED AFTER A COMMAND IS SENT WITH THE
+;      ASSUMPTION THAT IT MUST BE A FILL BYTE AND IS NOT RELIABLE DUE TO FLOATING
+;      MISO.
+;
+; THESE CHANGES ARE CONSISTENT WITH THE POPULAR ARDUINO SDFAT LIBRARY, SO THEY ARE
+; PROBABLY PRETTY SAFE.  HOWEVER, I HAVE BRACKETED THE CHANGES WITH THE EQUATE BELOW.
+; IF YOU WANT TO REVERT THESE HACKS, JUST SET THE EQUATE TO FALSE.
+;
+SD_NOPULLUP		equ		1			; ASSUME NO PULLUP
+SD_DEVCNT		equ		1			; NUMBER OF PHYSICAL UNITS (SOCKETS)
+
+; SD CARD COMMANDS
+
+SD_CMD_GO_IDLE_STATE	equ		$40 + 0		; $40, CMD0 -> R1
+SD_CMD_SEND_OP_COND		equ		$40	+ 1		; $41, CMD1 -> R1
+SD_CMD_SEND_IF_COND		equ		$40 + 8		; $48, CMD8 -> R7
+SD_CMD_SEND_CSD			equ		$40 + 9		; $49, CMD9 -> R1
+SD_CMD_SEND_CID			equ		$40 + 10	; $4A, CMD10 -> R1
+SD_CMD_SET_BLOCKLEN		equ		$40 + 16	; $50, CMD16 -> R1
+SD_CMD_READ_SNGL_BLK	equ		$40 + 17	; $51, CMD17 -> R1
+SD_CMD_WRITE_BLOCK		equ		$40 + 24	; $58, CMD24 -> R1
+SD_CMD_APP_CMD			equ		$40 + 55	; $77, CMD55 -> R1
+SD_CMD_READ_OCR			equ		$40 + 58	; $7A, CMD58 -> R3
+
+; SD CARD APPLICATION COMMANDS (PRECEDED BY APP_CMD COMMAND)
+
+SD_ACMD_SEND_OP_COND	equ		$40 + 41	; $69, ACMD41 -> R1
+SD_ACMD_SEND_SCR		equ		$40 + 51	; $73, ACMD51 -> R1
+;
+; SD CARD TYPE
+; SD_TYPEUNK			equ		0	; CARD TYPE UNKNOWN/UNDETERMINED
+SD_TYPEMMC				equ		1	; MULTIMEDIA CARD (MMC STANDARD)
+SD_TYPESDSC				equ		2	; SDSC CARD (V1)
+SD_TYPESDHC				equ		3	; SDHC CARD (V2)
+SD_TYPESDXC				equ		4	; SDXC CARD (V3)
+;
+; SD CARD STATUS (SD_STAT)
+;
+SD_STOK					equ		0	; OK
+SD_STINVUNIT			equ		-1	; INVALID UNIT
+SD_STRDYTO				equ		-2	; TIMEOUT WAITING FOR CARD TO BE READY
+SD_STINITTO				equ		-3	; INITIALIZATION TIMEOUT
+SD_STCMDTO				equ		-4	; TIMEOUT WAITING FOR COMMAND RESPONSE
+SD_STCMDERR				equ		-5	; COMMAND ERROR OCCURRED (REF SD_RC)
+SD_STDATAERR			equ		-6	; DATA ERROR OCCURRED (REF SD_TOK)
+SD_STDATATO				equ		-7	; DATA TRANSFER TIMEOUT
+SD_STCRCERR				equ		-8	; CRC ERROR ON RECEIVED DATA PACKET
+SD_STNOMEDIA			equ		-9	; NO MEDIA IN CONNECTOR
+SD_STWRTPROT			equ		-10	; ATTEMPT TO WRITE TO WRITE PROTECTED MEDIA
+;
+; IDE DEVICE CONFIGURATION
+;
+SD_CFGSIZ				equ		12	; SIZE OF CFG TBL ENTRIES
+;
+; PER DEVICE DATA OFFSETS
+;
+SD_DEV					equ		0	; OFFSET OF DEVICE NUMBER (BYTE)
+SD_STAT					equ		1	; LAST STATUS (BYTE)
+SD_TYPE					equ		2	; DEVICE TYPE (BYTE)
+SD_FLAGS				equ		3	; FLAG BITS (BYTE)
+SD_MEDCAP				equ		4	; MEDIA CAPACITY (DWORD)
+SD_LBA					equ		8	; OFFSET OF LBA (DWORD)
+;
+SD_CFGTBL		; DEVICE 0, PRIMARY MASTER
+				db		0		; DRIVER DEVICE NUMBER
+				db		0		; DEVICE STATUS
+				db		0		; DEVICE TYPE
+				db		0		; FLAGS BYTE
+				dd		0		; DEVICE CAPACITY
+				dd		0		; CURRENT LBA
+  if (SD_DEVCNT >= 2)
+  				; DEVICE 1, PRIMARY SLAVE
+				db		1		; DRIVER DEVICE NUMBER
+				db		0		; DEVICE STATUS
+				db		0		; DEVICE TYPE
+				db		0		; FLAGS BYTE
+				dd		0		; DEVICE CAPACITY
+				dd		0		; CURRENT LBA
+  endif
+;
+  assert ($ - SD_CFGTBL) == (SD_DEVCNT * SD_CFGSIZ), *** INVALID SD CONFIG TABLE ***
+  				db		0xFF	; END MARKER
+
+;=============================================================================
+; INITIALIZATION ENTRY POINT
+;=============================================================================
+
+SD_INIT
+		call	stdio_str
+		db		"\r\nSD:",0
+
+; INITIALIZE INDIVIDUAL UNIT(S) AND DISPLAY DEVICE INVENTORY
+		LD		B, SD_DEVCNT	; INIT LOOP COUNTER TO DEVICE COUNT
+		LD		IY, SD_CFGTBL	; START OF CFG TABLE
+.si1
+		PUSH	BC				; SAVE LOOP COUNTER/INDEX
+		CALL	SD_INITUNIT		; INITIALIZE IT
+  if SDTRACE
+		CALL	NZ, SD_PRTSTAT	; IF ERROR, SHOW IT
+  endif
+		LD		BC, SD_CFGSIZ	; SIZE OF CFG ENTRY
+		ADD		IY, BC			; BUMP IY TO NEXT ENTRY
+		POP		BC				; RESTORE LOOP CONTROL
+		DJNZ	.si1			; DECREMENT LOOP COUNTER AND LOOP AS NEEDED
+		RET						; DONE
+
+; Initialize unit designated in A
+
+SD_INITUNIT
+		CALL	SD_SELUNIT		; SELECT UNIT (bland but load A)
+		RET		NZ				; ABORT ON ERROR
+		CALL	SD_INITCARD		; INIT THE SELECTED CARD
+		RET		NZ				; ABORT ON ERROR
+
+		CALL	SD_PRTPREFIX
+; PRINT CARD TYPE
+		LD		A, [IY+SD_TYPE]
+; GET CARD TYPE VALUE TO A
+		LD		hl, SD_STR_TYPEMMC
+		CP		SD_TYPEMMC
+		JR		Z, .si2
+		LD		hl, SD_STR_TYPESDSC
+		CP		SD_TYPESDSC
+		JR		Z, .si2
+		LD		hl, SD_STR_TYPESDHC
+		CP		SD_TYPESDHC
+		JR		Z, .si2
+		LD		hl, SD_STR_TYPESDXC
+		CP		SD_TYPESDXC
+		JR		Z, .si2
+		LD		hl, SD_STR_TYPEUNK
+.si2
+		CALL	stdio_text
+
+		; GET CID (WHICH CONTAINS PRODUCT NAME)
+		LD		A, SD_CMD_SEND_CID	; SEND_CID
+		CALL	SD_INITCMD			; SETUP COMMAND BUFFER
+		CALL	SD_EXECCMD			; RUN COMMAND
+		RET		NZ					; ABORT ON ERROR
+		LD		BC, 16				; 16 BYTES OF CID
+		LD		HL, SD_BUF
+		CALL	SD_GETDATA
+		CALL	SD_DONE
+		JP		NZ, SD_ERRDATA		; DATA XFER ERROR
+
+ if SDTRACE
+		CALL	SD_PRTPREFIX
+		LD		hl, SD_STR_CID
+		CALL	stdio_text
+		LD		DE, SD_BUF
+		LD		A, 16
+		CALL	PRTHEXBUF
+ endif
+
+	; PRINT PRODUCT NAME
+		call	stdio_str			; PRINT LABEL
+		db		" NAME=",0
+		LD		B, 5				; PREPARE TO PRINT 5 BYTES
+		LD		HL, SD_BUF + 3		; AT BYTE OFFSET 3 IN RESULT BUFFER
+.si3
+		LD		A,[HL]				; GET NEXT BYTE
+		CALL	stdio_putc			; PRINT IT
+		INC		HL					; POINT TO NEXT BYTE
+		DJNZ	.si3				; LOOP FOR ALL 5 BYTES
+
+	; PRINT STORAGE CAPACITY (BLOCK COUNT)
+		call	stdio_str			; PRINT FIELD LABEL
+		db		" BLOCKS=0x",0
+		LD		A, SD_MEDCAP		; OFFSET TO CAPACITY FIELD
+		CALL	LDHLIYA				; HL := IY + A, REG A TRASHED
+		CALL	LD32				; GET THE CAPACITY VALUE
+		CALL	PRTHEX32			; PRINT HEX VALUE
+
+	; PRINT STORAGE SIZE IN MB
+		call	stdio_str			; PRINT FIELD LABEL
+		db		" SIZE=",0
+		LD		B, 11				; 11 BIT SHIFT TO CONVERT BLOCKS --> MB
+		CALL	SRL32				; RIGHT SHIFT DE:HL
+		CALL	stdio_decimalW		; PRINT LOW WORD IN DECIMAL (HIGH WORD DISCARDED)
+		call	stdio_str			; PRINT SUFFIX
+		db		"MB",0
+		RET							; DONE
+;
+;=============================================================================
+; DRIVER FUNCTION TABLE
+;=============================================================================
+;
+SD_FNTBL
+		dw		SD_STATUS
+		dw		SD_RESET
+		dw		SD_SEEK
+		dw		SD_READ
+		dw		SD_WRITE
+		dw		SD_VERIFY
+		dw		SD_FORMAT
+		dw		SD_DEVICE
+		dw		SD_MEDIA
+		dw		SD_DEFMED
+		dw		SD_CAP
+		dw		SD_GEOM
+ assert (($ - SD_FNTBL) == (DIO_FNCNT * 2)),	*** INVALID IDE FUNCTION TABLE ***
+;
+SD_VERIFY
+SD_FORMAT
+SD_DEFMED
+		CAB		"BAD Function"	; INVALID SUB-FUNCTION
 ;
 ;===============================================================================
-
-; these are the three interfaces
-; Blocks are 512 bytes
-
-sd_wakeup
-			call	sd_reset
-			ret
-			
-sd_write_block
-; Write one block given by the 32-bit (little endian) number at
-; the top of the stack from the buffer given by address in DE.
-; A = 0 if the write operation was successful. Else A = 1.
-
-; I say pass in the 32 bit number in BC:HL
-			push	ix, hl, bc
-			call	sd_cmd24
-			pop		bc, hl, ix
-			ret
-			
-sd_read_block
-; Read one block given by the 32-bit (little endian) number at
-; the top of the stack into the buffer given by address in DE.
-; A = 0 if the read operation was successful. Else A=1
-			jp		sd_cmd17
-
-; this is the command handler
-; read sector BC:IX into address DE
-f_readsector
-			push	bc, ix
-			; ignore the device 'C' in A
-			; target address is already in DE
-			call	sd_read_block
-			pop		ix, bc
-			or		a
-			jp		nz, f_bad
-			jp		f_good
-			
-;****************************************************************************
+;  READ and WRITE a block
+;		HL = buffer address
+;		E  = block count
+;===============================================================================
+SD_READ
+		LD		A, SD_CMD_READ_SNGL_BLK	; SETUP FOR SINGLE BLOCK READ CMD
+		JR		SD_IO					; CONTINUE TO GENERIC IO ROUTINE
+SD_WRITE
+		LD		A, SD_CMD_WRITE_BLOCK	; SETUP FOR BLOCK WRITE CMD
 ;
-;    Copyright (C) 2021 John Winans
-;
-;    This library is free software; you can redistribute it and/or
-;    modify it under the terms of the GNU Lesser General Public
-;    License as published by the Free Software Foundation; either
-;    version 2.1 of the License, or (at your option) any later version.
-;
-;    This library is distributed in the hope that it will be useful,
-;    but WITHOUT ANY WARRANTY; without even the implied warranty of
-;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;    Lesser General Public License for more details.
-;
-;    You should have received a copy of the GNU Lesser General Public
-;    License along with this library; if not, write to the Free Software
-;    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301
-;    USA
-;
-; https://github.com/johnwinans/2063-Z80-cpm
-;
-;****************************************************************************
-
-;############################################################################
-;
-; An SD card library suitable for talking to SD cards in SPI mode 0.
-;;
-; WARNING: SD cards are 3.3v ONLY!
-; Must provide a pull up on MISO to 3.3V.
-; SD cards operate on SPI mode 0.
-;
-; References:
-; - SD Simplified Specifications, Physical Layer Simplified Specification,
-;   Version 8.00:    https://www.sdcard.org/downloads/pls/
-;
-; The details on operating an SD card in SPI mode can be found in
-; Section 7 of the SD specification, p242-264.
-;
-; To initialize an SDHC/SDXC card:
-; - send at least 74 CLKs
-; - send CMD0 & expect reply message = 0x01 (enter SPI mode)
-; - send CMD8 (establish that the host uses Version 2.0 SD SPI protocol)
-; - send ACMD41 (finish bringing the SD card on line)
-; - send CMD58 to verify the card is SDHC/SDXC mode (512-byte block size)
-;
-; At this point the card is on line and ready to read and write
-; memory blocks.
-;
-; - use CMD17 to read one 512-byte block
-; - use CMD24 to write one 512-byte block
-;
-;############################################################################
-
-;.sd_debug: equ 0
-;.sd_debug: equ 1
-
-;############################################################################
-; NOTE: Response message formats in SPI mode are different than in SD mode.
-;
-; Read bytes until we find one with MSB = 0 or bail out retrying.
-; Return last read byte in A (and a copy also in E)
-; Calls spi_read8 (see for clobbers)
-; Clobbers A, B, DE
-;############################################################################
-
-sd_read_r1
-		ld		b, 0xf0			; B = number of retries
-sd_r1_loop
-		call	spi_read8		; read a byte into A (and a copy in E as well)
-		and		0x80			; Is the MSB set to 1?
-		jr		z, sd_r1_done	; If MSB=0 then we are done
-		djnz	sd_r1_loop		; else try again until the retry count runs out
-sd_r1_done
-		ld		a, e			; copy the final value into A
-		ret
-
-;############################################################################
-; NOTE: Response message formats in SPI mode are different than in SD mode.
-;
-; Read an R7 message into the 5-byte buffer pointed to by HL.
-; Clobbers A, B, DE, HL
-;############################################################################
-
-sd_read_r7
-		call	sd_read_r1	; A = byte #1
-		ld		[hl], a		; save it
-		inc		hl			; advance receive buffer pointer
-		call	spi_read8	; A = byte #2
-		ld		[hl], a		; save it
-		inc		hl			; advance receive buffer pointer
-		call	spi_read8	; A = byte #3
-		ld		[hl], a		; save it
-		inc		hl			; advance receive buffer pointer
-		call	spi_read8	; A = byte #4
-		ld		[hl], a		; save it
-		inc		hl			; advance receive buffer pointer
-		call	spi_read8	; A = byte #5
-		ld		[hl], a		; save it
-		ret
-
-;############################################################################
-; SSEL = HI (deassert)
-; wait at least 1 msec after power up
-; send at least 74 (80) SCLK rising edges
-; Clobbers A, DE, B
-;############################################################################
-
-sd_boot
-		ld		b, 10		; 10*8 = 80 bits to read
-sd_boot1
-		call	spi_read8	; read 8 bits (causes 8 CLK xitions)
-		djnz	sd_boot1	; if not yet done, do another byte
-		ret
-
-;############################################################################
-; Send a command and read an R1 response message.
-; HL = command buffer address
-; B = command byte length
-; Clobbers A, BC, DE, HL
-; Returns A = reply message byte
-;
-; Modus operandi
-; SSEL = LO (assert)
-; send CMD
-; send arg 0
-; send arg 1
-; send arg 2
-; send arg 3
-; send CRC
-; wait for reply (MSB=0)
-; read reply
-; SSEL = HI
-;############################################################################
-
-sd_cmd_r1
-		; assert the SSEL line
-		call    spi_ssel_true
-
-		; write a sequence of bytes representing the CMD message
-		call    spi_write_str		; write B bytes from HL buffer @
-
-		; read the R1 response message
-		call    sd_read_r1			; A = E = message response byte
-
-		; de-assert the SSEL line
-		call    spi_ssel_false
-
-		ld		a, e
-		ret
-
-;############################################################################
-; Send a command and read an R7 response message.
-; Note that an R3 response is the same size, so can use the same code.
-; HL = command buffer address
-; B = command byte length
-; DE = 5-byte response buffer address
-; Clobbers A, BC, DE, HL
-;############################################################################
-
-sd_cmd_r3
-sd_cmd_r7
-		call    spi_ssel_true
-
-		push	de				; save the response buffer @
-		call    spi_write_str	; write cmd buffer from HL, length=B
-
-		; read the response message into buffer @ in HL
-		pop		hl				; pop the response buffer @ HL
-		call    sd_read_r7
-
-		; de-assert the SSEL line
-		call    spi_ssel_false
-
-		ret
-
-;############################################################################
-; Send a CMD0 (GO_IDLE) message and read an R1 response.
-;
-; CMD0 will
-; 1) Establish the card protocol as SPI (if has just powered up.)
-; 2) Tell the card the voltage at which we are running it.
-; 3) Enter the IDLE state.
-;
-; Return the response byte in A.
-; Clobbers A, BC, DE, HL
-;############################################################################
-
-sd_cmd0
-		ld		hl, sd_cmd0_buf		; HL = command buffer
-		ld		b, sd_cmd0_len		; B = command buffer length
-		call	sd_cmd_r1			; send CMD0, A=response byte
-
- if sd_debug
-		push	af
-		call	stdio_str
-		db		"CMD0: ",0
-		ld		hl, sd_cmd0_buf
-		ld		bc, sd_cmd0_len
-		ld		e, 0
-		call	hexdump
-		call	stdio_str
-		db		"  R1: ",0
-		pop		af
-		push	af
-		call	hexdump_a		; dump the reply message
-		call    puts_crlf
-		pop		af
+SD_IO
+		LD		[SD_CMDVAL], A		; SAVE THE SD CARD COMMAND
+		LD		[SD_DSKBUF], HL		; SAVE DISK BUFFER ADDRESS
+		LD		A, E				; GET BLOCK COUNT REQUESTED
+		LD		[SD_BLKCNT], A		; ... AND SAVE IT
+		OR		A					; SET FLAGS
+		RET		Z					; ZERO SECTOR I/O, RETURN W/ E=0 & A=0
+ if SDTRACE
+		LD		HL, SD_PRTERR		; SET UP SD_PRTERR
+		PUSH	HL					; ... TO FILTER ALL EXITS
  endif
-		ret
+		CALL	SD_SELUNIT			; HARDWARE SELECTION OF TARGET UNIT
+		RET		NZ					; ABORT ON ERROR
+		LD		A, [SD_BLKCNT]		; BLOCK COUNT TO A
+		LD		E, A				; ... AND TO E IN CASE OF ZERO ERR BELOW
+		OR		A					; SET FLAGS
+		RET		Z					; ZERO SECTOR I/O, RETURN W/ E=0 & A=0
+		LD		B, A				; INIT SECTOR DOWNCOUNTER
+		LD		C, 0				; INIT SECTOR READ/WRITE COUNT
+.sio1
+		PUSH	BC					; SAVE COUNTERS
+		LD		A, [SD_CMDVAL]		; SET COMMAND
+		LD		C, A				; ... AND PUT IN C
+		CALL	SD_SECTIO			; DO SECTOR I/O
+		JR		NZ, .sio2			; IF ERROR, SKIP INCREMENT
+		; INCREMENT LBA
+		LD		A, SD_LBA			; LBA OFFSET
+		CALL	LDHLIYA				; HL := IY + A, REG A TRASHED
+		CALL	INC32HL				; INCREMENT THE VALUE
+		; INCREMENT DMA
+		LD		HL, SD_DSKBUF+1		; POINT TO MSB OF BUFFER ADR
+		INC		[HL]				; BUMP DMA BY
+		INC		[HL]				; ... 512 BYTES
+		XOR		A					; SIGNAL SUCCESS
+.sio2:
+		POP		BC					; RECOVER COUNTERS
+		JR		NZ, .sio3			; IF ERROR, BAIL OUT
+		INC		C					; BUMP COUNT OF SECTORS READ
+		DJNZ	.sio1				; LOOP AS NEEDED
+.sio3:
+		LD		E, C				; SECTOR READ COUNT TO E
+		LD		HL, [SD_DSKBUF]		; CURRENT DMA TO HL
+		OR		A					; SET FLAGS BASED ON RETURN CODE
+		RET							; AND RETURN, A HAS RETURN CODE
 
-sd_cmd0_buf		db		0|0x40,0,0,0,0,0x94|0x01
-sd_cmd0_len		equ		$-sd_cmd0_buf
+SD_STATUS
+		; RETURN DEVICE STATUS
+		LD		A, [IY+SD_STAT]		; GET STATUS OF SELECTED DEVICE
+		OR		A					; SET FLAGS
+		RET							; AND RETURN
 
-;############################################################################
-; Send a CMD8 (SEND_IF_COND) message and read an R7 response.
-;
-; Establish that we are squawking V2.0 of spec & tell the SD
-; card the operating voltage is 3.3V.  The reply to CMD8 should
-; be to confirm that 3.3V is OK and must echo the 0xAA back as
-; an extra confirm that the command has been processed properly.
-; The 0x01 in the byte before the 0xAA in the command buffer
-; below is the flag for 2.7-3.6V operation.
-;
-; Establishing V2.0 of the SD spec enables the HCS bit in
-; ACMD41 and CCS bit in CMD58.
-;
-; Clobbers A, BC, DE, HL
-; Return the 5-byte response in the buffer pointed to by DE.
-; The response should be: 0x01 0x00 0x00 0x01 0xAA.
-;############################################################################
-
-sd_cmd8
- if sd_debug
-		push	de			; PUSH response buffer address
+SD_RESET
+		CALL	SD_SELUNIT		; SET CUR UNIT
+		; RE-INITIALIZE THE SD CARD TO ACCOMMODATE HOT SWAPPING
+		CALL	SD_INITCARD		; RE-INIT SELECTED UNIT
+ if SDTRACE
+		CALL	SD_PRTERR		; PRINT ANY ERRORS
  endif
+		OR		A				; SET RESULT FLAGS
+		RET
 
-		ld		hl, sd_cmd8_buf
-		ld		b, sd_cmd8_len
-		call	sd_cmd_r7
+SD_DEVICE
+		XOR		A				; SIGNAL SUCCESS
+		RET
 
- if sd_debug
-		call	stdio_str
-		db		"CMD8: ",0
-		ld		hl, sd_cmd8_buf
-		ld		bc, sd_cmd8_len
-		ld		e, 0
-		call	hexdump
-		call	stdio_str
-		db		"  R7: ",0
-		pop		hl				; POP buffer address
-		ld		bc, 5
-		ld		e, 0
-		call	hexdump			; dump the reply message
- endif
-		ret
+SD_MEDIA
+		LD		A,E					; GET FLAGS
+		OR		A					; SET FLAGS
+		JR		Z, SD_MEDIA2		; JUST REPORT CURRENT STATUS AND MEDIA
 
-sd_cmd8_buf		db	8|0x40,0,0,0x01,0xaa,0x86|0x01
-sd_cmd8_len		equ	$-sd_cmd8_buf
+		; GET CURRENT STATUS
+		LD		A, [IY+SD_STAT]		; GET STATUS
+		OR		A					; SET FLAGS
+		JR		NZ, SD_MEDIA1		; ERROR ACTIVE, GO RIGHT TO RESET
 
-;############################################################################
-; Send a CMD58 message and read an R3 response.
-; CMD58 is used to ask the card what voltages it supports and
-; if it is an SDHC/SDXC card or not.
-; Clobbers A, BC, DE, HL
-; Return the 5-byte response in the buffer pointed to by DE.
-;############################################################################
+		; USE SEND_CSD TO CHECK CARD
+		CALL	SD_SELUNIT			; SET CUR UNIT
+		LD		A, SD_CMD_SEND_CSD	; SEND_CSD
+		CALL	SD_INITCMD			; SETUP COMMAND BUFFER
+		CALL	SD_EXECCMD			; EXECUTE COMMAND
+		JR		NZ, SD_MEDIA1		; ERROR, NEED RESET
+		LD		BC, 16				; 16 BYTES OF CSD
+		LD		HL, SD_BUF			; PUT IN OUR PRIVATE BUFFER
+		CALL	SD_GETDATA			; GET THE DATA
+		CALL	SD_DONE				; CLOSE THE TRANSACTION
+		JR		Z, SD_MEDIA2		; IF SUCCESS, BYPASS RESET
 
-sd_cmd58
- if sd_debug
-		push	de			; PUSH buffer address
+SD_MEDIA1
+		CALL	SD_RESET			; RESET CARD
+
+SD_MEDIA2
+		LD		A, [IY+SD_STAT]		; GET STATUS
+		OR		A					; SET FLAGS
+		LD		D, 0				; NO MEDIA CHANGE DETECTED
+		LD		E, MID_HD			; ASSUME WE ARE OK
+		RET		Z					; RETURN IF GOOD INIT
+		LD		E, MID_NONE			; SIGNAL NO MEDIA
+		RET							; AND RETURN
+
+SD_SEEK								; to DE:HL
+		RES		7,D					; CLEAR FLAG REGARDLESS (DOES NO HARM IF ALREADY LBA)
+		LD		[IY+SD_LBA+0], L	; SAVE NEW LBA
+		LD		[IY+SD_LBA+1], H
+		LD		[IY+SD_LBA+2], E
+		LD		[IY+SD_LBA+3], D
+		XOR		A					; SIGNAL SUCCESS
+		RET							; AND RETURN
+
+SD_CAP
+		LD		A, [IY+SD_STAT]		; GET STATUS
+		PUSH	AF					; SAVE IT
+		LD		A, SD_MEDCAP		; OFFSET TO CAPACITY FIELD
+		CALL	LDHLIYA				; HL := IY + A, REG A TRASHED
+		CALL	LD32				; GET THE CURRENT CAPACITY INTO DE:HL
+		LD		BC, 512				; 512 BYTES PER BLOCK
+		POP		AF					; RECOVER STATUS
+		OR		A					; SET FLAGS
+		RET
+
+SD_GEOM
+		; FOR LBA, WE SIMULATE CHS ACCESS USING 16 HEADS AND 16 SECTORS
+		; RETURN HS:CC -> DE:HL, SET HIGH BIT OF D TO INDICATE LBA CAPABLE
+		CALL	SD_CAP			; GET TOTAL BLOCKS IN DE:HL, BLOCK SIZE TO BC
+		LD		L, H			; DIVIDE BY 256 FOR # TRACKS
+		LD		H, E			; ... HIGH BYTE DISCARDED, RESULT IN HL
+		LD		D, 16 | 0x80	; HEADS / CYL = 16, SET LBA BIT
+		LD		E, 16			; SECTORS / TRACK = 16
+		RET						; DONE, A STILL HAS SD_CAP STATUS
+
+;=============================================================================
+; FUNCTION SUPPORT ROUTINES
+;=============================================================================
+
+; (RE)INITIALIZE CARD
+
+SD_INITCARD
+;		CALL	SD_CHKCD			; CHECK CARD DETECT (bland)
+;		JP		Z, SD_NOMEDIA		; Z=NO MEDIA, HANDLE IF SO
+
+		; WAKE UP THE CARD, KEEP DIN HI (ASSERTED) AND /CS HI (DEASSERTED)
+		LD		B, 16				; MIN 74 CLOCKS REQUIRED, WE USE 128 (16 * 8)
+.sc1	CALL	spi_write8			; SEND 8 CLOCKS
+		DJNZ	.sc1				; LOOP AS NEEDED
+
+		; PUT CARD IN IDLE STATE
+		CALL	SD_GOIDLE			; GO TO IDLE
+		JP		NZ, SD_NOMEDIA		; CONVERT ERROR TO NO MEDIA
+
+.sc2
+		LD		[IY+SD_TYPE], SD_TYPESDSC	; ASSUME SDSC CARD TYPE
+
+		; CMD8 IS REQUIRED FOR V2 CARDS.  FAILURE HERE IS OK AND
+		; JUST MEANS THAT IT IS A V1 CARD
+		LD		A, SD_CMD_SEND_IF_COND	; SEND_IF_COND
+		CALL	SD_INITCMD				; SETUP COMMAND BUFFER
+		LD		HL, SD_CMDP2			; POINT TO 3RD PARM BYTE
+		LD		[HL],1					; VHS=1, 2.7-3.6V
+		INC		HL						; POINT TO 4TH PARM BYTE
+		LD		[HL], 0xAA				; CHECK PATTERN
+		INC		HL						; POINT TO CRC
+		LD		[HL], 0x87				; ... AND SET IT TO KNOWN VALUE OF $87
+		CALL	SD_EXECCMDND			; EXEC COMMAND W/ NO DATA RETURNED
+
+		; GET CARD OUT OF IDLE STATE BY SENDING SD_APP_OP_COND
+		; REPEATEDLY UNTIL IDLE BIT IS CLEAR
+		LD		A, 0
+		LD		[SD_LCNT], A
+.sc3
+		; DELAY A BIT PER SPEC
+		LD		bc, 5					; 16US * 300 = ~5MS
+		CALL	delay					; CPU SPEED NORMALIZED DELAY
+		; SEND APP CMD INTRODUCER
+		CALL	SD_EXECACMD				; SEND APP COMMAND INTRODUCER
+		CP		SD_STCMDERR				; COMMAND ERROR?
+		JR		Z, .sc4					; IF SO, TRY MMC CARD INIT
+		OR		A						; SET FLAGS
+		RET		NZ						; ABORT IF ANY OTHER ERROR
+		; SEND APP_OP_COND
+		LD		A, SD_ACMD_SEND_OP_COND	; SD_APP_OP_COND
+		CALL	SD_INITCMD				; SETUP COMMAND BUFFER
+		LD		A, 0x40					; P0 = 0x40 INDICATES WE SUPPORT V2 CARDS
+		LD		[SD_CMDP0], A			; SET COMMAND PARM 0
+		CALL	SD_EXECCMDND			; EXEC COMMAND W/ NO DATA RETURNED
+		RET		NZ						; ABORT ON ERROR
+		; CHECK FOR IDLE, EXIT LOOP IF IDLE CLEARED
+		LD		A, [SD_RC]				; GET CARD RESULT CODE
+		OR		A						; SET FLAGS
+		JR		Z, .sc7					; IF IDLE BIT CLEAR, EXIT LOOP
+		; LOOP AS NEEDED
+		LD		HL, SD_LCNT				; POINT TO LOOP COUNTER
+		DEC		[HL]					; DECREMENT LOOP COUNTER
+		JR		NZ, .sc3				; LOOP UNTIL COUNTER EXHAUSTED
+		JP		SD_ERRINITTO			; HANDLE INIT TIMEOUT ERROR
+;
+.sc4
+		; TRY MMC CARD INITIALIZATION
+		; CALL SEND_OP_COND UNTIL CARD IS READY (NOT IDLE)
+		LD		A, 0
+		LD		[SD_LCNT],A
+.sc5
+		; DELAY A BIT PER SPEC
+		LD		bc, 5					; 16US * 300 = ~5MS
+		CALL	delay					; CPU SPEED NORMALIZED DELAY
+		; SEND OP_COND COMMAND
+		LD		A, SD_CMD_SEND_OP_COND	; SD_OP_COND
+		CALL	SD_INITCMD				; SETUP COMMAND BUFFER
+		CALL	SD_EXECCMDND			; EXEC COMMAND WITH NO DATA
+		RET		NZ						; ABORT ON ERROR
+		; CHECK FOR IDLE, EXIT LOOP IF IDLE CLEARED
+		LD		A, [SD_RC]				; GET CARD RESULT CODE
+		OR		A						; SET FLAGS
+		JR		Z, .sc6					; IDLE BIT CLEAR, EXIT LOOP
+		; LOOP AS NEEDED
+		LD		HL, SD_LCNT				; POINT TO LOOP COUNTER
+		DEC		[HL]					; DECREMENT LOOP COUNTER
+		JR		NZ, .sc5				; LOOP UNTIL COUNTER EXHAUSTED
+		JP		SD_ERRINITTO			; HANDLE INIT TIMEOUT ERROR
+;
+.sc6
+		; SUCCESSFUL MMC CARD INITIALIZATION
+		LD		C, SD_TYPEMMC			; MMC CARD TYPE
+		JR		.sc9					; RESUME FLOW
+;
+.sc7
+		; CMD58 RETURNS THE 32 BIT OCR REGISTER (R3), WE WANT TO CHECK
+		; BIT 30, IF SET THIS IS SDHC/XC CARD
+		LD		A, SD_CMD_READ_OCR		; READ_OCR
+		CALL	SD_INITCMD				; SETUP COMMAND BUFFER
+		CALL	SD_EXECCMD				; EXECUTE COMMAND
+		RET		NZ						; ABORT ON ERROR
+		; CMD58 WORKED, GET OCR DATA AND SET CARD TYPE
+		CALL	spi_read8				; BITS 31-24
+		CALL	SD_DONE					; FINISH THE TRANSACTION
+		AND		0x40					; ISOLATE BIT 30 (CCS)
+		LD		C, SD_TYPESDSC			; ASSUME V1 CARD
+		JR		Z, .sc9					; IF BIT NOT SET, THIS IS SDSC CARD
+;
+.sc8
+		; ACMD51 RETURNS THE 64 BIT SCR REGISTER (ONLY AVAILABLE ON SDSC AND ABOVE)
+		; SD_SPEC3 (BIT 47) IS SET IF CARD IS SDXC OR GREATER
+		CALL	SD_EXECACMD				; SEND APP COMMAND INTRODUCER
+		RET		NZ						; ABORT ON ERROR (THIS SHOULD ALWAYS WORK)
+		LD		A, SD_ACMD_SEND_SCR		; APP CMD SEND_SCR
+		CALL	SD_INITCMD				; SETUP COMMAND BUFFER
+		CALL	SD_EXECCMD				; EXECUTE COMMAND
+		RET		NZ						; ABORT ON ERROR (THIS SHOULD ALWAYS WORK)
+		; ACMD51 SUCCEEDED, NOW GET THE SCR REGISTER CONTENTS
+		LD		BC, 8					; 8 BYTES OF SCR
+		LD		HL, SD_BUF				; PUT IN OUR PRIVATE BUFFER
+		CALL	SD_GETDATA				; GET THE DATA
+		CALL	SD_DONE					; CLOSE THE TRANSACTION
+		JP		NZ, SD_ERRDATA			; DATA XFER ERROR
+
+ if SDTRACE
+		; IF TRACING, DUMP THE SCR CONTENTS
+		CALL	SD_PRTPREFIX
+		LD		hl, SD_STR_SCR
+		CALL	stdio_text
+		LD		DE, SD_BUF
+		LD		A,8
+		CALL	PRTHEXBUF
  endif
 
-		ld		hl, sd_cmd58_buf
-		ld		b, sd_cmd58_len
-		call	sd_cmd_r3
+		; EXTRACT THE SD_SECURITY FIELD AND SET SDHC/SDXC BASED ON VALUE
+		LD		A, [SD_BUF + 1]		; GET THIRD BYTE (BITS 47-40) (55-48)
+		AND		%01110000			; ISOLATE SD_SECURITY BITS
+		CP		0x40				; CHECK FOR SDXC VALUE
+		LD		C, SD_TYPESDHC		; ASSUME CARD TYPE = SDHC
+		JR		NZ, .sc9			; IF NOT SDXC, DONE
+		LD		C, SD_TYPESDXC		; OTHERWISE, THIS IS SDXC CARD
 
- if sd_debug
-		call	stdio_str
-		db		"CMD58: ",0
-		ld		hl, sd_cmd58_buf
-		ld		bc, sd_cmd58_len
-		ld		e, 0
-		call	hexdump
-		call	stdio_str
-		db		"  R3: ", 0
-		pop		hl			; POP buffer address
-		ld		bc, 5
-		ld		e, 0
-		call	hexdump			; dump the reply message
- endif
-		ret
+.sc9	LD		[IY+SD_TYPE], C		; SAVE CARD TYPE
 
-sd_cmd58_buf	db		58|0x40,0,0,0,0,0x00|0x01
-sd_cmd58_len	equ		$-sd_cmd58_buf
-
-;############################################################################
-; Send a CMD55 (APP_CMD) message and read an R1 response.
-; CMD55 is used to notify the card that the following message is an ACMD
-; (as opposed to a regular CMD.)
-; Clobbers A, BC, DE, HL
-; Return the 1-byte response in A
-;############################################################################
-
-sd_cmd55
-		ld		hl, sd_cmd55_buf	; HL = buffer to write
-		ld		b, sd_cmd55_len		; B = buffer byte count
-		call	sd_cmd_r1		; write buffer, A = R1 response byte
-
- if sd_debug
-		push	af
-		call	stdio_str
-		db		"CMD55: ",0
-		ld		hl, sd_cmd55_buf
-		ld		bc, sd_cmd55_len
-		ld		e, 0
-		call	hexdump
-		call	stdio_str
-		db		"  R1: ", 0
-		pop		af
-		push	af
-		call	hexdump_a	; dump the response byte
-		call    puts_crlf
-		pop		af
- endif
-		ret
-
-sd_cmd55_buf	db		55|0x40,0,0,0,0,0x00|0x01
-sd_cmd55_len	equ		$-sd_cmd55_buf
-
-
-;############################################################################
-; Send a ACMD41 (SD_SEND_OP_COND) message and return an R1 response byte in A.
-;
-; The main purpose of ACMD41 to set the SD card state to READY so
-; that data blocks may be read and written.  It can fail if the card
-; is not happy with the operating voltage.
-;
-; Clobbers A, BC, DE, HL
-; Note that A-commands are prefixed with a CMD55.
-;############################################################################
-
-sd_acmd41
-		call	sd_cmd55		; send the A-command prefix
-
-		ld		hl, sd_acmd41_buf	; HL = command buffer
-		ld		b, sd_acmd41_len	; B = buffer byte count
-		call	sd_cmd_r1
-
- if sd_debug
-		push	af
-		call	stdio_str
-		db		"ACMD41: ",0
-		ld		hl, sd_acmd41_buf
-		ld		bc, sd_acmd41_len
-		ld		e, 0
-		call	hexdump
-		call	stdio_str
-		db		"   R1: ",0
-		pop		af
-		push	af
-		call	hexdump_a	; dump the status byte
-		call    stdio_str
-		db		"\r\n",0
-		pop		af
- endif
-		ret
-
-; SD spec p263 Fig 7.1 footnote 1 says we want to set the HCS bit here for HC/XC cards.
-; Notes on Internet about setting the supply voltage in ACMD41. But not in SPI mode?
-; The following works on my MicroCenter SDHC cards:
-
-sd_acmd41_buf	db	41|0x40,0x40,0,0,0,0x00|0x01	; Note the HCS flag is set here
-sd_acmd41_len	equ	$-sd_acmd41_buf
-
-;############################################################################
-; Get the SD card to wake up ready for block transfers.
-;
-; XXX This is a hack added to let the BIOS reset everything. XXX
-;
-;############################################################################
-
-sd_reset
-		;call	sd_boot
-		call	sd_clk_dly
-
-		call    sd_cmd0
-
-		ld      de, sd_scratch
-		call    sd_cmd8
-
-		;ld      de, sd_scratch
-		;call    sd_cmd58
-
-		ld      b,0x20          ; limit the number of retries here
-sd_reset_ac41
-		push    bc
-		ld      de, sd_scratch
-		call    sd_acmd41
-		pop     bc
-		or      a
-		jr      z, sd_reset_done
-		djnz    sd_reset_ac41
-
-		call	stdio_str
-		db		"SD_RESET FAILED!\r\n",0
-		ld		a, 0x01
-		ret
-
-sd_reset_done
-		ld      de, sd_scratch
-		call    sd_cmd58
-		xor	a
-		ret
-
-;############################################################################
-; A hack to just supply clock for a while.
-;############################################################################
-
-sd_clk_dly
-		push	de
-		push	hl
-		ld		hl, 0x80
-sd_clk_dly1
-		call	spi_read8
-		dec		hl
-		ld		a, h
-		or		l
-		jr		nz, sd_clk_dly1
-		pop		hl
-		pop		de
-		ret
-
-;############################################################################
-; CMD17 (READ_SINGLE_BLOCK)
-;
-; Read one block given by the 32-bit (little endian) number at
-; the top of the stack into the buffer given by address in DE.
-;
-; - set SSEL = true
-; - send command
-; - read for CMD ACK
-; - wait for 'data token'
-; - read data block
-; - read data CRC
-; - set SSEL = false
-;
-; A = 0 if the read operation was successful. Else A=1
-; Clobbers A, IX
-;############################################################################
-
-;sd_debug_cmd17 equ	sd_debug
-
-sd_cmd17
-					; +10 = &block_number
-					; +8 = return @
-		push	bc			; +6
-		push	hl			; +4
-		push	iy			; +2
-		push	de			; +0 target buffer address
-
-		ld		iy, sd_scratch	; iy = buffer to format command
-		ld		ix,10			; 10 is the offset from sp to the location of the block number
-		add		ix, sp			; ix = address of uint32_t sd_lba_block number
-
-		ld		[iy+0], 17|0x40	; the command byte
-		ld		a, [ix+3]		; stack = little endian
-		ld		[iy+1],a		; cmd_buffer = big endian
-		ld		a, [ix+2]
-		ld		[iy+2], a
-		ld		a, [ix+1]
-		ld		[iy+3], a
-		ld		a, [ix+0]
-		ld		[iy+4], a
-		ld		[iy+5], 0x00|0x01	; the CRC byte
-
- if sd_debug_cmd17
-		; print the comand buffer
-		call	stdio_str
-		db		"CMD17: ",0
-		push	iy
-		pop		hl			; HL = IY = cmd_buffer address
-		ld		bc, 6		; B = command buffer length
-		ld		e, 0
-		call	hexdump
-
-		; print the target address
-		call	stdio_str
-		db		"  Target: ",0
-
-		pop		de			; restore DE = target buffer address
-		push	de			; and keep it on the stack too
-
-		ld		a, d
-		call	hexdump_a
-		ld		a, e
-		call	hexdump_a
-		call	puts_crlf
+ if SDTRACE
+		CALL	SD_PRTPREFIX
+		LD		hl, SD_STR_SDTYPE
+		CALL	stdio_text
+		LD		A, C
+		CALL	stdio_byte
  endif
 
-		; assert the SSEL line
-		call    spi_ssel_true
+		; SET OUR DESIRED BLOCK LENGTH (512 BYTES)
+		LD		A, SD_CMD_SET_BLOCKLEN	; SET_BLOCKLEN
+		CALL	SD_INITCMD				; SETUP COMMAND BUFFER
+		LD		DE, 512					; 512 BYTE BLOCK LENGTH
+		LD		HL, SD_CMDP2				; PUT VALUE INTO PARMS
+		LD		[HL], D					; ... HIGH WORD (P0, P1) REMAIN ZERO
+		INC		HL						; ... VALUE OF DE GET PUT IN LOW WORD (P2, P3)
+		LD		[HL], E					; ... BUT OBSERVE BIG ENDIAN LAYOUT
+		CALL	SD_EXECCMDND			; EXEC COMMAND W/ NO DATA
+		RET		NZ						; ABORT ON ERROR
 
-		; send the command
-		push	iy
-		pop		hl				; HL = IY = cmd_buffer address
-		ld		b, 6			; B = command buffer length
-		call    spi_write_str	; clobbers A, BC, D, HL
+		; ISSUE SEND_CSD (TO DERIVE CARD CAPACITY)
+		LD		A, SD_CMD_SEND_CSD	; SEND_CSD
+		CALL	SD_INITCMD			; SETUP COMMAND BUFFER
+		CALL	SD_EXECCMD			; EXECUTE COMMAND
+		RET		NZ					; ABORT ON ERROR
+		LD		BC, 16				; 16 BYTES OF CSD
+		LD		HL, SD_BUF			; PUT IN OUR PRIVATE BUFFER
+		CALL	SD_GETDATA			; GET THE DATA
+		CALL	SD_DONE				; CLOSE THE TRANSACTION
+		JP		NZ, SD_ERRDATA		; DATA XFER ERROR
 
-		; read the R1 response message
-		call    sd_read_r1		; clobbers A, B, DE
-
- if sd_debug_cmd17
-		push	af
-		call	stdio_str
-		db		"  R1: ",0
-		pop		af
-		push	af
-		call	hexdump_a
-		call	puts_crlf
-		pop		af
+ if SDTRACE
+		; IF TRACING, DUMP THE CSD CONTENTS
+		CALL	SD_PRTPREFIX
+		LD		hl, SD_STR_CSD
+		CALL	stdio_text
+		LD		DE, SD_BUF
+		LD		A, 16
+		CALL	PRTHEXBUF
  endif
 
-		; If R1 status != SD_READY (0x00) then error (SD spec p265, Section 7.2.3)
-		or		a			; if (a == 0x00) then is OK
-		jr		z, sd_cmd17_r1ok
+		; GET SIZE OF DEVICE IN BLOCKS
+		LD		A, [IY+SD_TYPE]		; GET CARD TYPE
+		OR		A					; SET FLAGS
+		jr		nz, .sc10			; PANIC IF CARD TYPE UNKNOWN
+		CAB		"Card type Unknown"
+.sc10	CP		SD_TYPESDHC			; COMPARE TO SDHC (V2)
+		JP		NC, .sc12			; HANDLE SDHC (V2) OR BETTER
+;		drop through
 
-		; print the R1 status byte
-		push	af
+;-------------------------------------------------------------------------------
+; CAPACITY CALCULATION FOR MMC OR SDSC (V1) CARDS:
+; BYTES = (C_SIZE + 1) * 2^(2+C_SIZE_MULT+READ_BL_LEN) = (C_SIZE+1) << (2+C_SIZE_MULT+READ_BL_LEN)
+; BLOCKS = BYTES / 512 = BYTES >> 9
+;-------------------------------------------------------------------------------
+								; GET SIZE FOR V1 CARD
+		PUSH	IX				; SAVE IX
+		LD		IX, SD_BUF		; POINT IX TO BUFFER
+		LD		A, [IX+6]		; GET C_SIZE MSB
+		AND		%00000011		; MASK OFF TOP 6 BITS (NOT PART OF C_SIZE)
+		LD		C, A			; MSB -> C
+		LD		D, [IX+7]		; D
+		LD		E, [IX+8]		; LSB -> E
+		LD		B, 6			; RIGHT SHIFT WHOLE THING BY 6 BITS
+.sc11
+		SRA		C				; SHIFT MSB
+		RR		D				; SHIFT NEXT BYTE
+		RR		E				; SHIFT LSB
+		DJNZ	.sc11			; LOOP TILL DONE
+		PUSH	DE				; DE = C_SIZE, SAVE IT
+		LD		A, [IX+9]		; GET C_SIZE_MULT MSB
+		LD		B, [IX+10]		; GET C_SIZE_MULT LSB
+		SLA		B				; SHIFT LEFT MSB
+		RLA						; SHIFT LEFT LSB
+		AND		%00000111		; ISOLATE RELEVANT BITS
+		LD		C, A				; C := C_SIZE_MULT
+		LD		A, [IX+5]		; GET READ_BL_LEN
+		AND		%00001111		; ISLOATE RELEVANT BITS
+		LD		B, A			; B := READ_BL_LEN
+		; FINAL MULTIPLIER IS 2^(C_SIZE_MULT + READ_BL_LEN + 2)
+		LD		A, B			; READ_BL_LEN
+		ADD		A, C			; AND C_SIZE_MULT
+		ADD		A, 2			; AND 2 MORE BY DEFINITION
+		; RELOAD C_SIZE AND CONVERT TO 32 BIT VALUE IN DE:HL
+		POP		HL				; RECOVE C_SIZE
+		INC		HL				; ADD 1
+		LD		DE, 0			; HI WORD IS ZERO
+		; ADJUST TO 512 BYTE BLOCK COUNT
+		LD		B, A			; NORMALIZE TO BYTE COUNT
+		CALL	SLA32			; BIT SHIFT LEFT ACCORDING TO MULTIPLIERS
+		LD		B, 9			; NORMALIZE TO 512 BYTE BLOCK COUNT
+		CALL	SRL32			; BIT SHIFT RIGHT 9 BITS DE:HL
+		POP		IX				; RESTORE IX
+		JR		.sc13			; RECORD VALUE
+
+;-------------------------------------------------------------------------------
+; CAPACITY CALCULATION FOR SDHC/SDXC (V2/V3) CARDS:
+; BLOCKS = (C_SIZE + 1) * 1024 = C_SIZE << 10
+;-------------------------------------------------------------------------------
+.sc12							; GET SIZE FOR V2 CARD
+		PUSH	IX				; SAVE IX
+		LD		IX, SD_BUF		; POINT IX TO BUFFER
+		LD		A, [IX + 7]		; GET C_SIZE MSB TO A
+		AND		%00111111		; ISOLATE RELEVANT BITS
+		LD		H, [IX + 8]		; GET NEXT BYTE TO H
+		LD		L, [IX + 9]		; GET C_SIZE LSB TO L
+		POP		IX				; RESTORE IX
+		; ADD 1 TO C_SIZE IN A:HL
+		LD		DE, 1			; LOAD 1
+		ADD		HL, DE			; ADD TO HL
+		ADC		A, 0			; HANDLE CARRY
+		; CONVERT TO 32 BIT, A:HL -> DE:HL
+		LD		D, 0
+		LD		E, A
+		; DIVIDE BY 1024 TO NORMALIZE, LEFT SHIFT 10 BITS
+		LD		B, 10			; SHIFT BY 10 BITS
+		CALL	SLA32			; SHIFT THE 32 BIT VALUE
+;		JR		SD_INITCARD9	; CONTINUE
+;
+.sc13
+		; SAVE DERIVED CAPACITY VALUE IN DE:HL
+		PUSH	HL				; SAVE HL
+		LD		A, SD_MEDCAP	; OFFSET TO CAPACITY FIELD
+		CALL	LDHLIYA			; HL := IY + A, REG A TRASHED
+		PUSH	HL				; MOVE ADDRESS
+		POP		BC				; ... TO BC
+		POP		HL				; RECOVER HL
+		CALL	ST32			; SAVE THE CAPACITY VALUE (DWORD)
+;
+		; RESET CARD STATUS TO 0 (OK)
+		XOR		A				; A := 0 (STATUS = OK)
+		LD		[IY+SD_STAT] ,A	; SAVE IT
+;
+		RET						; RETURN, A=0, Z SET
+
+;-------------------------------------------------------------------------------
+; SECTOR I/O
+;   SD CARD COMMAND BYTE MUST BE PASSED IN C
+;-------------------------------------------------------------------------------
+SD_SECTIO
+		PUSH	BC
+		CALL	SD_CHKCARD			; CHECK / REINIT CARD AS NEEDED
+		POP		BC
+		RET		NZ					; ABORT IF REINIT FAILED
+
+		LD		A, C				; LOAD SD CARD COMMAND BYTE
+		CALL	SD_INITCMD			; SETUP COMMAND BUFFER
+		CALL	SD_SETADDR			; SETUP LBA ADDRESS
+		CALL	SD_EXECCMD			; EXECUTE COMMAND
+		RET		NZ					; ABORT ON ERROR
+
+		LD		HL, [SD_DSKBUF]
+		LD		BC, 512					; LENGTH TO READ
+		LD		A, [SD_CMD]				; GET THE COMMAND
+		CP		SD_CMD_READ_SNGL_BLK	; READ_SINGLE_BLOCK?
+		JR		Z, .ss1					; HANDLE READ
+		CP		SD_CMD_WRITE_BLOCK		; WRITE_BLOCK?
+		JR		Z, .ss2					; HANDLE WRITE
+		CAB		"Unknown op"			; PANIC ON ANYTHING ELSE
+.ss1
+		; GET SECTOR DATA
+		CALL	SD_GETDATA				; GET THE BLOCK
+		JR		.ss3					; AND CONTINUE
+.ss2
+		; PUT SECTOR DATA
+		CALL	SD_PUTDATA				; PUT THE BLOCK AND FALL THRU
+.ss3
+		; CONTINUE WITH COMMON CODE
+		CALL	SD_DONE					; CLOSE THE TRANSACTION
+		RET		Z						; RETURN WITH A=0 AND Z SET
+		JP		SD_ERRDATA				; DATA XFER ERROR
+
+;-------------------------------------------------------------------------------
+; CHECK THE SD CARD, ATTEMPT TO REINITIALIZE IF NEEDED
+;-------------------------------------------------------------------------------
+SD_CHKCARD
+		; FIX: NEED TO CHECK CARD DETECT HERE AND
+		; HANDLE AS ERROR.
+		;
+		LD		A, [IY+SD_STAT]		; GET CURRENT STATUS
+		OR		A					; SET FLAGS
+		RET		Z					; RETURN WITH A=0 AND Z SET
+		JP		SD_INITCARD			; OTHERWISE INIT CARD
+
+;-------------------------------------------------------------------------------
+; CONVERT LBA ADDRESS TO CARD SPECIFIC ADDRESS IN CMD PARMS
+; V1 CARDS REQUIRE BYTE ADDRESSING, SO A TRANSLATION IS DONE IN THAT CASE
+;-------------------------------------------------------------------------------
+SD_SETADDR
+		LD		A, [IY+SD_TYPE]		; GET CARD TYPE
+		PUSH	AF					; SAVE IT
+		LD		A, SD_LBA			; OFFSET OF LBA VALUE
+		CALL	LDHLIYA				; HL := IY + A, REG A TRASHED
+		CALL	LD32				; LOAD IT TO DE:HL, AF IS TRASHED
+		POP		AF					; GET CARD TYPE BACK
+		CP		SD_TYPESDHC			; IS IT V2 OR BETTER?
+		JR		NC, .sa1			; IF SO, BYPASS TRANSLATION
+
+		; TRANSLATE BLOCK ADDRESS TO BYTE ADDRESS FOR V1 CARDS
+		LD		D, E
+		LD		E, H
+		LD		H, L
+		LD		L, 0
+		SLA		L
+		RL		H
+		RL		E
+		RL		D
+;
+.sa1
+		; STORE RESULTANT ADDRESS INTO PARMS (BIG ENDIAN!)
+		PUSH	HL				; SAVE LOW WORD OF ADDRESS
+		LD		HL, SD_CMDP0	; POINT TO START OF PARM BYTES
+		LD		[HL], D			; SAVE MSB OF HI WORD
+		INC		HL				; NEXT BYTE
+		LD		[HL], E			; SAVE LSB OF HI WORD
+		INC		HL				; NEXT BYTE
+		POP		DE				; RECOVER LOW WORD OF ADDRESS INTO DE
+		LD		[HL], D			; SAVE MSB OF LO WORD
+		INC		HL				; NEXT BYTE
+		LD		[HL], E			; SAVE LSB OF LO WORD
+		RET						; DONE
+;
+;=============================================================================
+; COMMAND PROCESSING
+;=============================================================================
+;
+;-------------------------------------------------------------------------------
+; PUT CARD IN IDLE STATE
+;-------------------------------------------------------------------------------
+SD_GOIDLE
+		CALL	.gi1					; FIRST ATTEMPT
+		RET		Z						; DONE IF SUCCEEDED
+		; FALL THRU FOR SECOND ATTEMPT IF NEEDED
+;
+.gi1:
+		; PUT CARD IN IDLE STATE
+		LD		A, SD_CMD_GO_IDLE_STATE	; CMD0 = ENTER IDLE STATE
+		CALL	SD_INITCMD				; INIT COMMAND BUFFER
+		LD		A, 0x95					; CRC FOR GO_IDLE_STATE COMMAND IS $95
+		LD		[SD_CMDCRC], A			; SET CRC
+		CALL	SD_EXECCMDND			; EXECUTE COMMAND W/ NO DATA RETURNED
+		RET		NZ						; ABORT ON ERROR
+		LD		A, [SD_RC]				; GET CARD RESULT
+		DEC		A						; MAP EXPECTED $01 -> $00
+		RET		Z						; ALL IS GOOD, RETURN WITH A=0 AND Z SET
+		JP		SD_ERRCMD				; SET COMMAND ERROR VALUE
+;-------------------------------------------------------------------------------
+; INITIALIZE COMMAND BUFFER
+; COMMAND BYTE IN ACCUM
+; HL AND AF DESTROYED
+;-------------------------------------------------------------------------------
+SD_INITCMD
+		LD		HL, SD_CMDBUF	; POINT TO START OF BUFFER
+		LD		[HL], A			; SET THE COMMAND BYTE
+		XOR		A				; CLEAR ACCUM
+		LD		B, 7			; PREPARE TO CLEAR NEXT 7 BYTES (PARMS, CRC, RC, TOK)
+.ic1
+		INC		HL				; POINT TO NEXT BYTE
+		LD		[HL], A			; CLEAR IT
+		DJNZ	.ic1			; LOOP TILL DONE
+		RET
+;-------------------------------------------------------------------------------
+; EXECUTE APP COMMAND
+;-------------------------------------------------------------------------------
+SD_EXECACMD
+		LD		A, SD_CMD_APP_CMD	; APP_CMD, AN APP CMD IS NEXT
+		CALL	SD_INITCMD			; SETUP COMMAND BUFFER
+		JR		SD_EXECCMDND		; EXEC COMMAND W/ NO DATA RETURNED
+
+;-------------------------------------------------------------------------------
+; EXECUTE COMMAND WITH NO DATA
+;-------------------------------------------------------------------------------
+SD_EXECCMDND
+		CALL	SD_EXECCMD	; RUN THE COMMAND
+		JP		Z, SD_DONE	; RETURN THRU SD_DONE IF NO ERROR
+		RET					; ERROR STATUS, JUST RETURN, SD_DONE WAS ALREADY RUN
+;-------------------------------------------------------------------------------
+; EXECUTE A COMMAND
+; WILL FINISH TRANSACTION IF ERROR OCCURS
+; RETURNS STATUS IN A WITH ZF SET ACCORDINGLY
+;-------------------------------------------------------------------------------
+SD_EXECCMD
+ if SDTRACE
+		PUSH	AF
+		CALL	SD_PRTPREFIX
+		LD		DE, SD_CMDBUF
 		call	stdio_str
-		db		"\r\nSD CMD17 R1 error = 0x",0
-		pop		af
-		call	stdio_byte
-		call	stdio_str
-		db		"\r\n",0
-
-		jp		sd_cmd17_err
-
-
-sd_cmd17_r1ok
-
-		; read and toss bytes while waiting for the data token
-		ld      bc, 0x1000		; expect to wait a while for a reply
-sd_cmd17_loop
-		call    spi_read8		; (clobbers A, DE)
-		cp		0xff			; if a=0xff then command is not yet completed
-		jr      nz, sd_cmd17_token
-		dec		bc
-		ld		a, b
-		or		c
-		jr		nz, sd_cmd17_loop
-
-		call	stdio_str
-		db		"SD CMD17 data timeout\r\n",0
-		jp		sd_cmd17_err		; no flag ever arrived
-
-sd_cmd17_token
-		cp		0xfe			; A = data block token? (else is junk from the SD)
-		jr		z, sd_cmd17_tokok
-
-		push	af
-		call	stdio_str
-		db		"SD CMD17 invalid response token: 0x",0
-		pop		af
-		call	stdio_byte
-		call	stdio_str
-		db		"\r\n",0
-		jp		sd_cmd17_err
-
-sd_cmd17_tokok
-		pop		hl			; HL = target buffer address
-		push	hl			; and keep the stack level the same
-		ld		bc, 0x200	; 512 bytes to read
-sd_cmd17_blk
-		call	spi_read8		; Clobbers A, DE
-		ld		[hl], a
-		inc		hl		 		; increment the buffer pointer
-		dec		bc				; decrement the byte counter
-
- if sd_debug_cmd17
-		; A VERY verbose dump of every byte as they are read in from the card
-		push	bc
-		call	hexdump_a
-		ld		c, ' '
-		call	con_tx_char
-		pop		bc
-		push	bc
-		ld		a, c			; if %16 then
-		and		0x0f
-		jr		nz, sd_cmd17_dsp
-		ld		c, '\r';
-		call	con_tx_char
-		ld		c, '\n'
-		call	con_tx_char
-sd_cmd17_dsp
-		pop		bc
+		db		" CMD",0
+		LD		A, 6
+		CALL	PRTHEXBUF
+		LD		hl, SD_STR_ARROW
+		CALL	stdio_text
+		POP		AF
  endif
 
-		ld		a, b			; did BC reach zero?
-		or		c
-		jr		nz, sd_cmd17_blk	; if not, go back & read another byte
+		CALL	spi_sd_sel_true
 
-		call	spi_read8		; read the CRC value (XXX should check this)
-		call	spi_read8		; read the CRC value (XXX should check this)
-
-		call    spi_ssel_false
-		xor		a			; A = 0 = success!
-
-sd_cmd17_done
-		pop		de
-		pop		iy
-		pop		hl
-		pop		bc
-		ret
-
-sd_cmd17_err
-		call	spi_ssel_false
-
-		ld		a, 0x01		; return an error flag
-		jr		sd_cmd17_done
-
-;############################################################################
-; CMD24 (WRITE_BLOCK)
-;
-; Write one block given by the 32-bit (little endian) number at
-; the top of the stack from the buffer given by address in DE.
-;
-; - set SSEL = true
-; - send command
-; - read for CMD ACK
-; - send 'data token'
-; - write data block
-; - wait while busy
-; - read 'data response token' (must be 0bxxx00101 else errors) (see SD spec: 7.3.3.1, p281)
-; - set SSEL = false
-;
-; - set SSEL = true
-; - wait while busy		Wait for the write operation to complete.
-; - set SSEL = false
-;
-; XXX This /should/ check to see if the block address was valid
-; and that there was no write protect error by sending a CMD13
-; after the long busy wait has completed.
-;
-; A = 0 if the write operation was successful. Else A = 1.
-; Clobbers A, IX
-;############################################################################
-
-;sd_debug_cmd24 equ	sd_debug
-
-sd_cmd24
-					; +10 = &block_number
-					; +8 = return @
-		push	bc			; +6
-		push	de			; +4 target buffer address
-		push	hl			; +2
-		push	iy			; +0
-
-		ld		iy, sd_scratch	; iy = buffer to format command
-		ld		ix, 10			; 10 is the offset from sp to the location of the block number
-		add		ix, sp			; ix = address of uint32_t sd_lba_block number
-
-sd_cmd24_len equ	6
-
-		ld		[iy+0], 24|0x40		; the command byte
-		ld		a, [ix+3]			; stack = little endian
-		ld		[iy+1], a			; cmd_buffer = big endian
-		ld		a, [ix+2]
-		ld		[iy+2], a
-		ld		a, [ix+1]
-		ld		[iy+3], a
-		ld		a, [ix+0]
-		ld		[iy+4], a
-		ld		[iy+5], 0x00|0x01	; the CRC byte
-
- if sd_debug_cmd24
-		push	de
-		; print the command buffer
-		call	stdio_str
-		db		"  CMD24: ",0
-		push	iy
-		pop		hl			; hl = &cmd_buffer
-		ld		bc, sd_cmd24_len
-		ld		e,0
-		call	hexdump
-
-		; print the target address
-		call	stdio_str
-		db		"  CMD24: source: ",0
-		ld		a, [ix-5]
-		call	hexdump_a
-		ld		a, [ix-6]
-		call	hexdump_a
-		call	puts_crlf
-		pop		de
+ if SD_NOPULLUP
+		; DO NOT WAIT FOR READY PRIOR TO CMD0!  THIS HACK IS REQUIRED BY
+		; STUPID SD CARD ADAPTERS THAT NOW OMIT THE MISO PULL-UP.  SEE
+		; COMMENTS AT TOP OF THIS FILE.
+		LD		A, [SD_CMDBUF]
+		CP		SD_CMD_GO_IDLE_STATE
+		JR		Z, SD_EXECCMD0
  endif
 
-		; assert the SSEL line
-		call    spi_ssel_true
+		; WAIT FOR CARD TO BE READY
+		CALL	SD_WAITRDY			; WAIT FOR CARD TO BE READY FOR A COMMAND
+		JP		NZ, SD_ERRRDYTO		; HANDLE TIMEOUT ERROR
 
-		; send the command
-		push	iy
-		pop		hl			; hl = iy = &cmd_buffer
-		ld		b, sd_cmd24_len
-		call	spi_write_str		; clobbers A, BC, D, HL
+SD_EXECCMD0
+		; SEND THE COMMAND
+		LD		HL, SD_CMDBUF		; POINT TO COMMAND BUFFER
+		LD		E, 6				; COMMANDS ARE 6 BYTES
+.ex1
+		LD		A, [HL]				; PREPARE TO SEND NEXT BYTE
+		CALL	spi_write8			; SEND IT
+		INC		HL					; POINT TO NEXT BYTE
+		DEC		E					; DEC LOOP COUNTER
+		JR		NZ, .ex1			; LOOP TILL DONE W/ ALL 6 BYTES
 
-		; read the R1 response message
-		call    sd_read_r1		; clobbers A, B, DE
-
-		; If R1 status != SD_READY (0x00) then error
-		or		a			; if (a == 0x00)
-		jr		z, sd_cmd24_r1ok	; then OK
-					; else error...
-
-		push	af
-		call	stdio_str
-		db		"SD CMD24 status = ",0
-		pop		af
-		call	stdio_byte
-		call	stdio_str
-		db		" != SD_READY\r\n",0
-		jp		sd_cmd24_err		; then error
-
-sd_cmd24_r1ok
-		; give the SD card an extra 8 clocks before we send the start token
-		call	spi_read8
-
-		; send the start token: 0xfe
-		ld		c, 0xfe
-		call	spi_write8		; clobbers A and D
-
-		; send 512 bytes
-
-		ld		l, [ix-6]		; HL = source buffer address
-		ld		h, [ix-5]
-		ld		bc, 0x200		; BC = 512 bytes to write
-sd_cmd24_blk
-		push	bc			; XXX speed this up
-		ld		c, [hl]
-		call	spi_write8		; Clobbers A and D
-		inc		hl
-		pop		bc			; XXX speed this up
-		dec		bc
-		ld		a, b
-		or		c
-		jr		nz, sd_cmd24_blk
-
-		; read for up to 250msec waiting on a completion status
-
-		ld		bc, 0xf000		; wait a potentially /long/ time for the write to complete
-sd_cmd24_wdr				; wait for data response message
-		call	spi_read8		; clobber A, DE
-		cp		0xff
-		jr		nz, sd_cmd24_drc
-		dec		bc
-		ld		a, b
-		or		c
-		jr		nz, sd_cmd24_wdr
-
-		call    stdio_str
-		db		"SD CMD24 completion status timeout!\r\n",0
-		jp		sd_cmd24_err	; timed out
-
-
-sd_cmd24_drc
-		; Make sure the response is 0bxxx00101 else is an error
-		and		0x1f
-		cp		0x05
-		jr		z, sd_cmd24_ok
-
-
-		push	bc
-		call	stdio_str
-		db		"ERROR: SD CMD24 completion status != 0x05 (count=",0
-		pop		bc
-		push	bc
-		ld		a, b
-		call	stdio_byte
-		pop		bc
-		ld		a, c
-		call	stdio_byte
-		call	stdio_str
-		db		")\r\n",0
-
-		jp		sd_cmd24_err
-
-sd_cmd24_ok
-		call	spi_ssel_false
-
-
- if 1
-		; Wait until the card reports that it is not busy
-		call	spi_ssel_true
-
-sd_cmd24_busy
-		call	spi_read8		; clobber A, DE
-		cp		0xff
-		jr		nz, sd_cmd24_busy
-
-		call	spi_ssel_false
- endif
-		xor		a			; A = 0 = success!
-
-sd_cmd24_done
-		pop		iy
-		pop		hl
-		pop		de
-		pop		bc
-		ret
-
-sd_cmd24_err
-	    call    spi_ssel_false
-
- if sd_debug_cmd24
-		call	stdio_str
-		db		"SD CMD24 write failed!\r\n\0"
+ if SD_NOPULLUP
+		; THE FIRST FILL BYTE IS DISCARDED!  THIS HACK IS REQUIRED BY
+		; STUPID SD CARD ADAPTERS THAT NOW OMIT THE MISO PULL-UP.  SEE
+		; COMMENTS AT TOP OF THIS FILE.
+		CALL	spi_read8			; GET A BYTE AND DISCARD IT
  endif
 
-		ld		a, 0x01		; return an error flag
-		jr		sd_cmd24_done
+; GET RESULT
+		LD		E, 0				; INIT TIMEOUT LOOP COUNTER (256)
+.ex2:
+		CALL	spi_read8			; GET A BYTE FROM THE CARD
+		OR		A					; SET FLAGS
+		JP		P, .ex3				; IF HIGH BIT IS 0, WE HAVE RESULT
+		DEC		E					; OTHERWISE DECREMENT LOOP COUNTER
+		JR		NZ, .ex2			; AND LOOP UNTIL TIMEOUT
+		JP		SD_ERRCMDTO
+;
+.ex3
+		; COMMAND COMPLETE, SAVE RC AND PRINT DIAGNOSTICS AS APPROPRIATE
+		LD		[SD_RC], A			; RECORD THE RESULT
+ if SDTRACE
+		CALL	SD_PRTRC			; IF MAX TRACING, PRINT RC
+ endif
+		AND		~0x01				; MASK OFF IDLE BIT AND SET FLAGS
+		RET		Z					; IF RC = 0, NO ERROR, RETURN
+		CALL	SD_DONE				; IF ERROR, COMPLETE TRANSACTION
+		JP		SD_ERRCMD			;	AND HANDLE IT
 
-;############################################################################
-; A buffer for exchanging messages with the SD card.
-;############################################################################
+;-------------------------------------------------------------------------------
+; SD_GETDATA
+;-------------------------------------------------------------------------------
+SD_GETDATA
+		PUSH	HL				; SAVE DESTINATION ADDRESS
+		PUSH	BC				; SAVE LENGTH TO RECEIVE
+		LD		DE, 0x7FFF		; LOOP MAX (TIMEOUT)
+.gd1
+		CALL	spi_read8
+		CP		0xFF			; WANT BYTE != $FF
+		JR		NZ, .gd2		; NOT 0xFF, MOVE ON
+		DEC		DE
+		BIT		7, D
+		JR		Z, .gd1			; KEEP TRYING UNTIL TIMEOUT
+.gd2
+		LD		[SD_TOK], A		; SAVE TOKEN VALUE
+  if SDTRACE
+		PUSH	AF
+		CALL	SD_PRTTOK
+		POP		AF
+  endif
+		POP		DE				; RESTORE LENGTH TO RECEIVE
+		POP		HL				; RECOVER DEST ADDRESS
+		CP		0xFE			; PACKET START?
+		ret		NZ				; NOPE, ABORT, A HAS ERROR CODE
+.gd3
+		CALL	spi_read8		; GET NEXT BYTE
+		LD		[HL], A			; SAVE IT
+		INC		HL
+		DEC		DE
+		LD		A, D
+		OR		E
+		JR		NZ, .gd3		; LOOP FOR ALL BYTES
+		CALL	spi_read8		; DISCARD CRC BYTE 1
+		CALL	spi_read8		; DISCARD CRC BYTE 2
+		XOR		A				; RESULT IS ZERO
+		RET
+;-------------------------------------------------------------------------------
+; SD_PUTDATA
+;-------------------------------------------------------------------------------
+SD_PUTDATA
+		PUSH	HL				; SAVE SOURCE ADDRESS
+		PUSH	BC				; SAVE LENGTH TO SEND
 
-sd_scratch
-		ds	6
+		LD		A, 0xFE			; PACKET START
+		CALL	spi_write8		; SEND IT
+
+		POP		DE				; RECOVER LENGTH TO SEND
+		POP		HL				; RECOVER SOURCE ADDRESS
+.pd1
+		LD		A,[HL]			; GET NEXT BYTE TO SEND
+		CALL	spi_write8		; SEND IF
+		INC		HL
+		DEC		DE
+		LD		A, D
+		OR		E
+		JR		NZ, .pd1		; LOOP FOR ALL BYTES
+		LD		A, 0xFF			; DUMMY CRC BYTE
+		CALL	spi_write8
+		LD		A, 0xFF			; DUMMY CRC BYTE
+		CALL	spi_write8
+		LD		DE, 0x7FFF		; LOOP MAX (TIMEOUT)
+.pd2
+		CALL	spi_read8
+
+		CP		0xFF			; WANT BYTE != $FF
+		JR		NZ, .pd3		; NOT 0xFF, MOVE ON
+		DEC		DE
+		BIT		7, D
+		JR		Z, .pd2			; KEEP TRYING UNTIL TIMEOUT
+.pd3
+		LD		[SD_TOK], A
+  if SDTRACE
+		PUSH	AF
+		CALL	SD_PRTTOK
+		POP		AF
+  endif
+		AND		0x1F
+		CP		0x05
+		RET		NZ
+		XOR		A
+		RET
+
+;-------------------------------------------------------------------------------
+; WAIT FOR CARD TO BE READY (0xFF).  MUST ALREADY BE SELECTED.
+;-------------------------------------------------------------------------------
+SD_WAITRDY
+		LD		DE, 0xFFFF		; LOOP MAX (TIMEOUT)
+.wr1
+		CALL	spi_read8
+		INC		A				; $FF -> $00
+		RET		Z				; IF READY, RETURN
+		DEC		DE
+		LD		A, D
+		OR		E
+		JR		NZ, .wr1		; KEEP TRYING UNTIL TIMEOUT
+		XOR		A				; ZERO ACCUM
+		DEC		A				; ACCUM := $FF TO SIGNAL ERROR
+		RET						; TIMEOUT
+
+; FINISH A TRANSACTION - PRESERVE AF
+
+; PER SPEC: AFTER THE LAST SPI BUS TRANSACTION, THE HOST IS REQUIRED, TO PROVIDE
+; 8 (EIGHT) CLOCK CYCLES FOR THE CARD TO COMPLETE THE OPERATION BEFORE SHUTTING
+; DOWN THE CLOCK. THROUGHOUT THIS 8 CLOCKS PERIOD THE STATE OF THE CS SIGNAL IS
+; IRRELEVANT. IT CAN BE ASSERTED OR DE-ASSERTED.
+
+; NOTE THAT I HAVE FOUND AT LEAST ONE MMC CARD THAT FAILS UNLESS THE CS SIGNAL
+; REMAINS ACTIVE DURING THE 8 CLOCKS, SO THE CLOCKS ARE SENT BEFORE DESELECTING THE CARD.
+
+SD_DONE
+		PUSH	AF
+		LD		A, 0xFF
+		CALL	spi_write8
+		CALL	spi_sd_sel_false
+		POP		AF
+		RET
+
+;=============================================================================
+; HARDWARE INTERFACE ROUTINES
+;=============================================================================
+;-------------------------------------------------------------------------------
+; TAKE ANY ACTIONS REQUIRED TO SELECT DESIRED PHYSICAL UNIT
+; UNIT IS SPECIFIED IN A
+;-------------------------------------------------------------------------------
+SD_SELUNIT
+		LD		A, [IY+SD_DEV]	; GET CURRENT DEVICE
+		XOR		A				; SIGNAL SUCCESS
+		RET						; DONE
+;-------------------------------------------------------------------------------
+; CHECK FOR CARD DETECT (NZ = MEDIA PRESENT)
+;-------------------------------------------------------------------------------
+SD_CHKCD
+		OR		0xFF			; ASSUME CARD PRESENT
+		RET						; DONE
+;=============================================================================
+; ERROR HANDLING AND DIAGNOSTICS
+;=============================================================================
+
+; ERROR HANDLERS
+
+SD_INVUNIT
+		LD		A, SD_STINVUNIT
+		JR		SD_ERR2			; SPECIAL CASE FOR INVALID UNIT
+
+SD_ERRRDYTO
+		LD		A, SD_STRDYTO
+		JR		SD_ERR
+
+SD_ERRINITTO
+		LD		A, SD_STINITTO
+		JR		SD_ERR
+
+SD_ERRCMDTO
+		LD		A, SD_STCMDTO
+		JR		SD_ERR
+
+SD_ERRCMD
+		LD		A, SD_STCMDERR
+		JR		SD_ERR
+
+SD_ERRDATA
+		LD		A, SD_STDATAERR
+		JR		SD_ERR
+
+SD_ERRDATATO
+		LD		A, SD_STDATATO
+		JR		SD_ERR
+
+SD_ERRCRC
+		LD		A, SD_STCRCERR
+		JR		SD_ERR
+
+SD_NOMEDIA
+		LD		A, SD_STNOMEDIA
+		JR		SD_ERR
+
+SD_WRTPROT
+		LD		A, SD_STWRTPROT
+		JR		SD_ERR2			; DO NOT UPDATE UNIT STATUS!
+
+SD_ERR
+		LD		[IY+SD_STAT], A	; SAVE NEW STATUS
+SD_ERR2
+ if SDTRACE
+		CALL	SD_PRTSTAT
+		CALL	SD_REGDUMP
+ endif
+		PUSH	AF
+		CALL	spi_sd_sel_false ; De-select if there was an error
+		POP		AF
+		OR		A				; SET FLAGS
+		RET
+
+
+SD_PRTERR
+		RET		Z				; DONE IF NO ERRORS
+								; FALL THRU TO SD_PRTSTAT
+
+; PRINT STATUS STRING
+
+SD_PRTSTAT
+		PUSH	AF
+		PUSH	DE
+		PUSH	HL
+		OR		A
+		LD		DE, SD_STR_STOK
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STINVUNIT
+		JR		Z, .ps2					; INVALID UNIT IS SPECIAL CASE
+		INC		A
+		LD		DE, SD_STR_STRDYTO
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STINITTO
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STCMDTO
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STCMDERR
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STDATAERR
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STDATATO
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STCRCERR
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STNOMEDIA
+		JR		Z, .ps1
+		INC		A
+		LD		DE, SD_STR_STWRTPROT
+		JR		Z, .ps1
+		LD		DE, SD_STR_STUNK
+.ps1
+		CALL	SD_PRTPREFIX		; PRINT UNIT PREFIX
+		JR		.ps3
+.ps2
+		call	stdio_str
+		db		"\r\nSD:",0			; NO UNIT NUM IN PREFIX FOR INVALID UNIT
+.ps3
+		call	stdio_str
+		db		" ",0
+		ld		hl, de
+		call	stdio_text
+		POP		HL
+		POP		DE
+		POP		AF
+		RET
+
+SD_PRTRC
+		PUSH	AF
+		PUSH	hl
+		LD		hl, SD_STR_RC
+		call	stdio_text
+		LD		A, [SD_RC]
+		CALL	stdio_byte
+		POP		hl
+		POP		AF
+		RET
+
+SD_PRTTOK
+		PUSH	AF
+		PUSH	hl
+		LD		hl, SD_STR_TOK
+		CALL	stdio_text
+		LD		A, [SD_TOK]
+		CALL	stdio_byte
+		POP		hl
+		POP		AF
+		RET
+
+SD_REGDUMP
+		PUSH	AF
+		PUSH	BC
+		PUSH	HL
+		CALL	stdio_str
+		db		" (",0
+		LD		HL,SD_CMDBUF
+		LD		B, 8
+.rd1
+		LD		A, [HL]
+		INC		HL
+		CALL	stdio_byte
+		DJNZ	.rd1
+		CALL	stdio_str
+		db		")",0
+		POP		HL
+		POP		BC
+		POP		AF
+		RET
+
+; PRINT DIAGNOSTIC PREFIX
+
+SD_PRTPREFIX
+		PUSH	AF
+		call	stdio_str
+		db		"\r\nSD",0
+		LD		A, [IY+SD_DEV]		; GET CURRENT DEVICE NUM
+		ADD		A, '0'
+		CALL	stdio_putc
+		CALL	stdio_str
+		db		" ",0
+		POP		AF
+		RET
+
+;=============================================================================
+; STRING DATA
+;=============================================================================
+;
+SD_STR_ARROW		db	" -->",0
+SD_STR_RC			db	" RC=",0
+SD_STR_TOK			db	" TOK=",0
+SD_STR_CSD			db	" CSD =",0
+SD_STR_CID			db	" CID =",0
+SD_STR_SCR			db	" SCR =",0
+SD_STR_SDTYPE		db	" SD CARD TYPE ID=",0
+
+SD_STR_STOK			db	"OK",0
+SD_STR_STINVUNIT	db	"INVALID UNIT",0
+SD_STR_STRDYTO		db	"READY TIMEOUT",0
+SD_STR_STINITTO		db	"INITIALIZATION TIMEOUT",0
+SD_STR_STCMDTO		db	"COMMAND TIMEOUT",0
+SD_STR_STCMDERR		db	"COMMAND ERROR",0
+SD_STR_STDATAERR	db	"DATA ERROR",0
+SD_STR_STDATATO		db	"DATA TIMEOUT",0
+SD_STR_STCRCERR		db	"CRC ERROR",0
+SD_STR_STNOMEDIA	db	"NO MEDIA",0
+SD_STR_STWRTPROT	db	"WRITE PROTECTED",0
+SD_STR_STUNK		db	"UNKNOWN",0
+SD_STR_TYPEUNK		db	"UNK",0
+SD_STR_TYPEMMC		db	"MMC",0
+SD_STR_TYPESDSC		db	"SDSC",0
+SD_STR_TYPESDHC		db	"SDHC",0
+SD_STR_TYPESDXC		db	"SDXC",0
+
+;=============================================================================
+; DATA STORAGE
+;=============================================================================
+
+SD_OPRVAL	db	0		; CURRENT OPR REG VALUE
+SD_LCNT		db	0		; LOOP COUNTER
+SD_CMDVAL	db	0		; PENDING COMMAND FOR IO FUCNTIONS
+SD_BLKCNT	db	0		; BLOCK COUNT REQUESTED FOR IO FUNCTIONS
+;
+SD_BUF		ds	16		; WORK BUFFER
+;
+SD_CMDBUF:				; START OF STD CMD BUF
+SD_CMD		db	0		; COMMAND BYTE
+SD_CMDP0	db	0		; FIRST PARM BYTE (MSB)
+SD_CMDP1	db	0
+SD_CMDP2	db	0
+SD_CMDP3	db	0		; LAST PARM BYTE (LSB)
+SD_CMDCRC	db	0		; CRC
+;
+SD_RC		db	0		; RETURN CODE FROM CMD
+SD_TOK		db	0		; TOKEN FROM DATA XFR
+;
+SD_DSKBUF	dw	0		; ADR OF ACTIVE DISK BUFFER
+;
+;=============================================================================
+; HELPER ROUTINES
+;=============================================================================
+;
+ if 0
+ ; MSB<-->LSB MIRROR BITS IN A, RESULT IN C
+;
+MIRROR:
+					; SLOWER BUT LESS CODE SPACE
+		LD		C,A		; A = 76543210
+		RLCA
+		RLCA			; A = 54321076
+		XOR 	C
+		AND 	0AAH
+		XOR 	C		; A = 56341270
+		LD 		C,A
+		RLCA
+		RLCA
+		RLCA			; A = 41270563
+		RRC 	C		; C = 05634127
+		XOR 	C
+		AND 	066H
+		XOR 	C		; A = 01234567
+		LD 		C,A		; RETURN RESULT IN C
+		RET
+ endif
+
+;===============================================================================
+; stuff cut from util.asm
+;===============================================================================
+SRL32	; DE:HL ROTATE RIGHT 32 BITS, HIGH ORDER BITS BECOME ZERO
+		SRL		D
+		RR		E
+		RR		H
+		RR		L
+		DJNZ	SRL32
+		RET
+
+SLA32	; DE:HL ROTATE LEFT 32 BITS, LOW ORDER BITS BECOME ZERO
+		SLA		L
+		RL		H
+		RL		E
+		RL		D
+		DJNZ	SLA32
+		RET
+
+
+LD32	; LOAD OR STORE DE:HL
+		; LD 	DE:HL,[HL]
+		PUSH	AF
+		LD		E, [HL]
+		INC		HL
+		LD		D, [HL]
+		INC		HL
+		LD		A, [HL]
+		INC		HL
+		LD		H, [HL]
+		LD		L, A
+		POP		AF
+		EX		DE, HL
+		RET
+
+; INC32 (HL)
+; INCREMENT 32 BIT BINARY AT ADDRESS
+;
+INC32HL
+		INC		[HL]
+		RET		NZ
+		INC		HL
+		INC		[HL]
+		RET		NZ
+		INC		HL
+		INC		[HL]
+		RET		NZ
+		INC		HL
+		INC		[HL]
+		RET
+
+
+ST32	; LD (BC),DE:HL
+		PUSH	AF
+		LD		A, L
+		LD		[BC], A
+		INC		BC
+		LD		A, H
+		LD		[BC], A
+		INC		BC
+		LD		A, E
+		LD		[BC], A
+		INC		BC
+		LD		A, D
+		LD		[BC], A
+		POP		AF
+		RET
+
+
+; PRINT THE HEX WORD VALUE IN BC
+
+PRTHEXWORD
+		PUSH	AF
+		LD		A, B
+		CALL	stdio_byte
+		LD		A ,C
+		CALL	stdio_byte
+		POP		AF
+		RET
+
+; PRINT THE HEX DWORD VALUE IN DE:HL
+
+PRTHEX32
+		PUSH	BC
+		PUSH	DE
+		POP		BC
+		CALL	PRTHEXWORD
+		PUSH	HL
+		POP		BC
+		CALL	PRTHEXWORD
+		POP		BC
+		RET
+
+; SET HL TO IY+A, A IS TRASHED
+
+LDHLIYA:
+		PUSH	IY			; COPY INSTANCE DATA PTR
+		POP		HL			; ... TO HL
+		ADD		A, L		; ADD OFFSET TO LSB
+		LD		L, A		; ... PUT BACK IN L
+		RET		NC			; DONE IF CF NOT SET
+		INC		H			; IF CF SET, BUMP MSB
+		RET					; ... AND RETURN
+
+PRTHEXBUF
+		OR		A
+		RET		Z			; EMPTY BUFFER
+
+		LD	B,	A
+.pr1
+		CALL	stdio_str
+		db		" ",0
+		LD		A, [DE]
+		CALL	stdio_byte
+		INC		DE
+		DJNZ	.pr1
+		RET

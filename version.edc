@@ -47,9 +47,20 @@ and then modify the CALLBIOS macro to use RAM4/5.
 Add the M command to read the SD. Naturally it doesn't work yet.
 Add date/time to the BIOS1/2 sign on plus a RAM check
 
-
-
-
-
+0.1.14
+Modify DUMP et al to use [C:IX] as [IX] when C==0xff to get local addressing
+Reworked the SPI interface
+Added a 'beep on error' to the make.ps1
+Redesign the 'run routine in another bios as the original system had a stack
+fault and needed speeding up.
+Find another, better I think, SD system. Edit it to fit in and start debugging.
+Introduce the stepper to provide fixes addresses for a change from one ROM to
+another without using a code wedge.
+Rewrite the PAGE0 stuff to try and get a cleaner cold boot.
+Revised space reporting as the stepper system goes at the top of ROM.
+Fixed the 'no interrupts on power up' by direct calling a bland interrupt
+handler to get a RETI executed.
+Added a 'wait for RAM' in the startup and that seemed to fix it. Probably the
+DS1210 RAM backup wasn't letting the chip enable go fast enough.
 
 

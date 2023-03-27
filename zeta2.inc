@@ -62,5 +62,7 @@ PIO_A		equ		PIO+0		; bits A7-A0
 PIO_B		equ		PIO+1		; bits B7-B0
 PIO_C		equ		PIO+2		; bits C7-C0
 PIO_CON		equ		PIO+3		; control port
+SWITCHES	equ		PIO_A
+LIGHTS		equ		PIO_B
 
 

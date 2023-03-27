@@ -24,11 +24,12 @@ PIO_CLIN	equ		0x01		; PORT C upper bits to input mode
 			db		"<PIO driver>"
 
 pio_init
-; A as inputs (switches), B as outputs (LEDs), CU as outputs, CL as inputs
+; A as inputs (switches), B as outputs (LIGHTs), CU as outputs, CL as inputs
 			ld		a, PIO_MODESET+PIO_AIN+PIO_CLIN
 			out		(PIO_CON), a
 			xor		a
 			out		(PIO_A), a
 			out		(PIO_B), a
+			ld		a, %10100000	; SD select inactive. MOSI high
 			out		(PIO_C), a
 			ret

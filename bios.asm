@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.13"		; version number for sign on message
+	define	VERSION	"v0.1.14"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.13"		move to local repository, use version number
+;   	git commit -m "0.1.14"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 I use the alternative [] form for an addresses
@@ -25,7 +25,8 @@
 
 BIOSROM		equ			0				; which ROM page we are compiling
 			include		"zeta2.inc"		; common definitions
- 			include		"macros.inc"
+ 			include		"macros.inc"	; macro library
+			include		"vt.inc"		; definitions of PAGE0
 
 ; I have two little boards tacked on to the SDC and as they are optional
 ; it seems right to make them optional in the code too.
@@ -97,58 +98,61 @@ BIOSROM		equ			0				; which ROM page we are compiling
 ;===============================================================================
 
 			org		PAGE3			; where we are in hardware terms
-			jp		rst00			; unmapped start
-
-			ds		ROM_SHIFT-3		; filler to move the BIOS up ROM0
-									; ROM_SHIFT is defined in "zeta2.inc"
-
-BIOS_START	equ		$				; where we actually start
-
-RAM_TOP		equ		PAGE3			; will be top of RAM when we run in ROM
-									; push is to (SP-1) and (SP-2)
-RAM_TOPEX	equ		$				; RAM 'top' when running in RAM
 
 ; This is the vector table that will be in PAGE0 at address 0
 ; However as we boot with ROM0 there it seems good to mimic it in ROM to copy
 
-	include	"vt.inc"
-
-; First the 'rst' vectors (each is 8 bytes)
 start_table
 ; 0x00
 			jp		rst00			; the rst routines match the RST n opcode
-			ds		2				; spare used by diagnostics
+	.2		db		0				; notice the repeat count
 ; 0x05
 			jp		cpm				; if emulating CPM jump to the handler
 ; 0x08
 			jp		rst08
-			ds		5
+	.5		db		0
 ; 0x10
 			jp		rst10
-			ds		5
+	.5		db		0
 ; 0x18
 			jp		rst18
-			ds		5
+	.5		db		0
 ; 0x20
 			jp		rst20
-			ds		5
+	.5		db		0
 ; 0x28
 			jp		rst28
-			ds		5
+	.5		db		0
 ; 0x30
 			jp		rst30
-			ds		5
+	.5		db		0
 ; 0x38
 			jp		rst38
-			ds		43
+	.43		db		0
 ; 0x66
 			jp		nmi				; NMI handler
 
 size_table	equ	$ - start_table		; table size for copy
 
-; it only take a simple typo to mess this alignment up so
- assert 	size_table == 0x69, Problem with definitions at PAGE0
- assert		Z == 0x69, Problems with Z structure
+; It only take a simple typo to mess this alignment up so
+	assert 	size_table == 0x69, Problem with definitions at PAGE0
+	assert	Z == 0x69, 			Problems with Z structure
+
+;===============================================================================
+;
+;  Now we move up the memory space to a convenient 1K border so when in RAM
+; we can release a lot of good usable memory to programs
+;
+;===============================================================================
+
+			ds		ROM_SHIFT-size_table	; filler to move the BIOS up ROM0
+											; ROM_SHIFT defined in "zeta2.inc"
+BIOS_START	equ		$						; where we actually start
+RAM_TOPEX	equ		$				; RAM 'top' when running in RAM
+			jp		rst00
+
+RAM_TOP		equ		PAGE3			; will be top of RAM when we run in ROM
+									; push is to (SP-1) and (SP-2)
 
 ;===============================================================================
 ;
@@ -167,22 +171,24 @@ signon		db		"\r"
 			db		" ", 0
 
 ram_test	db		0				; set to 1 if we are running in RAM
+
+; The system powers up with the PC set to zero where we have a jump to here
 rst00		di						; interrupts off
 			xor		a				; mapper off while we get things restarted
 			out		(MPGEN), a
 
-; WARNING: Until we have some RAM set up we have no stack so don't call subs
-; Assume we only have ROM0 at 0xc000 as we might be soft restarting
+; WARNING: Until we have some RAM set up we have no writable memory and no
+; stack so don't call subs
 
 ; I want to set up the memory in two different ways:
 ; We start from a power-up reset with ROM0 mapped into all four pages
 ; Hence when we execute the instruction at 0x0000 in PAGE0 which is the first
-; instruction of ROM0 it jumps to rst0 in PAGE3 also ROM0 but in page3
+; instruction of ROM0 it jumps to rst0 in PAGE3 also ROM0 but in PAGE3
 
-; The first map is simple. I want RAM0-2 in PAGE0-2 and ROM0 in PAGE3
-; the second is more complex as I want to copy BIOS0 into RAM3 and map RAM0-3
+; The first map is simple. I want RAM0-2 in PAGE0-2 and ROM0 in PAGE3.
+; The second is more complex as I want to copy BIOS0 into RAM3 and map RAM0-3
 ; in PAGE0-3 so I have BIOS in RAM. This will allow me to place the BIOS higher
-; in the address ma giving more space AND have local variables.
+; in the address map giving more space AND have local variables.
 ; Also I want to switch between these with the jumper JP1 so I must manage it
 ; with a discontinuity in the addressing as I switch. It might be possible to
 ; swap the ROM as the CPU executes in it but I'd rather play it very safe.
@@ -194,7 +200,7 @@ rst00		di						; interrupts off
 ;
 ; Initially map PAGE0=ROM0, PAGE1=RAM0, PAGE2=ROM0, PAGE3=ROM0
 ; so only page 1 changes from unmapped.
-; Due to the JP on RST 0x00 we should be executing in PAGE3 and ROM0
+; Due to the JP on RST 0x00 we should be executing in ROM0 mapped to PAGE3
 			ld		a, ROM0			; ROM0
 			out		(MPGSEL0), a	; into PAGE0
 			out		(MPGSEL2), a	; into PAGE2
@@ -204,8 +210,26 @@ rst00		di						; interrupts off
 			ld		a, 1			; all four pages are set so allow mapping
 			out		(MPGEN), a
 
+; I have a problem with slow power up and it seems to be the RAM not coming on
+; line via the backup power control chip (U22 DS1210) quite as fast as the rest
+; of the system gets going so I wait until the RAM0 in PAGE1 is responding.
+.k1			ld		a, 0xaa
+			ld		[PAGE1], a
+			nop
+			ld		a, [PAGE1]
+			cp		0xaa
+			jr		nz, .k1
+
+			ld		a, 0x55
+			ld		[PAGE1], a
+			nop
+			ld		a, [PAGE1]
+			cp		0x55
+			jr		nz, .k1
+
 ; Copy the vector table into RAM0 at PAGE1
-; Do not copy more we need as we might be on a mission to see what just blew up
+; Do not copy more we need as we might currently be on a mission to work out
+; what just blew up
  			ld		hl, start_table	; source pointer (ROM0 in page 3)
 			ld		de, PAGE1		; destination pointer (RAM0 in page 1)
 			ld		bc, size_table	; byte counter
@@ -218,18 +242,19 @@ rst00		di						; interrupts off
 			out		(MPGSEL1), a	; into page 1
 			ld		a, RAM2			; page RAM2
 			out		(MPGSEL2), a	; into page 2
+
 ; OK now we are running ROM0 in PAGE3 with RAM0,1,2 in PAGE0,1,2
 			ld		sp, RAM_TOP		; set the stack pointer to the top of page2
-									; now we can call subroutines
+									; now we can do subroutines
 
 ;-------------------------------------------------------------------------------
-; The next thing to do is to read our jumper and switch the BIOS from ROM to
-; RAM1 if required
+; The next thing to do is to read our jumper and see if we are required to
+; switch the BIOS from ROM0 to RAM3
 ;-------------------------------------------------------------------------------
 ; so test the jumper JP1 (pulls high if no jumper)
 			in		a, (RTC)		; read the jumper port
 			and		40H				; set NZ if no jumper is fitted to bit 6
-			jr		nz, .k3			; stick with ROM0
+			jr		nz, .k2			; stick with ROM0
 
 ; put RAM3 in PAGE1
 			ld		a, RAM3
@@ -242,28 +267,18 @@ rst00		di						; interrupts off
 ; restore RAM1 to PAGE1
 			ld		a, RAM1
 			out		(MPGSEL1), a
-			jr		.k2				; skip over the switch routine
 
-; These three opcodes are the code I will copy into RAM to execute the switch:
-.k1			ld		a, RAM3			; select RAM3
+; now remap the memory we are running in live (gulp)
+			ld		a, RAM3			; select RAM3
 			out		(MPGSEL3), a	; into PAGE3
-			jp		.k3				; continue in RAM
 
-; copy and switch
-.WEDGE		equ		0xbf00			; place to put the wedge in RAM2 (PAGE2)
-.k2			ld		hl, .k1			; source pointer
-			ld		de, .WEDGE		; destination pointer
-			ld		bc, .k2 - .k1	; byte counter for move
-			ldir					; block move
-			jp		.WEDGE			; jump to the switch code in RAM
-.k3
 ; do the ram test
-			ld		a, 1
-			ld		[ram_test], a	; fails in ROM
+.k2			ld		a, 1
+			ld		[ram_test], a	; naturally this fails in ROM
 
 ;-------------------------------------------------------------------------------
 ;  More mapping
-;  Put ROM1 in RAM4 and ROM2 in RAM5 for sideways bios extensions
+;  Put ROM1 in RAM4 and ROM2 in RAM5 for 'sideways' bios extensions
 ;-------------------------------------------------------------------------------
 
 ; RAM4 in PAGE1 and ROM1 in PAGE2
@@ -293,7 +308,7 @@ rst00		di						; interrupts off
 			out		(MPGSEL2), a
 
 ;===============================================================================
-; Time to set things up
+; Time to set the hardware things up
 ;===============================================================================
 
 ; UART and serial stuff in serial.asm
@@ -301,19 +316,26 @@ rst00		di						; interrupts off
 			; !!!! from now on the stdio and debug outputs will work !!!!
 			xor		a
 			out		(REDIRECT), a	; default stdio to serial port
+
 ; Counter Timer in ctc.asm
 			call	ctc_init
+
 ; Parallel port
-			call	pio_init		;
+			call	pio_init		; includes initialising the SD slot to off
+
 ; Real Time Clock (and leds)
 			xor		a				; both leds off
 			ld		[Z.led_buffer], a
 			call	rtc_init		; set default state and leds
+
 ; Floppy Disk Controller
 ;;			call	fdc_init		; manana
-; Interrupts
-			call	int_init		; at the bottom of this module
 
+; Interrupts
+			call	int_init		; does not EI
+			ei						; let the good times roll
+			call	int0			; this seemed to cure my power up problems
+									; I think my PSU is a bit slow...
 
 ;===============================================================================
 ; Sign on at the stdio port
@@ -323,8 +345,8 @@ TEXT_BUFFER		equ		0x80		; arbitrary place for a text input buffer
 SIZEOF_BUFFER	equ		80
 
 	if	LIGHTS_EXIST
-			ld		a, 0xff			; run the led strobe
-			ld		[led_countdown], a
+			ld		a, 0xff				; trigger the led strobe
+			ld		[led_countdown], a	; running on the interrupts
 	endif
 
 ; before we sign on send some zeros to ensure everything is in sync
@@ -332,10 +354,12 @@ SIZEOF_BUFFER	equ		80
 			xor		a
 .j1			call	serial_sendW
 			djnz	.j1
+
 			ld		hl, signon		; sign on with version info
 			call	stdio_text		; leaves text in RED
+
 ; do the ram/rom test
-			ld		de, RAM_TOP		; top of RAM if bios in ROM
+			ld		de, RAM_TOP		; top of RAM if bios is in ROM
 			ld		a, [ram_test]
 			or		a
 			jr		z, .j2			; running in ROM
@@ -350,15 +374,24 @@ SIZEOF_BUFFER	equ		80
 .j2			call	stdio_str
 			WHITE
 			db		0
+
 			ld		a, d			; ram size/256
 			srl		a
 			srl		a				; ram_size/1024
 			call	stdio_decimalB
 			call	stdio_str
 			db		"K bytes free", 0
+
+; Only test the BIOS states if SW0 is not set
+; (this escapes the lockout if there is sideways trouble.
+			in		a, (SWITCHES)
+			and		1
+			jr		nz, good_end
+			CALLBIOS ShowLogo1		; see macros.inc and rom.asm
+			CALLBIOS ShowLogo2
 			jr		good_end		; skip the error return
 
-; Respond with an error message and re-prompt
+; Come here to respond with an error message and re-prompt
 bad_end		ld		sp, RAM_TOP		; reset to a known value
 			call	stdio_str
 			RED
@@ -371,10 +404,9 @@ bad_end		ld		sp, RAM_TOP		; reset to a known value
 			ld		a, ' '
 			call	stdio_putc
 
-;			CALLBIOS	ShowError
-
 ; This is the point we return to after executing a command
-good_end	ld		a, [ram_test]	; running in RAM?
+good_end	ld		sp, RAM_TOP		; reset to a known value
+			ld		a, [ram_test]	; running in RAM?
 			or		a
 			jr		z, .j2			; no
 			ld		sp, RAM_TOPEX	; yes, grab some more space
@@ -385,6 +417,7 @@ good_end	ld		a, [ram_test]	; running in RAM?
 			WHITE
 			db		0
 
+			ei
 			ld		hl, TEXT_BUFFER
 			ld		b, SIZEOF_BUFFER
 			call	getline			; returns buffer count in D
@@ -394,6 +427,8 @@ good_end	ld		a, [ram_test]	; running in RAM?
 
 ; Now we want to interpret the command line
 			jp		do_commandline
+
+bios		nop
 
 ;===============================================================================
 ; Decode the command line
@@ -440,6 +475,8 @@ cmd_list	db	'A'					; set bitflags
 			dw	cmd_w
 			db	'X'					; execute from an address
 			dw	cmd_x
+			db	'Y'
+			dw	cmd_y
 			db	'Z'					; anything test
 			dw	cmd_z
 			db	'?'
@@ -728,7 +765,7 @@ cmd_d		call	skip					; start by handling the + option
 			ld		[Z.def_address+2], bc
 .cd2		ld		[Z.def_address], ix		; all details OK
 			jr		.cd4
-			
+
 .cd3		ld		ix, [Z.def_address]		; default address
 			ld		bc, [Z.def_address+2]
 			call	gethex20				; in C:IX
@@ -920,20 +957,19 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 			call	stdio_str
 			db		" secs",0
 			jp		good_end
+;===============================================================================
+; Y  the current thing being tested
+;===============================================================================
+cmd_y		call	stdio_str
+			db		"\r\n", 0
+			CALLBIOS ShowLogo1		; see macros.inc and rom.asm
+			CALLBIOS ShowLogo2
+			jp		good_end
 
 ;===============================================================================
-; Z  the current thing being tested
+; Z  another thing being tested
 ;===============================================================================
-cmd_z		ld		a, 0
-			ld		hl, 0x1234
-			ld		bc, 0x2345
-			ld		de, 0x3456
-			ld		ix, 0x4567
-			ld		iy, 0x5678
-			call	stdio_str
-			db		"\r\n",0
-			CALLBIOS ShowLogo1			; see macros.inc and rom.asm
-			CALLBIOS ShowLogo2
+cmd_z		CALLBIOS SPItest
 			jp		good_end
 
 ;===============================================================================
@@ -1137,10 +1173,14 @@ size_test	equ		$-test_block	; should be 97 which is a prime
 cmd_m		call	gethex32		; in BC:IX
 			call	stdio_str
 			db		"\r\n", 0
+			ld		a, ixh			; IX->HL
+			ld		h, a
+			ld		a, ixl
+			ld		l, a
 			ld		de, 0x100		; DE destination address
 			ld		a, 'C'
-			
-			CALLBIOS ReadSector
+
+			CALLBIOS ReadSector		; read sector BC:HL to address DE
 			jp		good_end
 
 ;===============================================================================
@@ -1234,31 +1274,6 @@ err_badrom
 			jr		cmd_err
 
 ;===============================================================================
-; 1 mSecond delay
-;===============================================================================
-
-delay1ms			; ie CPUCLK (10000) T states
-					; the routine adds up to 63+(ND-1)*13+MD*3323+OD*4
-					;		= 50+ND*13+MD*3323
-MD			equ		(CPUCLK-50)/3323
-ND			equ		((CPUCLK-50)%3323)/13
-OD			equ		(((CPUCLK-50)%3323)%13)/4
-					; so that should get us within 3T of 1mS in 11 bytes
-
-							; the call cost T=17
-			push	bc		; T=11
-			ld		b, ND	; T=7
-			djnz	$		; T=(N-1)*13+8
- if MD > 0
-	.(MD)	djnz	$		; T=MD*(255*13+8) = MD*3323
- endif
- if OD > 0
- 	.(OD)	nop				; T=4
- endif
-			pop		bc		; T=10
-			ret				; T=10
-
-;===============================================================================
 ;
 ;  Interrupt handlers
 ;
@@ -1309,13 +1324,13 @@ int_init
 			ld		a, iTable >> 8		; top 8 bits of table address
 			ld		i, a				; the special 'i' register
 			im		2
-			ei
 			ret
 
 ;-------------------------------------------------------------------------------
 ; CTC0		should not trigger (CTC0)
 ;-------------------------------------------------------------------------------
-int0		reti
+int0		ei
+			reti
 
 ;-------------------------------------------------------------------------------
 ; CTC1		50Hz = 20mS
@@ -1328,7 +1343,7 @@ strobe_table	db	0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff
 				db	0x7f, 0x3f, 0x1f, 0x0f, 0x07, 0x03, 0x01, 0x00
 len_strobe		equ	$-strobe_table
 		endif
-		
+
 int1		di
 			push	af, hl
 ; 50 Hz ticks
@@ -1351,7 +1366,7 @@ int1		di
 			jr		nz, .q1
 			inc		hl
 			inc		[hl]				; b24-31	2^32 seconds is 136 years
-.q1		
+.q1
 ; put things for 1Hz service here
 
 
@@ -1401,5 +1416,6 @@ int2		jp		serial_interrupt
 ;-------------------------------------------------------------------------------
 ; CTC3		Wired to PC3 which is an interrupt output in a smart mode
 ;-------------------------------------------------------------------------------
-int3		reti
+int3		ei
+			reti
 

@@ -32,15 +32,16 @@ SNAP		macro	id
 			pop		af
 			endm
 
-; Diagnostic memory dump (all pushed)
-DUMP		macro	ptr, count
+; Diagnostic memory dump from ptr20 for count (all pushed)
+; NB: if
+DUMP		macro	ptr20, count
 			push	af
 			DOUT	0					; force serial op
 			push	hl
 			push	de
 			push	bc
-			ld		hl, ptr
-			ld		c, 0
+			ld		hl, ptr20 & 0xffff
+			ld		c, ptr20 >> 16
 			ld		de, count
 			call	stdio_dump
 			pop		bc
@@ -48,6 +49,12 @@ DUMP		macro	ptr, count
 			pop		hl
 			ROUT
 			pop		af
+			endm
+
+; Crash And Burn
+CAB			macro	text
+			SNAP	text
+			jp		good_end			; reset stack
 			endm
 
 ; Get some auto variables on the stack C style
@@ -69,7 +76,7 @@ RELEASE		macro	nbytes
 ; to eliminate ANSI stuff redefine these as nothing
  if ALLOW_ANSI
 WHITE		macro
-			db		"\e[37m"
+			db		"\e[97m"
 			endm
 RED			macro
 			db		"\e[91m"			; bright red actually
@@ -105,15 +112,11 @@ RETERR		macro	nerr
 CALLBIOS	macro	ROM, FN
 			push	af
 			ld		a, ROM
-			cp		a, 64			; 0-31 ROM, 32-63 RAM
-			jp		nc, err_badrom
 			ld		[Z.cr_rom], a
 			ld		a, FN
 			ld		[Z.cr_fn], a
 			pop		af
-			di
-			call	wedgeROM
-			ei
+			call	wedgeROM		; see rom.asm
 			endm
 
 ; make an address20 in A:HL from a ROMn/RAMn code and a 14 bit address:
@@ -151,4 +154,5 @@ ERR_NOTINRAM			equ		14
 	define ShowLogo2		RAM5,0		// Show "BIOS2 loaded"
 	define ShowError		RAM4,1		// Interpret error code
 	define ShowHelp			RAM4,2		// Show command help
-	define ReadSector		RAM4,3		// read sector BC:IX to E:IY
+	define ReadSector		RAM4,3		// read sector BC:HL to DE
+	define SPItest			RAM4,4		// SPI/SD test functions
