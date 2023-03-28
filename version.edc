@@ -6,9 +6,9 @@
    	git push -u origin main		move to github
 
 0.1.6
-Start log. RTC works but not write to the RTC ram
-Fix to DOW
-Added ALLOW_ANSI conditional and colours in macros
+Started the log. RTC works but not write to the RTC ram
+Fix to DOW (day of the week)
+Added ALLOW_ANSI conditional and colours via macros
 
 0.1.7
 Rewrite and restyle the README.md
@@ -16,8 +16,8 @@ Fix BLUE colour (typo)
 Fix RTC RAM write
 
 0.1.8
-add map.asm to contain page mapping stuff
-write the 'stack free' routines to get/put data anywhere
+Add map.asm to contain page mapping stuff
+Write the 'stack free' routines to get/put data anywhere
 
 0.1.9
 Add preliminary bios1/2 handlers breaking out zeta2.inc and macros.inc
@@ -29,7 +29,7 @@ Switch to the ld a, [some_address] format rather than (some_address)
 
 0.1.11
 Wrote to ROM
-add + option to d to show the next sequential block
+Add + option to d to show the next sequential block
 
 0.1.12
 Introduce 32 bit numbers primarily for SD sectors. However this gives me an
@@ -50,11 +50,11 @@ Add date/time to the BIOS1/2 sign on plus a RAM check
 0.1.14
 Modify DUMP et al to use [C:IX] as [IX] when C==0xff to get local addressing
 Reworked the SPI interface
-Added a 'beep on error' to the make.ps1
-Redesign the 'run routine in another bios as the original system had a stack
+Added a 'beep on error' to make.ps1
+Redesign the 'run routine in another bios' as the original system had a stack
 fault and needed speeding up.
 Find another, better I think, SD system. Edit it to fit in and start debugging.
-Introduce the stepper to provide fixes addresses for a change from one ROM to
+Introduce the stepper to provide fixed addresses for a change from one ROM to
 another without using a code wedge.
 Rewrite the PAGE0 stuff to try and get a cleaner cold boot.
 Revised space reporting as the stepper system goes at the top of ROM.
@@ -62,5 +62,12 @@ Fixed the 'no interrupts on power up' by direct calling a bland interrupt
 handler to get a RETI executed.
 Added a 'wait for RAM' in the startup and that seemed to fix it. Probably the
 DS1210 RAM backup wasn't letting the chip enable go fast enough.
+
+0.1.15
+Shift the Baud rate to 115200, that's six times faster and is a quite visible
+improvement.
+Tweak the clear command to clear to top line and not do a restart.
+Put the initialisation part of the FAT handler in so an SD can be read for all
+it's relevant details for a partition.
 
 

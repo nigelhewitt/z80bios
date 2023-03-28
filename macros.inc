@@ -132,6 +132,31 @@ MAKEA20		macro	PAGE, ADDR14
 			rr		h
 			endm
 
+; a simple conveniences
+
+; DJNZ but far not relative
+djnzF		macro	target
+			dec		b
+			jp		nz, target
+			endm
+
+; compare 32 bit value in DE:HL with a constant
+CPDEHL		macro	value32					; for = return z
+			ld		a, d					; for < return NZ+C
+			cp		(value32 >> 24) & 0xff	; for > return NZ+NC
+			jr		nz, .ex
+			ld		a, e
+			cp		(value32 >> 16) & 0xff
+			jr		nz, .ex
+			ld		a, h
+			cp		(value32 >> 8) & 0xff
+			jr		nz, .ex
+			ld		a, l
+			cp		value32 & 0xff
+.ex
+			endm
+
+
 // Error codes
 ERR_NO_ERROR			equ		0
 ERR_UNKNOWN_COMMAND		equ		1

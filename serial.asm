@@ -66,31 +66,31 @@ DCD		equ		0x80		;	DCD <NC 1>
 
 		db	"<Serial Driver>"
 
-serial_init						; set to 19200,8,1,N no handshaking
+serial_init							; set to 115200,8,1,N no handshaking
 		ld		a, BITS8+TSB+DLAB
 		out		(LCR), a
-		ld		a, 6			; divider for 19200
+		ld		a, 1				; divider for 115200
 		out		(UART+0), a
 		xor		a
 		out		(UART+1), a
-		ld		a, BITS8+TSB	; 8,1,N
+		ld		a, BITS8+TSB		; 8,1,N
 		out		(LCR), a
-		ld		a, 0	; ERBFI		; only the receive data (at 8 bytes) interrupt
+		ld		a, 0	; ERBFI		; only the rx data (at 8 bytes) interrupt
 		out		(IER), a
 		ld		a, FFEN  ; +0x80	; FIFOs enable + trigger IRAV at 8 bytes
 		out		(FCR), a
-		ld		a, RTS			; set both outputs
+		ld		a, RTS				; set both outputs
 		out		(MCR), a
 		ret
 
-serial_dav						; check Data Available
+serial_dav							; check Data Available
 		ld		a, RTS
 		out		(MCR), a
 		in		a, (LSR)
 		and		DAV
-		ret						; DAV sets NZ and returns true
+		ret							; DAV sets NZ and returns true
 
-serial_ndtr						; clear CTS so we don't get overrun
+serial_ndtr							; clear CTS so we don't get overrun
 		xor		a
 		out		(MCR), a
 		ret

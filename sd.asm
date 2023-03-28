@@ -4,28 +4,6 @@ MID_HD				equ		1		; responses to STATUS check
 MID_NONE			equ		0
 SDTRACE				equ		1
 
-f_readsector	; passed in sector BC:HL to address DE
-			push	de, bc, hl
-			call	stdio_str
-			db		"\r\nSD Started", 0
-			call	SD_INIT
-			call	stdio_str
-			db		"\r\nInitialisation Finished", 0
-			pop		hl
-			pop		de
-			call	SD_SEEK		; to DE:HL
-			call	stdio_str
-			db		"\r\nSeek Finished", 0
-			pop		hl
-			ld		e, 1
-			call	SD_READ		; HL = buffer, E=block count
-			call	stdio_str
-			db		"\r\nRead Finished", 0
-			jp		good_end
-f_spi_test
-			call	SD_RESET
-			jp		good_end
-
 ;=============================================================================
 ; MMC/SD/SDHC/SDXC CARD STORAGE DRIVER
 ;=============================================================================
@@ -223,20 +201,20 @@ SD_INIT
 		call	stdio_str
 		db		"\r\nSD:",0
 
-; INITIALIZE INDIVIDUAL UNIT(S) AND DISPLAY DEVICE INVENTORY
-		LD		B, SD_DEVCNT	; INIT LOOP COUNTER TO DEVICE COUNT
-		LD		IY, SD_CFGTBL	; START OF CFG TABLE
+; Initialize individual unit(s) and display device inventory
+		ld		b, SD_DEVCNT	; init loop counter to device count
+		ld		iy, SD_CFGTBL	; start of cfg table
 .si1
-		PUSH	BC				; SAVE LOOP COUNTER/INDEX
-		CALL	SD_INITUNIT		; INITIALIZE IT
+		push	bc				; save loop counter/index
+		call	SD_INITUNIT		; initialize it
   if SDTRACE
-		CALL	NZ, SD_PRTSTAT	; IF ERROR, SHOW IT
+		call	nz, SD_PRTSTAT	; if error, show it
   endif
-		LD		BC, SD_CFGSIZ	; SIZE OF CFG ENTRY
-		ADD		IY, BC			; BUMP IY TO NEXT ENTRY
-		POP		BC				; RESTORE LOOP CONTROL
-		DJNZ	.si1			; DECREMENT LOOP COUNTER AND LOOP AS NEEDED
-		RET						; DONE
+		ld		bc, SD_CFGSIZ	; size of cfg entry
+		add		iy, bc			; bump iy to next entry
+		pop		bc				; restore loop control
+		djnz	.si1			; decrement loop counter and loop as needed
+		ret						; done
 
 ; Initialize unit designated in A
 
@@ -288,7 +266,7 @@ SD_INITUNIT
 
 	; PRINT PRODUCT NAME
 		call	stdio_str			; PRINT LABEL
-		db		" NAME=",0
+		db		"\r\nNAME=",0
 		LD		B, 5				; PREPARE TO PRINT 5 BYTES
 		LD		HL, SD_BUF + 3		; AT BYTE OFFSET 3 IN RESULT BUFFER
 .si3
@@ -313,6 +291,7 @@ SD_INITUNIT
 		CALL	stdio_decimalW		; PRINT LOW WORD IN DECIMAL (HIGH WORD DISCARDED)
 		call	stdio_str			; PRINT SUFFIX
 		db		"MB",0
+		xor		a
 		RET							; DONE
 ;
 ;=============================================================================
@@ -402,13 +381,13 @@ SD_STATUS
 		RET							; AND RETURN
 
 SD_RESET
-		CALL	SD_SELUNIT		; SET CUR UNIT
+		CALL	SD_SELUNIT			; SET CUR UNIT
 		; RE-INITIALIZE THE SD CARD TO ACCOMMODATE HOT SWAPPING
-		CALL	SD_INITCARD		; RE-INIT SELECTED UNIT
+		CALL	SD_INITCARD			; RE-INIT SELECTED UNIT
  if SDTRACE
-		CALL	SD_PRTERR		; PRINT ANY ERRORS
+		CALL	SD_PRTERR			; PRINT ANY ERRORS
  endif
-		OR		A				; SET RESULT FLAGS
+		OR		A					; SET RESULT FLAGS
 		RET
 
 SD_DEVICE
@@ -1305,8 +1284,9 @@ SD_STR_STDATATO		db	"DATA TIMEOUT",0
 SD_STR_STCRCERR		db	"CRC ERROR",0
 SD_STR_STNOMEDIA	db	"NO MEDIA",0
 SD_STR_STWRTPROT	db	"WRITE PROTECTED",0
-SD_STR_STUNK		db	"UNKNOWN",0
-SD_STR_TYPEUNK		db	"UNK",0
+SD_STR_STUNK		db	"UNKNOWN ERROR CODE",0
+
+SD_STR_TYPEUNK		db	"TYPE UNKNOWN",0
 SD_STR_TYPEMMC		db	"MMC",0
 SD_STR_TYPESDSC		db	"SDSC",0
 SD_STR_TYPESDHC		db	"SDHC",0

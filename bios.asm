@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.14"		; version number for sign on message
+	define	VERSION	"v0.1.15"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.14"		move to local repository, use version number
+;   	git commit -m "0.1.15"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 I use the alternative [] form for an addresses
@@ -24,12 +24,9 @@
 ;===============================================================================
 
 BIOSROM		equ			0				; which ROM page we are compiling
-			include		"zeta2.inc"		; common definitions
+			include		"zeta2.inc"		; hardware definitions and code options
  			include		"macros.inc"	; macro library
-			include		"vt.inc"		; definitions of PAGE0
-
-; I have two little boards tacked on to the SDC and as they are optional
-; it seems right to make them optional in the code too.
+			include		"vt.inc"		; definitions of Z80 base memory
 
 ; This code image is in page 0 of the ROM so, on boot, it is replicated in all
 ; four memory slots of the Zeta2 board. However I want it to run in page 3,
@@ -39,16 +36,17 @@ BIOSROM		equ			0				; which ROM page we are compiling
 ; The RAM used is 512K of CMOS and hence draws little or nothing so it is
 ; protected by a specialist chip that uses the lithium battery to power it once
 ; the main supply goes out of spec. Hence non-volatile RAM!
+; It is, however, slightly tardy at starting up so I wait for it. See below.
 ;
 ; The ROM isn't ROM either in the old sense
-; It is 512K of Flash with a rather step-by-step sector (4K) programming
+; It is 512K of Flash with a rather step-by-step sector (64K) programming
 ; sequence but can still upload and flash a new bios live.
 ;
 ; All this adds up to more than the Z80s 16bit=64K address range. Hence we work
 ; in 16K pages. We decode the top two bits of the Z80 bus to get that as four
 ; 16K pages referred to as PAGE0, PAGE1 etc.
 ; The ROM and RAM chips provide 32 16K pages each and the four mapping
-; registers that are selected by A14/15 bits can swap in any page or ROM or RAM
+; registers that are selected by A14/15 bits can swap in any page of ROM or RAM
 ; into those four pages. The ROM and RAM pages are referred to as ROM0, ROM1
 ; etc. and these are defined in below to the correct value for the page
 ; registers.
@@ -64,7 +62,7 @@ BIOSROM		equ			0				; which ROM page we are compiling
 ;		D:\Archive\TL866
 ;		D:\Util\TL866ii\Xgpro\Xgrro.exe
 ;		dev: SST: SST39SF040
-; The ANSI colour code I use are in
+; The ANSI colour and position codes I use are in
 ;		https://en.wikipedia.org/wiki/ANSI_escape_code
 ;
 ;===============================================================================
@@ -87,9 +85,10 @@ BIOSROM		equ			0				; which ROM page we are compiling
 ; Hence for most things you are accessing the 'standard fit' of RAM0/1/2 in
 ; 0-0xbfff but you can go anywhere.
 ; I will do this by making the BIOS memory R/W functions swap the required
-; block into PAGE1 just while they need access the they restore RAM1. I really
-; wish I could read the MPGSEL1 registers and restore them to what they were
-; but I suspect that for 99%+ of the time this will work.
+; block into PAGE1 just while they need access to them and then they restore
+; RAM1. I really wish I could read the MPGSEL1 registers before writing them
+; and then restore them to what they were before but I suspect that for 99%+ of
+; the time this will just work.
 ;
 ;===============================================================================
 ;
@@ -100,7 +99,7 @@ BIOSROM		equ			0				; which ROM page we are compiling
 			org		PAGE3			; where we are in hardware terms
 
 ; This is the vector table that will be in PAGE0 at address 0
-; However as we boot with ROM0 there it seems good to mimic it in ROM to copy
+; However as we cold boot with ROM0 there it seems good to mimic it in ROM
 
 start_table
 ; 0x00
@@ -147,12 +146,12 @@ size_table	equ	$ - start_table		; table size for copy
 
 			ds		ROM_SHIFT-size_table	; filler to move the BIOS up ROM0
 											; ROM_SHIFT defined in "zeta2.inc"
-BIOS_START	equ		$						; where we actually start
-RAM_TOPEX	equ		$				; RAM 'top' when running in RAM
-			jp		rst00
 
 RAM_TOP		equ		PAGE3			; will be top of RAM when we run in ROM
-									; push is to (SP-1) and (SP-2)
+RAM_TOPEX	equ		$				; RAM 'top' when running in RAM
+
+BIOS_START	equ		$				; where we actually start
+			jp		rst00			; reboot
 
 ;===============================================================================
 ;
@@ -170,36 +169,38 @@ signon		db		"\r"
 			db		__TIME__
 			db		" ", 0
 
+			db		"https://github.com/nigelhewitt/z80bios.git",0
+
 ram_test	db		0				; set to 1 if we are running in RAM
 
 ; The system powers up with the PC set to zero where we have a jump to here
 rst00		di						; interrupts off
-			xor		a				; mapper off while we get things restarted
-			out		(MPGEN), a
+			xor		a				; ensure the mapper is off
+			out		(MPGEN), a		;		 while we get things restarted
 
 ; WARNING: Until we have some RAM set up we have no writable memory and no
-; stack so don't call subs
+; stack and no subroutines
 
 ; I want to set up the memory in two different ways:
-; We start from a power-up reset with ROM0 mapped into all four pages
-; Hence when we execute the instruction at 0x0000 in PAGE0 which is the first
-; instruction of ROM0 it jumps to rst0 in PAGE3 also ROM0 but in PAGE3
+; We start from a power-up reset with the mapper off so with ROM0 mapped into
+; all four pages. Hence when we execute the instruction at 0x0000 in PAGE0
+; which is the first instruction of ROM0 and it jumps to rst00 in PAGE3 also
+; ROM0 but in PAGE3
 
 ; The first map is simple. I want RAM0-2 in PAGE0-2 and ROM0 in PAGE3.
-; The second is more complex as I want to copy BIOS0 into RAM3 and map RAM0-3
-; in PAGE0-3 so I have BIOS in RAM. This will allow me to place the BIOS higher
-; in the address map giving more space AND have local variables.
+; The second is slightly more complex as I want to copy BIOS0 into RAM3 and map
+; RAM0-3 in PAGE0-3 so I have BIOS in RAM. This will allow me to place the BIOS
+; higher in the address map giving more space AND allowing the bios to have
+; local variables.
 ; Also I want to switch between these with the jumper JP1 so I must manage it
-; with a discontinuity in the addressing as I switch. It might be possible to
-; swap the ROM as the CPU executes in it but I'd rather play it very safe.
-
+; with a discontinuity in the addressing as I switch.
+;
 ; The manual warns you that the mapping registers are not reset on restart so
 ; they can be random trash. You need to set them all to something sensible
 ; before enabling the mapper.
-; Also if we are warm starting the mapper might be active so be careful...
 ;
 ; Initially map PAGE0=ROM0, PAGE1=RAM0, PAGE2=ROM0, PAGE3=ROM0
-; so only page 1 changes from unmapped.
+; so only PAGE1 changes from unmapped.
 ; Due to the JP on RST 0x00 we should be executing in ROM0 mapped to PAGE3
 			ld		a, ROM0			; ROM0
 			out		(MPGSEL0), a	; into PAGE0
@@ -212,19 +213,19 @@ rst00		di						; interrupts off
 
 ; I have a problem with slow power up and it seems to be the RAM not coming on
 ; line via the backup power control chip (U22 DS1210) quite as fast as the rest
-; of the system gets going so I wait until the RAM0 in PAGE1 is responding.
-.k1			ld		a, 0xaa
+; of the system. So I wait until the RAM0 in PAGE1 is responding.
+.k1			ld		a, 0xa5
 			ld		[PAGE1], a
 			nop
 			ld		a, [PAGE1]
-			cp		0xaa
+			cp		0xa5
 			jr		nz, .k1
 
-			ld		a, 0x55
+			ld		a, 0x5a
 			ld		[PAGE1], a
 			nop
 			ld		a, [PAGE1]
-			cp		0x55
+			cp		0x5a
 			jr		nz, .k1
 
 ; Copy the vector table into RAM0 at PAGE1
@@ -334,8 +335,7 @@ rst00		di						; interrupts off
 ; Interrupts
 			call	int_init		; does not EI
 			ei						; let the good times roll
-			call	int0			; this seemed to cure my power up problems
-									; I think my PSU is a bit slow...
+			call	int0			; this seemed to fix my power up problems
 
 ;===============================================================================
 ; Sign on at the stdio port
@@ -405,13 +405,21 @@ bad_end		ld		sp, RAM_TOP		; reset to a known value
 			call	stdio_putc
 
 ; This is the point we return to after executing a command
-good_end	ld		sp, RAM_TOP		; reset to a known value
+good_end	ld		e, 0			; use \r\n
+			jr		good_endB.j1
+good_endB	ld		e, 1			; clear screen entry without \n
+.j1			ld		sp, RAM_TOP		; reset to a known value
 			ld		a, [ram_test]	; running in RAM?
 			or		a
 			jr		z, .j2			; no
 			ld		sp, RAM_TOPEX	; yes, grab some more space
-.j2			call	stdio_str
-			db		"\r\n"
+.j2			ld		a, e
+			or		a
+			jr		nz, .j3
+			ld		a, 0x0a			; aka '\n'
+			call	stdio_putc
+.j3			call	stdio_str
+			db		"\r"
 			GREEN
 			db		"> "
 			WHITE
@@ -985,7 +993,7 @@ cmd_k		di
  if ALLOW_ANSI
 cmd_c		call	stdio_str
 			db		"\e[H\e[2J", 0
-			jp		rst00
+			jp		good_endB
  endif
 ;===============================================================================
 ; L  LED command	eg:	L 01 = LED1 off, LED2 on  L x1 = leave LED1, LED2 on
@@ -1173,13 +1181,10 @@ size_test	equ		$-test_block	; should be 97 which is a prime
 cmd_m		call	gethex32		; in BC:IX
 			call	stdio_str
 			db		"\r\n", 0
-			ld		a, ixh			; IX->HL
-			ld		h, a
-			ld		a, ixl
-			ld		l, a
+			push	ix				; IX->HL
+			pop		hl
 			ld		de, 0x100		; DE destination address
 			ld		a, 'C'
-
 			CALLBIOS ReadSector		; read sector BC:HL to address DE
 			jp		good_end
 

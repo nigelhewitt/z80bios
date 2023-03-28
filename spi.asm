@@ -6,12 +6,6 @@
 
 ; start with the definitions of the i/o bits
 
-; flags
-sd_debug			equ		1
-sd_debug_cmd17		equ		1
-sd_debug_cmd24		equ		1
-
-
 ; The PIO is set to PORT-C LOWER=INPUTS  UPPER=OUTPUTS
 ; ports
 spi_out			equ		PIO_C
@@ -40,7 +34,7 @@ spi_miso	equ		0x01	; C0
 ;		https://www.analog.com/en/analog-dialogue/articles/introduction-to-spi-interface.html
 ;
 ;===============================================================================
-; This library SPI mode 0 (SD cards operate on SPI mode 0)
+; This library is for SPI mode 0 (SD cards operate on SPI mode 0)
 ; "Data is sampled on rising CLK edge and changes on falling CLK edge"
 ; So set your data out, do CLK=1,   read your data in, do CLK=0
 ; To assert mode 0 the clock should always be low when CS transitions
@@ -57,7 +51,7 @@ spi_miso	equ		0x01	; C0
 ; MISO   _____X_____X_____X_____X_ ... _X_____X_____/         Host <-- Device
 ;
 ;===============================================================================
-; Write 8 bits in C to the SPI port
+; Write 8 bits in C to the SPI port MSB first
 ; Call with SSEL=0 and CLK=0
 ; This will leave: CLK=0, MOSI=(the LSB of the byte written)
 ; Uses: A
@@ -67,6 +61,7 @@ spi_miso	equ		0x01	; C0
 
 spi_write8
 		push	bc
+		ld		c, a
 		in		a, (spi_out)		; current bits
 
 		ld		b, 8
@@ -87,7 +82,7 @@ spi_write8
 		ret
 
 ;===============================================================================
-; Read 8 bits from the SPI & return it in A. !! MSB first
+; Read 8 bits from the SPI & return it in A. MSB first
 ; MOSI will be set to 1 during all bit transfers.
 ; should be called with: CLK=0 and MOSI=1
 ; This will leave:		 CLK=0 and MOSI=1
@@ -100,7 +95,7 @@ spi_write8
 spi_read8
 		push	bc, de
 		in		a, (spi_out)		; current port outputs
-;		or		spi_mosi			; MOSI set to 1 ('send' a 0xFF)
+		or		spi_mosi			; MOSI set to 1 ('send' a 0xFF)
 ;		out		(spi_out), a
 
 		; read the 8 bits
@@ -112,7 +107,7 @@ spi_read8
 ; read a bit						; if we were uber fast we would delay here
 		in		a, (spi_in)			; read data
 		rra							; data into Carry
-		rl		e					; data into E
+		rl		e					; data into E b0
 ; clock lo
 		ld		a, d				; get the clock low bits back
 		out		(spi_out), a

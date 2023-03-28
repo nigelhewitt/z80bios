@@ -8,33 +8,36 @@ Then the GB2SR ham radio repeater logic that I built was another Z80, more
 veroboard.
 
 This is just the commercial Zeta2 board which I bought as a blank having
-inspected his circuit diagram and liked it, but this is my bios...
+inspected his circuit diagram and liked it, but this is my bios because that
+is what I want to do...
 
-I use the SjASMPlus Z80 Cross-Assembler v1.20.2  
-&nbsp;&nbsp;&nbsp;&nbsp;https://github.com/z00m128/sjasmplus  
-and compile with the Powershell script  
+I use the SjASMPlus Z80 Cross-Assembler v1.20.2
+&nbsp;&nbsp;&nbsp;&nbsp;https://github.com/z00m128/sjasmplus
+and compile with the Powershell script
 &nbsp;&nbsp;&nbsp;&nbsp;make.ps1
 
-This generates **bios.bin** which I put into the Flash chip with a cheap blower.  
-It goes in the ROM socket (I fitted a ZIFF) and boots as normal.  
+This generates **bios.bin** which I put into the Flash chip with a cheap blower.
+It goes in the ROM socket (I fitted a ZIF) and boots as normal.
 It prompts with its sign on text including version and compile date and time.
-The prompt is  
-&nbsp;&nbsp;&nbsp;&nbsp;**\>**  
+The prompt is
+&nbsp;&nbsp;&nbsp;&nbsp;**\>**
 and it likes a full duplex terminal that obeys ANSI control codes so it can
-clear the screen and do simple colours. However can be switched off in bios.asm
+clear the screen and do simple colours. However that can be switched off in
+zeta2.inc
 
 The commands are low level being single letters followed by some arguments.
 
-I've been using **putty** as a terminal as I have it for SSH. Set it up with  
-&nbsp;&nbsp;&nbsp;&nbsp;Keys: Control-H Standard ESC[n~ Normal Normal  
-&nbsp;&nbsp;&nbsp;&nbsp;Translation: Latin-1  
-&nbsp;&nbsp;&nbsp;&nbsp;Colours: Allow terminal to specify ANSI colours  
-&nbsp;&nbsp;&nbsp;&nbsp;Serial: COM7 19200 8 1 N N  
-It doesn't seem to like me power cycling the board without unplugging it first.  
-There may be a simple fix for that but I haven't researched that yet.
+I've been using **putty** as a terminal as I have it for SSH. Set it up with
+&nbsp;&nbsp;&nbsp;&nbsp;Keys: Control-H Standard ESC[n~ Normal Normal
+&nbsp;&nbsp;&nbsp;&nbsp;Translation: Latin-1
+&nbsp;&nbsp;&nbsp;&nbsp;Colours: Allow terminal to specify ANSI colours
+&nbsp;&nbsp;&nbsp;&nbsp;Serial: COM7 115600 8 1 N N
+It didsn't seem to like me power cycling the board without unplugging it first
+but taht was down to the serial to USB converter and a three wire only
+(TX/RX/GND) fixed that.
 
 If there is no JP1 fitted the memory is arranges with the first three 16K RAM
-blocks in the first three Z80 blocks and the first ROM block in the third page.  
+blocks in the first three Z80 blocks and the first ROM block in the third page.
 If there is a jumper the ROM copies itself into the fourth RAM page and swaps
 that in and since the ROM code is only about 6K you get an extra 10K of RAM to
 play in.
@@ -43,20 +46,20 @@ play in.
 
 **A set bits in the options table** This is really a testing convenience.
 
-**B** Block input.** To unfinished to describe.
+**B** Block input.** Too unfinished to describe.
 
 **C Clear screen** Using an ANSI sequence. A mere convenience.
 
 **D Dump memory**. This takes a 24 bit hex address and a 16 bit hex count
 that defaults to $100 aka .256. This writes up the usual panel of hex and
-character values for the bytes in memory. It does not display ASCII <$20 or
->$7e as terminals can act silly.
+character values for the bytes in memory. It does not display ASCII for
+values<$20 or >$7e as terminals can act silly.
 
 **E decode last_error**. Checks the last_error data and returns a hopefully
 mode useful message.
 
 **F Fill memory**. This takes a 24 bit hex address, a 16 bit hex count and an
-8 bit hex value.  
+8 bit hex value.
 Try not to overwrite the first $69 bytes. If you overwrite the stack the SP
 gets reset before it shows the prompt so it should survive.
 
@@ -74,12 +77,12 @@ back the 8 bit hex it reads from the port.
 
 **K Kill**. **DI HALT**. Mostly so I could test the HALT light...
 
-**L Leds**. I soldered two LEDs from the spare pins on the RTC port via 240 ohm
-resistors to 5V. I use it testing states. The pins are U10 pins 7 and 10.
-This is the manual control L 11 puts them both on. L 00 puts them both off
-Lx1 leaves the first in whatever state it was and changes the second.
+**L Leds**. I soldered two LEDs from the spare pins on the RTC port 2N7000 fets
+and 240 ohm resistors to 5V. I use it testing states. The pins are U10 pins 7
+and 10. This is the manual control L 11 puts them both on. L 00 puts them both
+off Lx1 leaves the first in whatever state it was and changes the second.
 
-**N program the flash memory**. N rom_n I|P|E|P  
+**N program the flash memory**. N rom_n I|P|E|P Details later.
 
 **O Output to a port**. This takes an eight bit hex port address and an eight
 bit hex data value.
@@ -96,7 +99,7 @@ RAM and T and S to read and write the clock.
 
 **T Set/read the Real Time Clock**. Use **HH:MM:SS** and **DD/MM/YY** or
 **YYYY** (in decimal) and it will adjust things. It also appends the current
-tick count for the CTC.
+tick count for the CTC as seconds.
 
 **W Write memory**. This takes a 24 bit hex address again followed by as many
 8 bit hex values as you can get on an 80 character line. Each value is actioned
@@ -104,17 +107,17 @@ as it is read so if you make a mistake on value seven you have already changed
 the first six that you typed but will have to redo from seven onwards.
 
 **X Execute from this address**. This takes a 16 bit hex address in the Z80
-address map.  
+address map.
 The default is the ROM start up address so just X restarts with a full reload.
 
-**Z** This is just a place I put my current test code
+**Y Z** This is just the places I put my current test code
 
-Most of the rest that you might need to know is in the code.  
-I've gone for the ELI5 comment style because at 73 I forget stuff.  
-Start from bios.asm and go from there.  
+Most of the rest that you might need to know is in the code.
+I've gone for the ELI5 comment style because at 73 I forget stuff.
+Start from bios.asm and go from there.
 The make.ps1 compiles the separate biosN.bin and merge.exe glues them together.
 The separate bios blocks have their own copies of the stdio et al as they have
 lots of space while bios1 tries to squeeze down to leave lots of free address
-map for RAM.  
+map for RAM.
 The RTC clock and the FDC systems are based on reading code from other GitHub
 denizens. Credits are in the files.
