@@ -1,6 +1,6 @@
 ﻿;===============================================================================
 ;
-;	fat.asm		The code that understands FAT and disk systems
+;	fat-drive.asm		The code that understands FAT and disk systems
 ;
 ;===============================================================================
 

@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.15"		; version number for sign on message
+	define	VERSION	"v0.1.16"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -435,8 +435,6 @@ good_endB	ld		e, 1			; clear screen entry without \n
 
 ; Now we want to interpret the command line
 			jp		do_commandline
-
-bios		nop
 
 ;===============================================================================
 ; Decode the command line
@@ -968,10 +966,12 @@ cmd_t		AUTO	7				; 7 bytes of stack please
 ;===============================================================================
 ; Y  the current thing being tested
 ;===============================================================================
-cmd_y		call	stdio_str
-			db		"\r\n", 0
-			CALLBIOS ShowLogo1		; see macros.inc and rom.asm
-			CALLBIOS ShowLogo2
+cmd_y		ld		hl, 'HL'
+			ld		bc, 'BC'
+			ld		de, 'DE'
+			push	bc, de, hl
+			CALLBIOS ShowStack		; see macros.inc and rom.asm
+			pop		hl, de, bc
 			jp		good_end
 
 ;===============================================================================

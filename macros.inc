@@ -33,7 +33,6 @@ SNAP		macro	id
 			endm
 
 ; Diagnostic memory dump from ptr20 for count (all pushed)
-; NB: if
 DUMP		macro	ptr20, count
 			push	af
 			DOUT	0					; force serial op
@@ -42,6 +41,24 @@ DUMP		macro	ptr20, count
 			push	bc
 			ld		hl, ptr20 & 0xffff
 			ld		c, ptr20 >> 16
+			ld		de, count
+			call	stdio_dump
+			pop		bc
+			pop		de
+			pop		hl
+			ROUT
+			pop		af
+			endm
+
+; as above but takes a double register as the pointer
+DUMPrr		macro	rr, cr, count
+			push	af
+			DOUT	0					; force serial op
+			push	hl
+			push	de
+			push	bc
+			ld		hl, rr
+			ld		c, cr
 			ld		de, count
 			call	stdio_dump
 			pop		bc
@@ -110,13 +127,12 @@ RETERR		macro	nerr
 
 ; call a BIOSn function: number fn in rom
 CALLBIOS	macro	ROM, FN
-			push	af
-			ld		a, ROM
-			ld		[Z.cr_rom], a
-			ld		a, FN
-			ld		[Z.cr_fn], a
-			pop		af
-			call	wedgeROM		; see rom.asm
+			ld		[Z.cr_a], a		; 13T
+			ld		a, FN			; 7T
+			ld		[Z.cr_fn], a	; 13T
+			ld		a, ROM			; 7T
+			ld		[Z.cr_rom], a	; 13T
+			call	wedgeROM		; 17T see router.asm
 			endm
 
 ; make an address20 in A:HL from a ROMn/RAMn code and a 14 bit address:
@@ -173,6 +189,7 @@ ERR_UNKNOWNACTION		equ		11
 ERR_MANANA				equ		12
 ERR_BADROM				equ		13
 ERR_NOTINRAM			equ		14
+ERR_BADFUNCTION			equ		15
 
 ; ROM functions
 	define ShowLogo1		RAM4,0		// Show "BIOS1 loaded"
@@ -181,3 +198,4 @@ ERR_NOTINRAM			equ		14
 	define ShowHelp			RAM4,2		// Show command help
 	define ReadSector		RAM4,3		// read sector BC:HL to DE
 	define SPItest			RAM4,4		// SPI/SD test functions
+	define ShowStack		RAM5,1		// data on stack text

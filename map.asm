@@ -119,6 +119,7 @@ resPage		push	bc, iy
 ;-------------------------------------------------------------------------------
 ; getPageByte	get a byte from C:IX in A leaving everything unchanged.
 ;				It works the stack free trick so it can get from anywhere
+;
 ;				If C==0xff use [IX] local memory
 ;-------------------------------------------------------------------------------
 getPageByte	ld		a, c
@@ -126,7 +127,7 @@ getPageByte	ld		a, c
 			jr		nz, .gb1
 			ld		a, [ix]
 			ret
-			
+
 .gb1		push	hl, bc, iy, ix
 			ld		a, 1			; via PAGE1
 			ld		iy, .gb2		; return address

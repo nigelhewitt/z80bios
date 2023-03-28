@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.0"		move to local repository, use version number
+   	git commit -m "0.1.15"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -70,4 +70,9 @@ Tweak the clear command to clear to top line and not do a restart.
 Put the initialisation part of the FAT handler in so an SD can be read for all
 it's relevant details for a partition.
 
-
+0.1.16
+Tidy up github and include the CPP modules as they are part of the trail.
+Modify the CALLBIOS system that calls functions is another ROM to make it
+simpler in operation. Now all the registers are passed in and even the flags
+are passed out. A function may either jump to good_end (or bad_end but since I
+am promising all flags returned it's the same thing) or return.

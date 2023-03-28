@@ -10,14 +10,19 @@ BIOSROM		equ			2				; which ROM page are we compiling
 			include		"vt.inc"
 
 			org		PAGE3
-			jp		bios
 			db		"BIOS2 ", __DATE__, " ", __TIME__, 0
+
+; the works of the calling mechanism is in the share file router.asm
+; but it wants a table of functions and a count supplied here
 
 bios_functions
 			dw		f_biosver				; 0
+			dw		f_stacktest				; 1
 bios_count	equ		($-bios_functions)/2
 
+
 ram_test	db		0
+
 f_biosver	ld		a, 1
 			ld		[ram_test], a
 			call	stdio_str			; uses nothing
@@ -37,3 +42,8 @@ f_biosver	ld		a, 1
 			WHITE
 			db		0
 			jr		good_end
+
+f_stacktest
+			ld		hl, [Z.cr_sp]
+			DUMPrr	hl, 0, 32
+			ret						; should go to good_end

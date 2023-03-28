@@ -396,8 +396,13 @@ stdio_dump			; C:HL = pointer, DE = count, uses HL and DE
 			ld		a, 0x0a					; '\n'
 			call	stdio_putc
 			ld		hl, ix
+			ld		a, c
+			cp		0xff
+			jr		z, .sd1a
 			call	stdio_20bit				; write C:HL as address
-			ld		a, ' '					; ' '
+			jr		.sd1b
+.sd1a		call	stdio_word
+.sd1b		ld		a, ' '					; ' '
 			call	stdio_putc
 ; how many bytes to do this row at a max of 16?
 			ld		a, d					; count msbyte
@@ -564,14 +569,14 @@ gethex32	call	skip			; get the first character
 			ld		ixl, a
 			ld		c, 0
 			jr		.gh2			; return good
-			
+
 ; stack unwind for overflow return
 .gh7		pop		hl, de
 			or		a				; clear carry
 			ret
 
 ; Restricted versions of gethex32 that preserve the registers we don't use and
-; overflow as appropriate			
+; overflow as appropriate
 
 ; gethex20	gets a 20 bit address in C:IX
 gethex20	call	gethex32
@@ -822,4 +827,3 @@ delay		call	delay1ms
 			or		c
 			ret		z
 			jr		delay
-			

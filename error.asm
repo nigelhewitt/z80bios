@@ -21,6 +21,8 @@ error_list
 	dw	err_11
 	dw	err_12
 	dw	err_13
+	dw	err_14
+	dw	err_15
 
 max_error	equ	($-error_list)/2
 
@@ -39,6 +41,7 @@ err_11		db	"Unknown qualifier", 0				; ERR_UNKNOWNACTION
 err_12		db	"Sorry, not coded yet", 0			; ERR_MANANA
 err_13		db	"Bad rom selection", 0				; ERR_BADROM
 err_14		db	"This code must run in RAM",0		; ERR_NOTINRAM
+err_15		db	"Base function call",0				; ERR_BADFUNCTION
 
 err_X		db	"Unknown error", 0
 
