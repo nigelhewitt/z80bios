@@ -257,18 +257,6 @@ stdio_decimalB				; A in decimal
 			pop		hl
 			ret
 
-; compare HL to N : return Z for HL==N, NC for HL>=N CY for HL<N uses A
-; (same results as with A in CP N)
-CPHL		macro	n
-			ld		a, h
-			cp		high n
-			jr		c, .cphl1	; n>HL so return CY and NZ
-			jr		nz, .cphl1	; n<HL so return NC and NZ
-			ld		a, l		; we get here on h == high n
-			cp		low n		; setCY and Z flags on L
-.cphl1
-			endm
-
 stdio_decimalW4				; HL in decimal with at least 4 digits
 			push	af
 			CPHL	10

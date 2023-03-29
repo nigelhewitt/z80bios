@@ -215,7 +215,7 @@ uint32_t YY_GetClusterEntry(YY_DRIVE* drive, uint32_t cluster)
 		return ((uint32_t*)GetFatSector(drive, cluster/128))[cluster%128] & 0xfffffff;	// not the top 4 bits
 
 	if(drive->fat_type==FAT16)
-		return ((uint32_t*)GetFatSector(drive, cluster/256))[cluster%256];
+		return ((uint16_t*)GetFatSector(drive, cluster/256))[cluster%256];
 
 //	if(drive->fat_type==FAT12)						// implicit
 		return get12bitsFAT(drive, cluster);

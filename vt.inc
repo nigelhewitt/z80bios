@@ -23,7 +23,7 @@ cr_a		ds		1
 cr_rom		ds		1
 			ds		3				; JP rst28
 			ds		1
-			ds		4
+cmd_exp		ds		4
 cr_stack
 			ds		3				; JP rst30
 			ds		5

@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.15"		move to local repository, use version number
+   	git commit -m "0.1.17"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -76,3 +76,12 @@ Modify the CALLBIOS system that calls functions is another ROM to make it
 simpler in operation. Now all the registers are passed in and even the flags
 are passed out. A function may either jump to good_end (or bad_end but since I
 am promising all flags returned it's the same thing) or return.
+
+0.1.17
+Hacking along coding the FAT system so this is mainly a backup save.
+The FAT drive working set me onto translating the clusters module.
+Then I split off the FAT data structures into their own file.
+Next is folders which should give me file directories on screen.
+I modified the commands to be 1-4 characters as it was getting hard to be find
+a suitable single letter so the ReadMe and the help screen.
+I rewrote

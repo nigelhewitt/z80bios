@@ -148,13 +148,28 @@ MAKEA20		macro	PAGE, ADDR14
 			rr		h
 			endm
 
-; a simple conveniences
+;-------------------------------------------------------------------------------
+; a simple conveniences with maths
+;-------------------------------------------------------------------------------
 
 ; DJNZ but far not relative
 djnzF		macro	target
 			dec		b
 			jp		nz, target
 			endm
+
+; compare HL to N : return Z for HL==N, NC for HL>=N CY for HL<N uses A
+; (same results as with A in CP N)
+CPHL		macro	n
+			ld		a, h
+			cp		high n
+			jr		c, .cphl1	; n>HL so return CY and NZ
+			jr		nz, .cphl1	; n<HL so return NC and NZ
+			ld		a, l		; we get here on h == high n
+			cp		low n		; setCY and Z flags on L
+.cphl1
+			endm
+
 
 ; compare 32 bit value in DE:HL with a constant
 CPDEHL		macro	value32					; for = return z
@@ -172,8 +187,38 @@ CPDEHL		macro	value32					; for = return z
 .ex
 			endm
 
+; Compare DE:HL to a iy indexed value [iy+offset]
+CPDEHLIY	macro	offset
+			ld		a, d
+			cp		[iy+offset+3]
+			jr		nz, .z1
+			ld		a, e
+			cp		[iy+offset+2]
+			jr		nz, .z1
+			ld		a, h
+			cp		[iy+offset+1]
+			jr		nz, .z1
+			ld		a, l
+			cp		[iy+offset]
+.z1
+			endm
 
-// Error codes
+; increment DE:HL
+INCDEHL		macro
+			inc		l
+			jr		nc, .z2
+			inc		h
+			jr		nc,	.z2
+			inc		d
+			jr		nc, .z2
+			inc		e
+.z2
+			endm
+
+;-------------------------------------------------------------------------------
+; Error codes
+;-------------------------------------------------------------------------------
+
 ERR_NO_ERROR			equ		0
 ERR_UNKNOWN_COMMAND		equ		1
 ERR_BAD_ADDRESS			equ		2
@@ -191,7 +236,9 @@ ERR_BADROM				equ		13
 ERR_NOTINRAM			equ		14
 ERR_BADFUNCTION			equ		15
 
+;-------------------------------------------------------------------------------
 ; ROM functions
+;-------------------------------------------------------------------------------
 	define ShowLogo1		RAM4,0		// Show "BIOS1 loaded"
 	define ShowLogo2		RAM5,0		// Show "BIOS2 loaded"
 	define ShowError		RAM4,1		// Interpret error code

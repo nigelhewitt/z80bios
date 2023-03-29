@@ -4,6 +4,52 @@
 ;
 ;===============================================================================
 
+;-------------------------------------------------------------------------------
+; Unpack a long filename from a DIRL record
+; NB: the parts are given in reverse order
+; call with	IY = FILE	where we build the filename
+;			IX = DIRN	the directory entry
+;-------------------------------------------------------------------------------
+
+UnpackLong
+;
+;	DIRL *d = (DIRL*)dirn;
+;	if(d->LDIR_Ord & 0x40){		// if first
+;		for(int i=0; i<MAX_PATH; file->longName[i++]=0);
+;		file->shortnamechecksum = d->LDIR_ChkSum;
+;	}
+;	else{
+;		if(file->shortnamechecksum!=d->LDIR_ChkSum)
+;			printf("LongName checksum error type 1\n");
+;	}
+;	uint16_t index = ((d->LDIR_Ord & 0x3f)-1)*13;	// where we put these character in long name
+;	bool run=true;
+;	for(int j=0; run && j<5; ++j){
+;		if(d->LDIR_Name1[j]==0){ run=false; break; }
+;		file->longName[index++] = d->LDIR_Name1[j];
+;	}
+;	for(int j=0; run && j<6; ++j){
+;		if(d->LDIR_Name2[j]==0){ run=false; break; }
+;		file->longName[index++] = d->LDIR_Name2[j];
+;	}
+;	for(int j=0; run && j<2; ++j){
+;		if(d->LDIR_Name3[j]==0){ run=false; break; }
+;		file->longName[index++] = d->LDIR_Name3[j];
+;	}
+		ret
+
+
+
+
+
+
+
+
+
+
+
+
+
 ;===============================================================================
 ;
 ;	define EOF	0xffff

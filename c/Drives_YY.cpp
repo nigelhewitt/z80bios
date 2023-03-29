@@ -245,7 +245,7 @@ YY_DRIVE* YY_MountDrive(uint8_t idDevice)
 
 	// We need to determine the FAT type from the data.
 	// The Microsoft specification tells us how to do it by cluster count
-	uint32_t RootDirSectors = ((volID->BPB_RootEntCnt * 32) + (volID->BPB_BytsPerSec -1)) / volID->BPB_BytsPerSec;	// zero for FAT32
+	uint32_t RootDirSectors = ((volID->BPB_RootEntCnt * 32) + (volID->BPB_BytsPerSec - 1)) / volID->BPB_BytsPerSec;	// zero for FAT32
 	if(volID->BPB_FATSz16 != 0)
 		drive->fat_size = volID->BPB_FATSz16;
 	else

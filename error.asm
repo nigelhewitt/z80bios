@@ -79,30 +79,30 @@ f_error		push	af, hl, de
 ;===============================================================================
 
 cmd_help	db	"\r\n"
-			db	"A  [A-Y] set/clear diagnostic flags\r\n"
-			db	"B  read a block of data to an address\r\n"
+			db	"FLAG  [A-Y] set/clear diagnostic flags\r\n"
+;			db	"BLK    read a block of data to an address\r\n"
  if ALLOW_ANSI
- 			db	"C  clear screen\r\n"
+ 			db	"CLS   clear screen\r\n"
  endif
-			db	"D  dump from an address  d address [count]\r\n"
-			db	"E  last error text\r\n"
-			db	"F  fill memory   f start count value\r\n"
-			db	"H  hex test\r\n"
-			db	"I  input from a port\r\n"
-			db	"K  kill\r\n"
+			db	"DUMP  dump from an address  d address [count]\r\n"
+			db	"ERR   last error text\r\n"
+			db	"FILL  fill memory   f start count value\r\n"
+			db	"HEX   hex test\r\n"
+			db	"IN    input from a port\r\n"
+			db	"KILL  kill\r\n"
  if LEDS_EXIST
-			db	"L  set the LEDs   l [1|0|x][1|0|x]0\r\n"
+			db	"LED   set the LEDs   l [1|0|x][1|0|x]0\r\n"
  endif
-			db	"N  program ROM options I|E|P|W\r\n"
-			db	"O  output to a port\r\n"
-			db	"R  read memory\r\n"
-			db	"S  save command\r\n"
-			db	"T  time set/get   t [21:55[:45]] [26/03/[20]23]\r\n"
-			db	"W  write memory   w address value value value...\r\n"
-			db	"X  execute from an address\r\n"
-			db	"Y  whatever I am currently testing\r\n"
-			db	"Z  something else to test\r\n"
-			db	"?  list commands"
+			db	"N     program ROM options I|E|P|W\r\n"
+			db	"OUT   output to a port\r\n"
+			db	"READ  read memory\r\n"
+			db	"SAVE  save command\r\n"
+			db	"TIME  time set/get   t [21:55[:45]] [26/03/[20]23]\r\n"
+			db	"W     write memory   w address value value value...\r\n"
+			db	"EXEC  execute from an address\r\n"
+			db	"Y     whatever I am currently testing\r\n"
+			db	"Z     something else to test\r\n"
+			db	"?     list commands"
 			db	0
 
 f_help		ld		hl, cmd_help

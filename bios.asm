@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.16"		; version number for sign on message
+	define	VERSION	"v0.1.17"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.15"		move to local repository, use version number
+;   	git commit -m "0.1.17"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 I use the alternative [] form for an addresses
@@ -434,94 +434,133 @@ good_endB	ld		e, 1			; clear screen entry without \n
 			jr		z, good_end
 
 ; Now we want to interpret the command line
+			ld		e, 0			; start from the beginning
 			jp		do_commandline
 
 ;===============================================================================
 ; Decode the command line
 ;===============================================================================
 
-; The jump table matches a letter to an address
-cmd_list	db	'A'					; set bitflags
+; The jump table matches a command to a jump address
+cmd_list	db	"FLAG"				; set bitflags
 			dw	cmd_a
-			db	'B'					; read a block of data to an address
-			dw	cmd_b
+;			db	"BLK",0				; read a block of data to an address
+;			dw	cmd_b
  if ALLOW_ANSI
- 			db	'C'					; clear screen
+ 			db	"CLS",0				; clear screen
 			dw	cmd_c
  endif
-			db	'D'					; dump from an address
+			db	"DUMP"				; dump from an address
 			dw	cmd_d
-			db	'E'					; error command
+			db	"ERR",0				; error command
 			dw	cmd_e
-			db	'F'					; fill memory
+			db	"FILL"				; fill memory
 			dw	cmd_f
-			db	'H'					; hex test
+			db	"HEX",0				; hex test
 			dw	cmd_h
-			db	'I'					; input from a port
+			db	"IN",0,0			; input from a port
 			dw	cmd_i
-			db	'K'					; kill
+			db	"KILL"				; kill
 			dw	cmd_k
  if LEDS_EXIST
-			db	'L'					; set the LEDs
+			db	"LED",0				; set the LEDs
 			dw	cmd_l
  endif
-			db	'M'					; SD interface
+			db	"M",0,0,0			; SD interface
 			dw	cmd_m
-			db	'N'					; program ROM
+			db	"N",0,0,0			; program ROM
 			dw	cmd_n
-			db	'O'					; output to a port
+			db	"OUT",0				; output to a port
 			dw	cmd_o
-			db	'R'					; read memory
+			db	"READ"				; read memory
 			dw	cmd_r
-			db	'S'					; save command
+			db	"SAVE"				; save command
 			dw	cmd_s
-			db	'T'					; time set/get
+			db	"TIME"				; time set/get
 			dw	cmd_t
-			db	'W'					; write memory
+			db	"W",0,0,0			; write memory
 			dw	cmd_w
-			db	'X'					; execute from an address
+			db	"EXEC"				; execute from an address
 			dw	cmd_x
-			db	'Y'
+			db	"Y",0,0,0
 			dw	cmd_y
-			db	'Z'					; anything test
+			db	"Z",0,0,0			; anything test
 			dw	cmd_z
-			db	'?'
+			db	"?",0,0,0
 			dw	cmd_hlp
 			db	0
 
+	assert	(($-cmd_list) % 6) == 1
+
 ; Called with HL pointer to line, D buffer count, use E as index
 do_commandline
-			ld		a, [hl]			; preserve HL and DE for routine to process
-			ld		c, a			; save the command letter
-; If a lower case letter convert to upper case
-			call	islower			; test for a-z set CY if true
+
+; gather up 1-4 characters in Z.cmd_exp
+			ld		b, 4			; max command size
+			ld		ix, Z.cmd_exp	; 4 character buffer
+
+			call	skip			; get the first character on the line
+			jp		z, .d2a			; end of line (just spaces?)
+			jr		.d0				; first character
+
+.d0S		call	getc			; get next character (not first)
+			jp		z, .d1F			; end of line
+			cp		' '				; end of command?
+			jp		z, .d1F
+			cp		0x09			; tab
+			jp		z, .d1F
+.d0			call	islower			; test for a-z set CY if true
 			jr		nc, .d1
 			and		~0x20			; convert to upper case
-			ld		c, a			; and update the copy
-.d1
+.d1			ld		[ix], a
+			inc		ix
+			djnz	.d0S
+
+; we have 4 characters
+			jr		.d1D
+
+; we have an end of command (either white space or the input ran out)
+.d1F		xor		a				; zero fill the buffer
+.d1G		ld		[ix], a
+			inc		ix
+			djnz	.d1G
+
 ; Look for match in the table
-			ld		ix, cmd_list	; table of commands and functions
+.d1D		ld		iy, cmd_list	; table of commands and functions
+			ld		ix, Z.cmd_exp
+
 ; Check for end of table
-.d2			ld		a, [ix]
+.d2			ld		a, [iy]			; read command list first char of a command
 			or		a				; end of list?
 			jr		nz, .d3			; no, so keep going
-			ld		a, ERR_UNKNOWN_COMMAND
+
+; bad end
+.d2a		ld		a, ERR_UNKNOWN_COMMAND
 			ld		[Z.last_error], a
 			jp		bad_end
+
 ; Test for match
-.d3			cp		c				; test command letter
-			jr		z, .d4			; we have a match
-; No match
-			inc		ix				; ix += 3
+.d3			ld		b, 4
+			ld		ix, Z.cmd_exp
+.d3d		ld		a, [iy]			; test command letter
+			cp		[ix]
+			jr		nz, .d4			; fail
 			inc		ix
-			inc		ix
-			jr		.d2
+			inc		iy
+			djnz	.d3d
+
 ; Match
-.d4			ld		c, [ix+1]		; lsbyte
-			ld		b, [ix+2]		; msbyte
-			ld		ix, bc
-			ld		e, 1			; set index to second character
-			jp		[ix]
+			ld		c, [iy]			; lsbyte
+			ld		b, [iy+1]		; msbyte
+			ld		iy, bc
+			jp		[iy]
+
+; No match
+.d4			inc		iy				; move over rest of command
+			djnz	.d4
+			inc		iy				; move over jump address
+			inc		iy
+			jp		.d2
 
 ;===============================================================================
 ; ?  Display help text
@@ -826,6 +865,7 @@ cmd_d		call	skip					; start by handling the + option
 ;===============================================================================
 ; short subs to handle packed data
 ; get nibble, return NC on error or CY with 0-0xf in A
+	if 0
 gn			call	getc			; get the next character from the buffer
 			ret		nc				; end of buffer is bad
 			call	ishex
@@ -918,6 +958,7 @@ cmd_b		call	skip			; skip spaces
 			jp		good_end
 .cb3		RELEASE	20
 			jp		err_badblock
+	endif
 
 ;===============================================================================
 ; T  Time set/get    T hh:mm:ss  dd/mm/yy

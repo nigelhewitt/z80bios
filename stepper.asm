@@ -8,8 +8,11 @@
 gap			equ		0x10000 - 7*3 - 14 - $
 			ds		gap
 
-	DISPLAY "Spare ROM space: ", /D, gap
-
+ if gap>= 0
+ 	DISPLAY "Spare ROM space: ", /D, gap
+ else
+ 	DISPLAY "ROM overrun: ", /D, -gap
+ endif
 			db		"STEPPER TABLE",0		; 14 chars
 
 gotoRAM3	ld		a, RAM3			; 7T
