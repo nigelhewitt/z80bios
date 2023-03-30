@@ -91,9 +91,9 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 
 ; if enter just return
 		cp		0x0a				; ^J line feed
-		ret		z
+		jr		z, .g7
 		cp		0x0d				; ^M enter
-		ret		z
+		jr		z, .g7
 
 ; if backspace decrement count and send "\b \b"
 		cp		0x08				; ^H destructive backspace
@@ -115,13 +115,37 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 		jr		nz, .g4
 .g3		call	stdio_getc			; next character
 		cp		0x0d				; get out on <ENTER>
-		ret		z					; end of line regardless
+		jr		z, .g7				; end of line regardless
 		call	isalpha				; set CY if [A-Za-z]
 		jr		nc, .g3				; loop
-		jr		.g1					; end loop, get next char
+		cp		'A'					; up arrow?
+		jr		nz, .g1
+
+; we have and up arrow so adopt previous buffer
+; first wind back over any current typing
+.g3a	ld		a, d
+		or		a
+		jr		z, .g3c
+		ld		a, 0x08
+		call	stdio_putc
+		dec		d
+		jr		.g3a
+
+; now echo the buffer to a null
+.g3c	push	hl
+.g3b	ld		a, [hl]
+		or		a
+		jr		z, .g3d				; rejoin text loop
+		call	stdio_putc
+		inc		d
+		inc		hl
+		jr		.g3b
+.g3d	pop	hl
+		jr	.g1
 
 ; if we get to here it is an 'ordinary' character
 .g4		ld		e, a				; save it in E
+
 ; do we have room left in the buffer?
 		ld		a, d				; get index
 		inc		a					; index+1 (if we are full b==d)
@@ -129,7 +153,8 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 		jr		nz, .g5
 ;;		call	beep
 		jr		.g1
-; place in at buffer[index++]
+
+; place in at hl[d++]
 .g5		push	hl					; pointer to base of buffer
 		ld		a, l				; HL = HL + D (index)
 		add		d					; set CY on overflow
@@ -142,6 +167,18 @@ getline								; HL = pointer to buffer, B=sizeof buffer
 		pop		hl
 		inc		d
 		jr		.g1
+
+; good exit adding terminating 0
+.g7		push	hl
+		ld		a, l
+		add		d
+		ld		l, a
+		jr		nc, .g8
+		inc		h
+.g8		xor		a
+		ld		[hl], a
+		pop		hl
+		ret
 
 ;===============================================================================
 ; stdio formatted outputs

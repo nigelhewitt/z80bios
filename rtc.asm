@@ -201,9 +201,10 @@ rtc_get
 
 ;===============================================================================
 ; Burst read clock data into buffer at HL
+;	uses A
 ;===============================================================================
 rtc_rdclk
-		push	bc, de
+		push	bc, de, hl
 		ld		e, 0xbf			; command = 0xbf to burst read clock
 		call	rtc_cmd			; send command to RTC
 		ld		b, 7			; b is loop counter
@@ -211,14 +212,15 @@ rtc_rdclk
 		ld		[hl], e			; save in buffer
 		inc		hl				; inc buf pointer
 		djnz	.rr1			; loop if not done
-		pop		de, bc
+		pop		hl, de, bc
 		jp		rtc_init	; SET BACK TO JR
 
 ;===============================================================================
 ; Burst write clock data from buffer at HL
+;	uses A
 ;===============================================================================
 rtc_wrclk
-		push	bc, de
+		push	bc, de, hl
 		; set the write protect bit to zero
 		ld		e, 0x8e			; command = 0x8e to write control register
 		call	rtc_cmd			; send command
@@ -240,14 +242,15 @@ rtc_wrclk
 		call	rtc_put			; write required 8th byte
 		and		a, ~RTCCE		; CE low before CLK low (NVH add)
 		out		(RTC), a
-		pop		de, bc
+		pop		hl, de, bc
 		jp		rtc_init
 
 ;===============================================================================
 ; Burst read ram data into buffer at HL
+;	uses A
 ;===============================================================================
 rtc_rdram
-		push	bc, de
+		push	bc, de, hl
 		ld		e, 0xff			; command = 0xff to burst read ram
 		call	rtc_cmd			; send command to rtc
 		ld		b, 31			; b is loop counter
@@ -256,14 +259,15 @@ rtc_rdram
 		ld		[hl], e			; save in buffer
 		inc		hl				; inc buf pointer
 		djnz	.cr1			; loop if not done
-		pop		de, bc
+		pop		hl, de, bc
 		jp		rtc_init
 
 ;===============================================================================
 ; Burst write ram data from buffer at HL
+;	uses A
 ;===============================================================================
 rtc_wrram
-		push	bc, de
+		push	bc, de, hl
 
 		; clear the write protect bit to zero
 		ld		e, 0x8e			; command = 0x8e to write control register
@@ -289,7 +293,7 @@ rtc_wrram
 		call	rtc_put			; send value to control register
 		call	rtc_init		; finish it
 
-		pop		de, bc
+		pop		hl, de, bc
 		jp		rtc_init
 
 ;===============================================================================

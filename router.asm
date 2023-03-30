@@ -92,7 +92,7 @@ bios		ld		sp, [Z.cr_sp]		; 20T
 bios		ld		sp, local_stack		; a stack that will work
 
 			ld		[saveHL], hl		; put a return address on the stack
-			ld		hl, good_end
+			ld		hl, return
 			push	hl					; 11T
 			ld		hl, [saveHL]
 
@@ -113,9 +113,11 @@ bios		ld		sp, local_stack		; a stack that will work
 			pop		bc					; 10T restore BC
 			ld		a, [Z.cr_a]
 			ex		[sp], hl			; restore HL, put 'goto' address on SP
+			ei
 			ret							; 10T aka POP PC
-			; this leaves us a return address to good_end on the stack
-			; so a function can either jp to good/bad end or return
+			; this leaves us a return address to return on the stack
+			; so a function can either jp to good/bad end to set/clear carry
+			; or return to preserve its flags
 
 .bi1		ld		hl, ERR_BADFUNCTION	; bad function number
 			ld		[Z.last_error], hl
@@ -127,8 +129,13 @@ bios		ld		sp, local_stack		; a stack that will work
 ; a little slight of hand to return the flags in case they are needed
 ; since we promise to return everything intact we cannot signal bad_end
 ; the function must do that itself.
-good_end
-bad_end		push	hl, af				; 11T + 11T
+good_end	scf							; set carry
+			jr		return
+
+bad_end		or		a					; clear carry
+
+return		di							; 4T
+			push	hl, af				; 11T + 11T
 			pop		hl					; 10T actually AF
 			ld		[Z.cr_a], hl		; 20T uses cr_rom as well
 			pop		hl					; 10T

@@ -15,10 +15,8 @@ logo		db		"BIOS1 ", __DATE__, " ", __TIME__, 0
 
 bios_functions
 			dw		f_biosver			; 0	show signon
-			dw		f_error				; 1 interpret last_error
-			dw		f_help				; 2 show command help
-			dw		f_readsector		; 3 read media
-			dw		f_spi_test			; 4 spi test
+			dw		f_readsector		; 1 read media
+			dw		f_spi_test			; 2 spi test
 bios_count	equ		($-bios_functions)/2
 
 

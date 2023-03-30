@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.17"		move to local repository, use version number
+   	git commit -m "0.1.18"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -84,4 +84,20 @@ Then I split off the FAT data structures into their own file.
 Next is folders which should give me file directories on screen.
 I modified the commands to be 1-4 characters as it was getting hard to be find
 a suitable single letter so the ReadMe and the help screen.
-I rewrote
+
+0.1.18
+Made a couple of speedups in macros.inc
+Modified CALLBIOS returns so if the wedge returns its flags are preserved, if
+it jumps to good_end CY is set and bad_end CY is cleared. It is up to the
+caller what they do with this.
+Moved the ROM and HEX functions to BIOS2 to make sure all the command line
+stuff carries over and to clear a bit more space in BIOS0.
+Add CORE command to restore user RAM to pristine condition.
+Add a stack overflow warning.
+Added code to restore the command line buffer if the 'up arrow' pressed'
+(except what you've already overtyped).
+Add WAIT (while SW7 down) and trigger rolling lights on SW6 in BIOS2 to test
+the interrupt system working in 'other' BIOS chips.
+Save the FLAG code at RTC ram so they are preserved across boots and power
+downs.
+

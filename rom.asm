@@ -264,3 +264,107 @@ programROMn
 			pop		af
 			ret
 
+;-------------------------------------------------------------------------------
+; ROM command for a bios writing systems
+;-------------------------------------------------------------------------------
+
+f_romcommand
+			ld		ix, ROM5			; provisional ROM number
+; obtain a ROMn number in IXL
+			call	skip				; read the first non-space
+			jp		z, err_runout		; we must have something
+			call	isdigit				; do we have a number?
+			jr		nc, .cn1			; no, process as command with default
+			dec		e					; unget
+			call	getdecimalB			; yes, so it's a ROM number
+			jp		nc, err_outofrange	; not a byte
+			ld		a, ixl
+			cp		32
+			jp		nc, err_outofrange	; NC on A>=N
+			call	skip				; try again for a command
+			jp		z, err_runout
+
+; process a command letter
+.cn1		call	islower
+			jr		nc, .cn2
+			and		~0x20				; to upper
+.cn2		cp		'I'					; read the id bytes
+			jr		z, .cn3
+			cp		'P'					; prep the data
+			jr		z, .cn4
+			cp		'E'					; erase block
+			jr		z, .cn5
+			cp		'W'					; write the data
+			jp		z, .cn6
+			jp		err_unknownaction
+
+; read the ID bytes
+.cn3		di							; BEWARE we are taking low RAM away...
+			call	getROMid			; manufacturer in B and device in C
+			ei
+			call	stdio_str			; expected 0xc2 0xa4 or 0xbf 0xb7
+			db		"\r\nManufacturer's code: ", 0
+			ld		a, b
+			call	stdio_byte
+			call	stdio_str
+			db		"  Device code: ",0
+			ld		a, c
+			call	stdio_byte
+			jp		good_end
+
+; prepare the whole of PAGE2 as a test block
+.cn4		ld		hl,	test_block		; source
+			ld		de, PAGE2			; dest
+			ld		bc, size_test
+			ldir
+			ld		hl, PAGE2
+			ld		de, PAGE2+size_test
+			ld		bc, 16*1024 - size_test
+			ldir
+			call	stdio_str
+			db		"\r\nData at: ", 0
+			ld		a, 0
+			ld		hl, PAGE2
+			call	stdio_20bit
+			jp		.cn7				; OK
+
+; Erase a 64K block (eg: select ROM9 and erase ROM8,9,10 and 11)
+.cn5		call	stdio_str
+			db		"\r\nErase sector (4xROM): ",0
+			ld		a, ixl
+			srl		a					; /4 to convert to a sector value
+			srl		a
+			call	stdio_decimalB
+
+			di
+			call	eraseROMsector
+			ei
+			jp		.cn7				; OK
+
+; write a block of ROM
+.cn6		ld		a, ixl
+			di
+			call	programROMn			; call with ROM number in A
+			ei							; data is the whole of PAGE2 (=RAM2)
+			jp		nc, .cn8			; bad return
+
+			call	stdio_str
+			db		"\r\nROM at: 0x", 0
+			MAKEA20	ixl, 0
+			ld		c, a
+			call	stdio_20bit			; output C:HL in hex
+			jp		good_end			; OK
+
+; exit messages
+.cn7		call	stdio_str
+			db		"\r\nOK",0
+			jp		good_end
+.cn8		call	stdio_str
+			db		"\r\nFailed", 0
+			jp		bad_end
+
+test_block	db		"Test block for ROM programming =0123456789 "
+			db		"abcdefghijklmnopqrstuvwxyz "
+			db		"ABCDEFGHIJKLMNOPQRSTUVWXYZ "
+size_test	equ		$-test_block	; should be 97 which is a prime
+

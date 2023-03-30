@@ -18,6 +18,11 @@ BIOSROM		equ			2				; which ROM page are we compiling
 bios_functions
 			dw		f_biosver				; 0
 			dw		f_stacktest				; 1
+			dw		f_error					; 2 interpret last_error
+			dw		f_help					; 3 show command help
+			dw		f_romcommand			; 4 ROM command
+			dw		f_hexcommand			; 5 HEX command
+			dw		f_waitcommand			; 6 WAIT command
 bios_count	equ		($-bios_functions)/2
 
 
@@ -41,9 +46,82 @@ f_biosver	ld		a, 1
 .fb1		call	stdio_str
 			WHITE
 			db		0
-			jr		good_end
+			jp		good_end
 
+;-------------------------------------------------------------------------------
+; test dump the stack
+;-------------------------------------------------------------------------------
 f_stacktest
 			ld		hl, [Z.cr_sp]
 			DUMPrr	hl, 0, 32
-			ret						; should go to good_end
+			scf
+			ret						; should go to return
+
+;-------------------------------------------------------------------------------
+; HEX command
+;-------------------------------------------------------------------------------
+f_hexcommand
+			ld		ix, [Z.def_address]		; default value
+			ld		bc, [Z.def_address+2]	; !! not ld c,(...) which compiles
+			call	gethex32				; in BC:IX
+			jp		nc, err_badaddress		; value syntax
+			ld		[Z.def_address], ix
+			ld		[Z.def_address+2], bc
+
+			push	hl						; preserve command string stuff
+			call	stdio_str
+			db		"\r\nhex: ",0
+			ld		hl, ix
+			call	stdio_32bit				; output BC:HL
+			call	stdio_str
+			db		" decimal: ",0
+			call	stdio_decimal32			; BC:HL again
+			pop		hl
+
+			call	skip					; more data on line?
+			jp		z, good_end				; none so ok
+			call	stdio_str
+			db		" delimited by: ",0
+			dec		e						; unget
+
+.ch1		call	getc					; echo
+			jp		nc, good_end			; end of buffer
+			call	stdio_putc
+			jr		.ch1
+
+;-------------------------------------------------------------------------------
+; WAIT command
+;-------------------------------------------------------------------------------
+f_waitcommand
+			in		a, (SWITCHES)
+		if	LIGHTS_EXIST
+			ld		b, a
+			bit		6, b
+			jr		z, .fw1
+			ld		a, 0xff				; trigger the led strobe
+			ld		[led_countdown], a	; running on the interrupts
+.fw1		ld		a, b
+		endif
+			bit		7, a
+			jr		nz, f_waitcommand
+			scf
+			ret
+
+;-------------------------------------------------------------------------------
+; copied from bios.asm  - probably need thinking about
+;-------------------------------------------------------------------------------
+
+err_outofrange
+			ld		a, ERR_OUTOFRANGE
+cmd_err		ld		[Z.last_error], a
+			jp		bad_end
+err_runout
+			ld		a, ERR_RUNOUT
+			jr		cmd_err
+err_unknownaction
+			ld		a, ERR_UNKNOWNACTION
+			jr		cmd_err
+err_badaddress
+			ld		a, ERR_BAD_ADDRESS
+			jr		cmd_err
+

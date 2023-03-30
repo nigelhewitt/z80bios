@@ -28,6 +28,8 @@ cr_stack
 			ds		3				; JP rst30
 			ds		5
 			ds		3				; JP rst38
-bios_wedge	ds		43
+rtc_buffer	ds		31
+			ds		10
+overflow	dw		0				; used as a stack overflow test
 			ds		3				; JP nmi
 			ends

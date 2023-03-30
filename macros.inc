@@ -69,8 +69,8 @@ DUMPrr		macro	rr, cr, count
 			endm
 
 ; Crash And Burn
-CAB			macro	text
-			SNAP	text
+CAB			macro	obituary
+			SNAP	obituary
 			jp		good_end			; reset stack
 			endm
 
@@ -163,7 +163,6 @@ djnzF		macro	target
 CPHL		macro	n
 			ld		a, h
 			cp		high n
-			jr		c, .cphl1	; n>HL so return CY and NZ
 			jr		nz, .cphl1	; n<HL so return NC and NZ
 			ld		a, l		; we get here on h == high n
 			cp		low n		; setCY and Z flags on L
@@ -209,9 +208,9 @@ INCDEHL		macro
 			jr		nc, .z2
 			inc		h
 			jr		nc,	.z2
-			inc		d
-			jr		nc, .z2
 			inc		e
+			jr		nc, .z2
+			inc		d
 .z2
 			endm
 
@@ -241,8 +240,11 @@ ERR_BADFUNCTION			equ		15
 ;-------------------------------------------------------------------------------
 	define ShowLogo1		RAM4,0		// Show "BIOS1 loaded"
 	define ShowLogo2		RAM5,0		// Show "BIOS2 loaded"
-	define ShowError		RAM4,1		// Interpret error code
-	define ShowHelp			RAM4,2		// Show command help
-	define ReadSector		RAM4,3		// read sector BC:HL to DE
-	define SPItest			RAM4,4		// SPI/SD test functions
+	define ShowError		RAM5,2		// Interpret error code
+	define ShowHelp			RAM5,3		// Show command help
+	define ReadSector		RAM4,1		// read sector BC:HL to DE
+	define SPItest			RAM4,2		// SPI/SD test functions
 	define ShowStack		RAM5,1		// data on stack text
+	define ROMcommand		RAM5,4		// ROM programming command
+	define HEXcommand		RAM5,5		// HEX command
+	define WAITcommand		RAM5,6		// WAIT command

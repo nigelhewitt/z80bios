@@ -48,6 +48,6 @@ ctc_init
 			ld		a, 1		 ; so every time
 			out		(CTC3), a
 ; set the interrupt vector
-			ld		a, iVector	 ; is masked with 0xf8
+			ld		a, iVector	 ; iTable masked with 0x00f8
 			out		(CTC0), a
 			ret
