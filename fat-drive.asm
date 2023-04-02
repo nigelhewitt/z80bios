@@ -2,75 +2,109 @@
 ;
 ;	fat-drive.asm		The code that understands FAT and disk systems
 ;
+; Important Contributions:
+;		get_drive		call with drive letter in A and returns IY=DRIVE*
+;		mount_drive		call with IY = DRIVE* to mount (if not already mounted)
+;		unmount drive	call with IY = DRIVE* if the FD or SD mich be changed
+;
 ;===============================================================================
 
 fat_report	equ	1			; chatty mode
 
-; This uses the routines
-; later I shall wrap them so we can do SD or FDD based on DRIVE.iDrive
+; This uses these routines
+; I wrapped them so we can do SD or FDD based on DRIVE.iDrive
 
-fathw_init	push	bc, de, hl, ix, iy
-			call	SD_INIT
-			pop		iy, ix, hl, de, bc
+media_functions
+; SD routines
+			dw		SD_INIT
+			dw		SD_SEEK
+			dw		SD_READ
+			dw		SD_WRITE
+; FD routines
+fd_media	dw		bad_media
+			dw		bad_media
+			dw		bad_media
+			dw		bad_media
+
+nMedia		equ		($-media_functions)/8
+
+media_init	ld		a, 0				; no args
+			jr		media_call
+media_seek	ld		a, 1				; to DE:HL
+			jr		media_call
+media_read	ld		a, 2				; HL buffer, E sector count
+			jr		media_call
+media_write	ld		a, 3				; HL buffer, E sector count
+
+media_call	push	ix, iy, bc, de, hl, hl	; two copies of HL
+			ld		hl, media_functions
+
+; add the function number *2
+			sla		a						; convert A -> dw pointer
+			add		l						; add to function pointer
+			ld		l, a
+			ld		a, h
+			adc		0
+			ld		h, a
+
+; add the media type *8
+			ld		a, [iy+DRIVE.hwDrive]	; get the HW type
+			sla		a						; *8 for table size
+			sla		a
+			sla		a						; a byte until we get 16 media types
+			add		l						; save the function number
+			ld		l, a
+			ld		a, h
+			adc		0
+			ld		h, a					; [HL] is the function
+			ld		[.mc1], hl
+			pop		hl						; recover the second copy of HL
+			db		0xcd					; CALL
+.mc1		dw		0
+
+			pop		hl, de, bc, iy, ix
 			ret
-fathw_seek	push	bc, de, hl, ix, iy
-			ld		iy, SD_CFGTBL
-			call	SD_SEEK		; to DE:HL
-			pop		iy, ix, hl, de, bc
+
+; place holder
+bad_media	xor		a
+			ERROR	z, 31
 			ret
-fathw_read	push	bc, de, hl, ix, iy
-			ld		iy, SD_CFGTBL
-			call	SD_READ		; HL = buffer, E=block count
-			pop		iy, ix, hl, de, bc
+;-------------------------------------------------------------------------------
+;	Drives as local variables
+;-------------------------------------------------------------------------------
+
+; set drive_letter, partition_number and hardware_type
+
+ADRIVE			DRIVE	'A', 0, 1		; set drive letter and partition number
+CDRIVE			DRIVE	'C', 0, 0		; the rest is zero
+DDRIVE			DRIVE	'D', 1, 0
+nDrive			equ		($-ADRIVE)/DRIVE	; number of drives
+
+defaultDrive	db		'C'				; just a starting point
+
+;-------------------------------------------------------------------------------
+; get_drive	convert Drive code in A currently 'A','C' or 'D'
+;			returns IY set to DRIVE and C or NC
+;-------------------------------------------------------------------------------
+get_drive	ld		b, nDrive
+			ld		hl, ADRIVE
+			ld		de, DRIVE
+.gd1		ld		iy, hl
+			cp		[iy+DRIVE.idDrive]
+			jr		.gd1
+			add		hl, de
+			djnz	.gd1
+			ld		iy, 0
+			xor		a					; fail
 			ret
-fathw_write	push	bc, de, hl, ix, iy
-			ld		iy, SD_CFGTBL
-			call	SD_WRITE
-			pop		iy, ix, hl, de, bc
+.gd2		scf							; success
 			ret
-
-; "M"
-f_readsector	; passed in sector BC:HL to address DE
-			SNAP	"init"
-			push	de, bc, hl
-			call	stdio_str
-			db		"\r\nSD Started", 0
-			call	SD_INIT
-			call	stdio_str
-			db		"\r\nInitialisation Finished", 0
-			pop		hl
-			pop		de
-			SNAP	"seek"
-			call	SD_SEEK		; to DE:HL
-			call	stdio_str
-			db		"\r\nSeek Finished", 0
-			pop		hl
-			ld		e, 1
-			SNAP	"read"
-			call	SD_READ		; HL = buffer, E=block count
-			SNAP	"end"
-			call	stdio_str
-			db		"\r\nRead Finished", 0
-			jp		good_end
-
-; "Z"
-f_spi_test
-			ld		a, 'C'
-			ld		[iy+DRIVE.idDrive], a
-			ld		iy, .test_drive
-			ld		a, 0
-			ld		[iy+DRIVE.iPartition], a
-
-			call	mount_drive
-			jp		good_end
-
-.test_drive	DRIVE
 
 ;-------------------------------------------------------------------------------
 ; Read the boot sector from the drive and decide if it contains a partition
 ; table or if it is a one partition drive and it is a volume header.
 ; The either process it as a Volume header of load one.
-; call with IY pointing to the DRIVE to fill in with the iDrive and
+; 	call with IY* DRIVE to fill in with the iDrive and
 ; iPartion values set
 ;-------------------------------------------------------------------------------
 
@@ -83,7 +117,19 @@ fat32		db	"FAT32  ",0
 	endif
 
 mount_drive
+; is this DRIVE already initialised?
+			ld		a, [iy+DRIVE.fat_type]
+			cp		FAT12
+			jr		z, .rb0
+			cp		FAT16
+			jr		z, .rb0
+			cp		FAT32
+			jr		nz, .rb0a
+.rb0		scf					; that was easy
+			ret
+
 ; initialise things
+.rb0a
 	if	fat_report
 			call	stdio_str
 			BLUE
@@ -91,7 +137,7 @@ mount_drive
 			WHITE
 			db		0
 	endif
-			call	fathw_init
+			call	media_init
 			ERROR	nz, 1
 	if	fat_report
 			call	stdio_str
@@ -104,7 +150,7 @@ mount_drive
 ; seek to sector 0
 			ld		de, 0
 			ld		hl, 0
-			call	fathw_seek			; DE:HL
+			call	media_seek			; DE:HL
 			ERROR	nz, 2
 	if	fat_report
 			call	stdio_str
@@ -117,7 +163,7 @@ mount_drive
 ; read the boot sector
 			ld		hl, .fat_buffer
 			ld		e, 1
-			call	fathw_read
+			call	media_read
 			ERROR	nz, 3
 	if	fat_report
 			call	stdio_str
@@ -242,7 +288,7 @@ mount_drive
 ; time to read the VOLUME
 			ld		de, [iy+DRIVE.partition_begin_sector+2]
 			ld		hl, [iy+DRIVE.partition_begin_sector]
-			call	fathw_seek			; DE:HL
+			call	media_seek			; DE:HL
 			ERROR	nz, 7
 
 	if fat_report
@@ -253,7 +299,7 @@ mount_drive
 	endif
 			ld		hl, .fat_buffer
 			ld		e, 1
-			call	fathw_read
+			call	media_read
 			ERROR	nz, 8
 
 ; checks on a volume
@@ -514,8 +560,19 @@ mount_drive
 .local_temp3		dd	0
 .local_temp4		dd	0
 
+;-------------------------------------------------------------------------------
+;	unmount_drive	called when a FD or an SD is removed so it will be totally
+;					reloaded on next use as it might be changed
+;		call with IX = DRIVE*
+;-------------------------------------------------------------------------------
+unmount_drive
+			xor		a
+			ld		[ix+DRIVE.fat_type], a
+			ret
 
-
+;-------------------------------------------------------------------------------
+; error handler to use with the ERROR macro
+;-------------------------------------------------------------------------------
 error_handler
 			call	stdio_str
 			db		"\r\n\n"
@@ -526,5 +583,3 @@ error_handler
 			WHITE
 			db		"\n", 0
 			jp		bad_end
-
-

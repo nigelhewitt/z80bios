@@ -2,6 +2,12 @@
 ;
 ;	fat-folder.asm		The code that understands FAT and disk systems
 ;
+; Important contributions:
+;	OpenDirectory	call with DE=WCHAR* path, returns IY=DIRECTORY* CY on OK
+;	ResetDirectory	IY=DIRECTORY* resets so starts from beginning again
+;	NextDirectoryItem IY=DIRECTORY*, IX=FILE* to fill in, NC on finished
+;	WriteDirectoryItem IX=FILE*, HL=chars, DE=maxChars
+;
 ;===============================================================================
 
 ;-------------------------------------------------------------------------------
@@ -680,12 +686,12 @@ NextDirectoryItem
 			jr		z, .nd1					; OK
 ; read sector
 			SET32i	iy, DIRECTORY.sectorinbuffer
-			call	fathw_seek				; to DE:HL
+			call	media_seek				; to DE:HL
 			ld		hl, iy
 			ld		bc, DIRECTORY.buffer
 			add		hl, bc
 			ld		e, 1					; one block only
-			call	fathw_read
+			call	media_read
 			ERROR	nz, 20
 
 ; loop
@@ -706,12 +712,12 @@ NextDirectoryItem
 
 ; read sector
 			SET32i	iy, DIRECTORY.sectorinbuffer
-			call	fathw_seek				; to DE:HL
+			call	media_seek				; to DE:HL
 			ld		hl, iy
 			ld		bc, DIRECTORY.buffer
 			add		hl, bc
 			ld		e, 1					; one block only
-			call	fathw_read
+			call	media_read
 			ERROR	nz, 21
 			xor		a
 			ld		[iy+DIRECTORY.slot], a
@@ -852,7 +858,7 @@ getToken	push		hl, de
 
 ;-------------------------------------------------------------------------------
 ; ChangeDirectory	call with IY = DIRECTORY* and  DE=WCHAR path*
-;					returns CY is it happens
+;					returns CY if it happens
 ; use A
 ;-------------------------------------------------------------------------------
 
@@ -918,37 +924,120 @@ ChangeDirectory
 .cd4		pop		ix, hl, bc, de
 			ret
 
-;===============================================================================
+;-------------------------------------------------------------------------------
+; OpenDirectory			open with a path
 ;
-;	define EOF	0xffff
-;
-; These are the functions I wish to emulate
-;
-;	FILE*		fopen(uint8_t* pathname, uint8_t *mode);
-;	FILE*		fopenD(FILE* file, uint8_t *mode);
-;	void		fclose(FILE* fp);
-;	uint32_t	fread(void* buffer, uint16_t count, FILE* fp);
-;	uint32_t	fwrite(void* buffer, uint16_t count, FILE* fp);
-;	uint16_t	fgetc(FILE* fp);
-;	uint8_t*	fgets(uint8_t* buffer, uint16_t count, FILE* fp);
-;	int			fputc(uint8_t c, FILE* fp);
-;	int			fputs(uint8_t* str, FILE* fp);
-;	uint8_t		fseek(FILE* fp, int32_t offset, uint8_t origin);
-;	uint32_t	ftell(FILE*fp);
-;	bool		isDIR(FILE* file);
-;	bool		isFILE(FILE* file);
-;	uint8_t		isOpen(FILE* file);
-;	uint8_t*	longpath(FILE* fp);
-;	uint8_t*	longname(FILE* fp);
-;	uint32_t	filesize(FILE* fp);
-;
-;	FOLDER*		openfolder(uint8_t* pathname);
-;	bool		changefolder(FOLDER* folder, uint8_t* path);
-;	FILE*		findnextfile(FOLDER* folder);
-;	void		resetfolder(FOLDER* folder);
-;	uint8_t*	folderpathname(FOLDER* fol);
-;	void		closefolder(FOLDER* folder);
-;
-;	char*		writefiledesc(FILE* fp);
-;
-;===============================================================================
+; If the path starts with A: or C: you have selected a drive, if not you get
+;		the default
+; If it has / next you have selected the root directory, if not the CWD of that
+; device then you get folder/folder or /folder/folder/
+;	call with		IY = DIRECTORY*  to empty structure
+;					DE = WCHAR* path
+;	returns C if oK or NC if it fail
+;-------------------------------------------------------------------------------
+
+OpenDirectory
+			ld		a, [defaultDrive]		; letter code 'A'=FDC, 'C'=SD
+			ld		c, a
+			ld		a, [de]					; save a prospective drive letter
+			ld		b, a
+			inc		de						; skip the high byte fix later
+			inc		de
+			ld		a, [de]					; driver indicator
+			cp		a, ':'					; was that C:
+			jr		nz, .od2				; no
+			ld		a, b
+			call	islower
+			jr		nc, .od1
+			and		~0x20
+.od1		ld		c, a
+.od2		ld		a, c					; leave it in C
+
+; so get a DRIVE in IX
+			call	get_drive				; 'C' letter in A returns IX
+			ret		nc						; the short way with Dissenters
+
+; set up some basic values as if it is "" or "A:\" this is what they get
+			xor		a
+			ld		hl, ix
+			ld		[iy+DIRECTORY.drive], hl			; dw DRIVE
+			ld		hl, 0
+			ld		[iy+DIRECTORY.startCluster], hl		; dd start from root
+			ld		[iy+DIRECTORY.startCluster+2], hl
+			ld		[iy+DIRECTORY.sector], hl			; dd not yet
+			ld		[iy+DIRECTORY.sector+2], hl
+			dec		hl									; 0xffff
+			ld		[iy+DIRECTORY.sectorinbuffer], hl	; dd					// none yet
+			ld		[iy+DIRECTORY.sectorinbuffer+2], hl
+			ld		[iy+DIRECTORY.slot], a				; db as reset
+
+; put something sensible in the longpath	"C:/"
+			ld		a, c								; get the drive letter
+			ld		hl, DIRECTORY.longPath				; point to the buffer
+			ld		bc, ix
+			add		hl, bc
+			ld		[hl], a								; drive letter
+			inc		hl
+			xor		a
+			ld		[hl], a
+			inc		hl
+			ld		a, ':'								; :
+			ld		[hl], a
+			inc		hl
+			xor		a
+			ld		[hl], a
+			ld		a, '/'								; /
+			ld		[hl], a
+			inc		hl
+			xor		a
+			ld		[hl], a
+			inc		hl
+			ld		[hl], a								; trailing null
+			inc		hl
+			ld		[hl], a
+
+; if the path does not start with a / use the CWD for that drive
+			ld		a, [de]
+			cp		'/'
+			jr		z, .od4				; not CWD
+
+; loop through the elements of the drive's CWD
+			push	de					; save out path pointer
+			ld		hl, ix				; DRIVE*
+			ld		bc, DRIVE.cwd
+			add		hl, bc				; pointer to CWD
+			ld		bc, 3				; the CWD is at least "A:\"
+			ld		de, .temp1			; text buffer
+.od3		call	getToken			; HL = text, DE=buffer, BC = index
+			jr		nc, .od5			; run out of tokens
+			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
+			jr		c, .od3				; done OK
+			pop		de					; fail
+			xor		a
+			ret
+
+.od4		inc		de					; if it was a / move over it
+			inc		de
+			jr		.od6
+.od5		pop		de					; recover main path
+.od6
+
+; now do the path's tokens
+			ld		hl, de				; path in HL
+			ld		bc, 0				; zero the index
+			ld		de, .temp1			; text buffer
+.od7		call	getToken			; HL = text, DE=buffer, BC = index
+			jr		nc, .od8			; run out of tokens
+			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
+			jr		c, .od7				; done OK
+			pop		de					; fail
+			xor		a
+			ret
+.od8
+			call	ResetDirectory		; IY=DIRECTORY*
+			scf
+			ret
+
+; local variable
+.temp1		ds		MAX_PATH*2
+

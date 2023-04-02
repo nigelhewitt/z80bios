@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.18"		move to local repository, use version number
+   	git commit -m "0.1.20"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -103,9 +103,11 @@ downs.
 
 0.1.19
 More coding for the fat system.
-Also revised the 20bit addressing ldir code.
+Also revised the 24bit addressing ldir code.
 Started concept work on a heap allocation to make the wide open spaces of
 paged RAM accessible.
 Debug bank_ldir fort this and add a COPY command to test it
 This leaves me with some variants on DUMP but macros cost nothing if you don't
 use then so I'll leave them on file.
+
+0.1.20

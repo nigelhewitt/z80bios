@@ -113,8 +113,12 @@ ERROR	macro	FAULT, ERRNO		; test for FAULT and error number
 .e2
 		endm
 
+HW_SD					equ		0			; hwDrive meanings
+HW_FD					equ		1
+
 	struct	DRIVE
 idDrive					db		0			; zero or the character ie: 'A' in "A:/"
+hwDrive					db		0			; 0=SD, 1=FD etc
 iPartition				db		0			; partition number
 
 // fat organisation parameters

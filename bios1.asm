@@ -16,7 +16,7 @@ logo		db		"BIOS1 ", __DATE__, " ", __TIME__, 0
 
 bios_functions
 			dw		f_biosver			; 0	show signon
-			dw		f_readsector		; 1 read media
+			dw		bad_end				; 1 spare
 			dw		f_dircommand		; 2 DIR command
 bios_count	equ		($-bios_functions)/2
 

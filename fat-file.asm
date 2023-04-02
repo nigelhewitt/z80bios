@@ -1,12 +1,9 @@
 ﻿;===============================================================================
 ;
 ;	fat-file.asm		The code that understands FAT and disk systems
+;	Important contributions
 ;
 ;===============================================================================
-
-f_dircommand
-			scf
-			ret
 
 ;-------------------------------------------------------------------------------
 ; matchwstr		match wide char strings

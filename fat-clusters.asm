@@ -143,12 +143,12 @@ FlushFat	ld		a, [iy+DRIVE.fat_dirty]
 			add		hl, bc
 			ld		bc, [iy+DRIVE.fat_size+2]
 			adc		de, bc
-.ff2		call	fathw_seek			; seek to DE:HL
+.ff2		call	media_seek			; seek to DE:HL
 			ERROR	nz, 11
 			ld		hl, iy
 			ld		bc, DRIVE.fatTable
 			add		hl, bc
-			call	fathw_write
+			call	media_write
 			ERROR	nz, 12
 			pop		bc
 			djnz	.ff1
@@ -180,12 +180,12 @@ GetFatSector
 			add		hl, bc
 			ld		bc, [iy+DRIVE.fat_begin_sector+2]
 			adc		de, bc
-			call	fathw_seek		; seek to DE:HL
+			call	media_seek		; seek to DE:HL
 			ERROR	nz, 13
 			ld		hl, iy
 			ld		bc, DRIVE.fatTable
 			add		hl, bc
-			call	fathw_write
+			call	media_write
 			ERROR	nz, 14
 			pop		de, hl
 			ld		[iy+DRIVE.last_fat_sector], hl
