@@ -5,6 +5,7 @@
 ;===============================================================================
 
 BIOSROM		equ			2				; which ROM page are we compiling
+BIOSRAM		equ			RAM5
 			include		"zeta2.inc"		; common definitions
  			include		"macros.inc"
 			include		"vt.inc"
@@ -23,6 +24,7 @@ bios_functions
 			dw		f_romcommand			; 4 ROM command
 			dw		f_hexcommand			; 5 HEX command
 			dw		f_waitcommand			; 6 WAIT command
+			dw		f_copycommand			; 7 COPY command
 bios_count	equ		($-bios_functions)/2
 
 
@@ -106,6 +108,44 @@ f_waitcommand
 			jr		nz, f_waitcommand
 			scf
 			ret
+
+;-------------------------------------------------------------------------------
+; COPY command  destination20 source 20 count16
+;-------------------------------------------------------------------------------
+f_copycommand
+			ld		ix, 0					; default value
+			ld		bc, 0
+			call	gethex32				; in BC:IX
+			ld		[.source], ix
+			ld		a, c
+			ld		[.source+2], a
+			ld		ix, 0					; default value
+			ld		bc, 0
+			call	gethex32				; in BC:IX
+			ld		[.dest], ix
+			ld		a, c
+			ld		[.dest+2], a
+			ld		ix, 0					; default value
+			call	gethexW					; in IX
+			ld		[.count], ix
+			ld		hl, [.source]
+			ld		a, [.source+2]
+			ld		c, a
+			ld		de, [.dest]
+			ld		a, [.dest+2]
+			ld		b, a
+			ld		ix, [.count]
+			call	bank_ldir				; copy from C:HL to B:DE for IX counts
+			jr		nc, .cc1
+			scf
+			ret
+.cc1		or		a
+			ret
+
+; local variables
+.source		d24		0
+.dest		d24		0
+.count		dw		0
 
 ;-------------------------------------------------------------------------------
 ; copied from bios.asm  - probably need thinking about

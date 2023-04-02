@@ -32,15 +32,28 @@ SNAP		macro	id
 			pop		af
 			endm
 
-; Diagnostic memory dump from ptr20 for count (all pushed)
-DUMP		macro	ptr20, count
+; Diagnostic memory dump from ptr24 for count (all pushed)
+; use 0xff0000+offset to force the mapper off and get whatever is mapped in
+DUMP		macro	ptr24, count
 			push	af
 			DOUT	0					; force serial op
-			push	hl
-			push	de
-			push	bc
-			ld		hl, ptr20 & 0xffff
-			ld		c, ptr20 >> 16
+			push	hl, de, bc
+			ld		hl, ptr24 & 0xffff
+			ld		c, ptr24 >> 16
+			ld		de, count
+			call	stdio_dump
+			pop		bc, de, hl
+			ROUT
+			pop		af
+			endm
+
+; as above but takes a double register as the pointer
+DUMPrr		macro	rr, cr, count
+			push	af
+			DOUT	0					; force serial op
+			push	hl, de, bc
+			ld		hl, rr
+			ld		c, cr
 			ld		de, count
 			call	stdio_dump
 			pop		bc
@@ -50,20 +63,42 @@ DUMP		macro	ptr20, count
 			pop		af
 			endm
 
-; as above but takes a double register as the pointer
-DUMPrr		macro	rr, cr, count
+; as above but takes a bunch of parts to find the address
+; offset in RAM/ROM = offset-(PAGE*0x4000)
+; I swap RAM and ROM in the mapper to make ROM addresses low by complementing
+; the RAM/ROM CS bit
+; start of ROM/RAM = (RAM ^ 0x20)*0x4000
+; so address = (RAM^0x20)*0x4000 + offset - PAGEn
+
+DUMPpg		macro	RAMn, PAGEn, offset, count
 			push	af
 			DOUT	0					; force serial op
-			push	hl
-			push	de
-			push	bc
-			ld		hl, rr
-			ld		c, cr
+			push	hl, de, bc
+			ld		hl, (RAMn^0x20)<<6
+			ld		c, h				; then <<8 by byte shuffling
+			ld		h, l
+			ld		l, 0
+			ld		de, offset - PAGEn
+			add		hl, de
 			ld		de, count
 			call	stdio_dump
-			pop		bc
-			pop		de
-			pop		hl
+			pop		bc, de, hl
+			ROUT
+			pop		af
+			endm
+
+; as above but does not do mapping hence does not reset the mapping registers
+; offset is 16 bits
+
+DUMP0		macro	offset16, count
+			push	af
+			DOUT	0					; force serial op
+			push	hl, de, bc
+			ld		hl, offset16
+			ld		c, 0xff				; local memory
+			ld		de, count
+			call	stdio_dump
+			pop		bc, de, hl
 			ROUT
 			pop		af
 			endm
@@ -87,6 +122,15 @@ RELEASE		macro	nbytes
 			add		iy, sp		; beware DOES NOT preserve flags
 			ld		sp, iy
 			pop		iy
+			endm
+
+; A rather last ditch trick to swap two registers when I have totally run out
+; of space for whatever it is I am doing
+SWAP		macro	r1, r2
+	rept
+			rr		r1			; eight shifts and it even puts carry back
+			rr		r2
+	endr
 			endm
 
 ; colour sequences
@@ -168,10 +212,29 @@ CPHL		macro	n
 			cp		low n		; setCY and Z flags on L
 .cphl1
 			endm
+CPDE		macro	n
+			ld		a, d
+			cp		high n
+			jr		nz, .cphl1	; n<DE so return NC and NZ
+			ld		a, e		; we get here on h == high n
+			cp		low n		; setCY and Z flags on L
+.cphl1
+			endm
 
-
+SUBDE		macro	n
+			ld		a, e
+			sub		a, low n
+			ld		e, a
+			ld		a, d
+			sbc		a, high n
+			ld		d, a
+			endm
+;-------------------------------------------------------------------------------
+;	Now a bunch of things to mange 32 bit
+;		all use DE:HL
+;-------------------------------------------------------------------------------
 ; compare 32 bit value in DE:HL with a constant
-CPDEHL		macro	value32					; for = return z
+CP32		macro	value32					; for = return z
 			ld		a, d					; for < return NZ+C
 			cp		(value32 >> 24) & 0xff	; for > return NZ+NC
 			jr		nz, .ex
@@ -186,24 +249,41 @@ CPDEHL		macro	value32					; for = return z
 .ex
 			endm
 
-; Compare DE:HL to a iy indexed value [iy+offset]
-CPDEHLIY	macro	offset
+; Compare DE:HL to IX or IY +offset
+CP32i		macro	ir, offset
 			ld		a, d
-			cp		[iy+offset+3]
+			cp		[ir+offset+3]
 			jr		nz, .z1
 			ld		a, e
-			cp		[iy+offset+2]
+			cp		[ir+offset+2]
 			jr		nz, .z1
 			ld		a, h
-			cp		[iy+offset+1]
+			cp		[ir+offset+1]
 			jr		nz, .z1
 			ld		a, l
-			cp		[iy+offset]
+			cp		[ir+offset]
 .z1
 			endm
 
+; Load DE:HL from IX or IY +offset
+GET32i		macro	ir, offset
+			ld		l, [ir+offset]
+			ld		h, [ir+offset+1]
+			ld		e, [ir+offset+2]
+			ld		d, [ir+offset+3]
+			endm
+
+; save DE:HL	to IX or IY +offset
+SET32i		macro	ir, offset
+			ld		[ir+offset], l
+			ld		[ir+offset+1], h
+			ld		[ir+offset+2], e
+			ld		[ir+offset+3], d
+			endm
+
+
 ; increment DE:HL
-INCDEHL		macro
+INC32		macro
 			inc		l
 			jr		nc, .z2
 			inc		h
@@ -243,8 +323,9 @@ ERR_BADFUNCTION			equ		15
 	define ShowError		RAM5,2		// Interpret error code
 	define ShowHelp			RAM5,3		// Show command help
 	define ReadSector		RAM4,1		// read sector BC:HL to DE
-	define SPItest			RAM4,2		// SPI/SD test functions
+	define DIRcommand		RAM4,2		// DIR command
 	define ShowStack		RAM5,1		// data on stack text
 	define ROMcommand		RAM5,4		// ROM programming command
 	define HEXcommand		RAM5,5		// HEX command
 	define WAITcommand		RAM5,6		// WAIT command
+	define COPYcommand		RAM5,7		// copy command

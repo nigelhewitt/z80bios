@@ -57,13 +57,14 @@ f_readsector	; passed in sector BC:HL to address DE
 f_spi_test
 			ld		a, 'C'
 			ld		[iy+DRIVE.idDrive], a
-			ld		iy, test_drive
+			ld		iy, .test_drive
 			ld		a, 0
 			ld		[iy+DRIVE.iPartition], a
 
 			call	mount_drive
 			jp		good_end
 
+.test_drive	DRIVE
 
 ;-------------------------------------------------------------------------------
 ; Read the boot sector from the drive and decide if it contains a partition
@@ -114,7 +115,7 @@ mount_drive
 	endif
 
 ; read the boot sector
-			ld		hl, fat_buffer
+			ld		hl, .fat_buffer
 			ld		e, 1
 			call	fathw_read
 			ERROR	nz, 3
@@ -127,7 +128,7 @@ mount_drive
 	endif
 
 ; basic confidence test (works for both BOOT or VOLUME)
-			ld		hl, fat_buffer+BOOT.sig1
+			ld		hl, .fat_buffer+BOOT.sig1
 			ld		a, [hl]
 			cp		a, 0x55
 			ERROR	nz, 4
@@ -143,7 +144,7 @@ mount_drive
 
 ; it's hardly definitive but if it has "MSDOS5.0" in BootTest it is a VOLUME
 			ld		b, 8
-			ld		hl, fat_buffer + BOOT.BootTest
+			ld		hl, .fat_buffer + BOOT.BootTest
 			ld		de, testsig
 .rb1		ld		a, [de]
 			cp		[hl]
@@ -158,7 +159,7 @@ mount_drive
 	if fat_report
 			ld		b, 4
 			ld		c, 1			; mark partitions 1-4
-			ld		ix, fat_buffer + BOOT.Partition1
+			ld		ix, .fat_buffer + BOOT.Partition1
 .rb3		push	bc
 			ld		hl, 0
 			ld		a, [ix+PARTITION.TypeCode]
@@ -203,7 +204,7 @@ mount_drive
 			ld		a, [iy+DRIVE.iPartition]
 			cp		4
 			ERROR	nc, 5
-			ld		ix, fat_buffer + BOOT.Partition1
+			ld		ix, .fat_buffer + BOOT.Partition1
 			sla		a		; *= 16 aka sizeof PARTITION
 			sla		a
 			sla		a
@@ -250,13 +251,13 @@ mount_drive
 			WHITE
 			db		0
 	endif
-			ld		hl, fat_buffer
+			ld		hl, .fat_buffer
 			ld		e, 1
 			call	fathw_read
 			ERROR	nz, 8
 
 ; checks on a volume
-			ld		hl, fat_buffer+BOOT.sig1
+			ld		hl, .fat_buffer+BOOT.sig1
 			ld		a, [hl]
 			cp		a, 0x55
 			ERROR	nz, 9
@@ -267,7 +268,7 @@ mount_drive
 
 ; process the data out of the volume
 ; NB: we jump to here is the BOOT isn't a boot
-.rb7		ld		ix, fat_buffer
+.rb7		ld		ix, .fat_buffer
 ; first ensure we are 512bytes/sector
 			ld		a, [ix+VOLUME32.BPB_BytsPerSec]
 			or		a
@@ -328,7 +329,7 @@ mount_drive
 	endif
 
 ; we now need to generate the count_of_clusters value
-; but that involves some transient numbers so they go in local_temp
+; but that involves some transient numbers so they go in .local_temp
 ; total sectors (local)
 			ld		de, 0
 			ld		hl, [ix+VOLUME12.BPB_TotSec16]
@@ -337,8 +338,8 @@ mount_drive
 			jr		nz, .rb11
 			ld		de, [ix+VOLUME32.BPB_TotSec32+2]
 			ld		hl, [ix+VOLUME32.BPB_TotSec32]
-.rb11		ld		[local_temp1], hl				; TotSec -> local_temp1
-			ld		[local_temp1+2], de
+.rb11		ld		[.local_temp1], hl				; TotSec -> local_temp1
+			ld		[.local_temp1+2], de
 
 ; local RootDirSectors = ((volID->BPB_RootEntCnt * 32) + (volID->BPB_BytsPerSec - 1)) / volID->BPB_BytsPerSec;
 			ld		de, 0
@@ -357,7 +358,7 @@ mount_drive
 			srl		h
 			rr		l
 			djnz	.rb13
-			ld		[local_temp2], hl	; b16*32/512 can't be more than 4096
+			ld		[.local_temp2], hl	; b16*32/512 can't be more than 4096
 	if fat_report
 			call	stdio_str
 			db		"\r\nRoot Directory Sectors: ",0
@@ -377,7 +378,7 @@ mount_drive
 			pop		bc
 			djnz	.rb14
 
-			ld		bc, [local_temp2]				; + RootDirSectors
+			ld		bc, [.local_temp2]				; + RootDirSectors
 			add		hl, bc
 			ld		bc, 0
 			sbc		de, bc
@@ -386,14 +387,14 @@ mount_drive
 			add		hl, bc
 			ld		bc, 0
 			ex		hl, de	: adc hl, bc : ex hl, de
-			ld		[local_temp3], hl				; save the item to subtract
-			ld		[local_temp3+2], de
+			ld		[.local_temp3], hl				; save the item to subtract
+			ld		[.local_temp3+2], de
 
-			ld		hl, [local_temp1]				; TotSec
-			ld		de,	[local_temp1+2]
-			ld		bc, [local_temp3]				; get DataSec
+			ld		hl, [.local_temp1]				; TotSec
+			ld		de,	[.local_temp1+2]
+			ld		bc, [.local_temp3]				; get DataSec
 			sub		hl, bc
-			ld		bc, [local_temp2+2]
+			ld		bc, [.local_temp2+2]
 			sbc		de, bc
 
 ; drive->count_of_clusters = DataSec / volID->BPB_SecPerClus;
@@ -416,10 +417,10 @@ mount_drive
 	endif
 ; and now we get the FAT type based on the Microsoft rules
 			ld		a, FAT12
-			CPDEHL	4085
+			CP32	4085
 			jr		nc,	.rb17		; FAT12
 			ld		a, FAT16
-			CPDEHL	65525
+			CP32	65525
 			jr		nc, .rb17		; FAT16
 			ld		a, FAT32
 .rb17		ld		[iy+DRIVE.fat_type], a
@@ -468,8 +469,8 @@ mount_drive
 ; drive->cluster_begin_sector = drive->partition_begin_sector
 ;		+ volID->BPB_RsvdSecCnt + (volID->BPB_NumFATs * drive->fat_size)
 ;		+ RootDirSectors;
-;	so just add local_temp2 ro our current DE:HL
-			ld		bc, [local_temp2]
+;	so just add .local_temp2 ro our current DE:HL
+			ld		bc, [.local_temp2]
 			add		hl, bc
 			ld		bc, 0
 			adc		de, bc
@@ -506,6 +507,13 @@ mount_drive
 			db		0
 			ret
 
+; local variables
+.fat_buffer		ds	512
+.local_temp1		dd	0
+.local_temp2		dd	0
+.local_temp3		dd	0
+.local_temp4		dd	0
+
 
 
 error_handler
@@ -519,10 +527,4 @@ error_handler
 			db		"\n", 0
 			jp		bad_end
 
-test_drive		DRIVE
-fat_buffer		ds	512
-local_temp1		dd	0
-local_temp2		dd	0
-local_temp3		dd	0
-local_temp4		dd	0
 

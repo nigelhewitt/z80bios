@@ -51,7 +51,6 @@
 ;-------------------------------------------------------------------------------
 _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			ld		l, a			; save PAGE number in L
-
 			ld		a, c			; bits b23-16 of C:IX
 			and		0x0f			; mask to b19-16 just to be safe
 			ld		h, a			; save in H b3-0
@@ -63,10 +62,13 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			ld		a, h
 			xor		0x20			; swap the ROM and RAM bit
 			ld		h, a			; H = the value to write to MPGSELn
-									; H= 00rxxxxx  r=ROM xxxxx 0-32 ROM/RAM page
+									; H = 00rxxxxx  r=ROM xxxxx 0-32 ROM/RAM
 			ld		a, l			; get the PAGE number again
 			add		a, MPGSEL0		; add the base page select register
 			ld		c, a			; we can use C as an output pointer
+			ld		b, 0
+			ld		a, h
+			ld		[bc], a
 			out		(c), h			; swap the page in
 
 			ld		a, ixh			; get address bits b15-8
@@ -76,7 +78,7 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			rr		l				; slide b0 of L (page number) into carry
 			rr		a				; and into A b7
 			rr		l
-			rr		a				; gives the page number b1-0 in bits b7-6 of A
+			rr		a				; gives page number b1-0 in bits b7-6 of A
 									; A = ppaaaaaa p=page, xxxxx address b13-8
 			ld		ixh, a			; put IX back together
 			jp		[iy]
@@ -91,6 +93,8 @@ _resPage	and		0x03			; mask
 			ld		c, a			; gives port address
 			ld		a, b
 			add		a, RAM0			; page RAMn
+			ld		b, 0
+			ld		[bc], a
 			out		(c), a			; back into PAGEn
 			jp		[iy]
 
@@ -100,20 +104,20 @@ _resPage	and		0x03			; mask
 ;			sets the page and returns an address16 in IX
 ;			uses A and IX
 ;-------------------------------------------------------------------------------
-setPage		push	iy, hl, bc
+setPage		push	iy, hl, de, bc
 			ld		iy, .sp1		; return address
 			jr		_setPage
-.sp1		pop		bc, hl, iy
+.sp1		pop		bc, de, hl, iy
 			ret
 
 ;-------------------------------------------------------------------------------
 ; resPage	wrapper to restore RAMn to PAGEn, passed in n in A
 ;			uses AF
 ;-------------------------------------------------------------------------------
-resPage		push	bc, iy
+resPage		push	bc, de, iy
 			ld		iy, .rp2
 			jr		_resPage
-.rp2		pop		iy, bc
+.rp2		pop		iy, de, bc
 			ret
 
 ;-------------------------------------------------------------------------------
@@ -183,12 +187,12 @@ incCIX		push	de
 			pop		de
 			ret
 
-	if 0
 ;===============================================================================
 ; banked memory LDIR	copy from C:HL to B:DE for IX counts
 ;						destination must be RAM, IX==0 results in 64K copy
 ;						works the 'stack free' trick
 ;						return CY = good
+;						uses  A, BC, DE, HL, IX, IY
 ;
 ; You are free to read from and write to any memory address although if you
 ; overwrite your own executable code that's your problem. Here I only protect
@@ -207,137 +211,146 @@ incCIX		push	de
 ; running in ROM1 there is a problem for variables so this ought to run in
 ; CPU registers
 
-putRP		macro	rr			; save a register pair on the extended set
-			ld		iy, rp
-			exx
-			ld		rp, iy
-			exx
+put24		macro	name, r, rr		; save a 24 bit item
+			ld		[name], rr
+			ld		a, r
+			ld		[name+2], a
 			endm
-getRP		macro	rr			; retrieve a register pair from the extended set
-			exx
-			ld		iy, rr
-			exx
-			ld		rr, iy
+get24		macro	name, r, rr		; retrieve a 24 bit item
+			ld		rr, [name]
+			ld		a, [name+2]
+			ld		r, a
 			endm
-add20		macro	dd, ss		; add ss to A:dd
-			add		dd, ss
-			adc		0
-			endm
-bank_ldir
-; get some working space
-			di
-			push	ix, iy
-			exx
-			push	bc, de, hl
-			exx
-; save C:HL as source		3 bytes
-; save B:DE as dest			3 bytes
-			putRP	bc		; save C:HL and B:DE
-			putRP	de
-			putRP	hl
-; save IX as count			2 bytes
+
+bank_ldir	di						; no interrupts while the stack is volatile
+
+; save C:HL as .source
+; save B:DE as .dest
+; save ix as .count
+			put24	.source, c, hl
+			put24	.dest,   b, de
+			ld		[.count], ix
 
 ; if source + count overflows 1024K return error (beyond actual memory)
-			getRP	bc
-			getRP	hl
-			ld		a, c		; source C:HL -> A:HL
-			add20	hl, ix		; A:HL += IX
-			and		0xf0		; NZ >=1024K
-			jr		nz, .bl1	; bad end
+			ld		a, c				; source in A:HL
+			ld		bc, ix				; count into something we can add
+			add		hl, bc				; A:HL += count
+			adc		0
+			and		0xf0				; NZ >=1024K
+			jr		nz, .bl1			; bad end
+
 ; if dest + count overflows 512K return error (beyond RAM)
-			getRP	de			; B should be untouched
-			ld		a, b		; dest B:DE -> A:DE
-			add20	de, ix		; A:DE += IX
-			and		0xf8		; NZ >= 512K
-			jr		z, .bl3		; OK, go run the loop
-; do error exit
-.bl1		or		a			; clear carry = bad end
-.bl2		exx					; bad end
-			pop		hl, de, bc
-			exx
-			pop		iy, ix
+			get24	.dest, a, hl		; dest in A:HL
+			add		hl, bc				; += count
+			adc		0
+			and		0xf8				; NZ >= 512K
+			jr		z, .bl3				; OK, go run the loop
+
+; do a bad exit
+.bl1		or		a					; clear carry = bad end
 			ret
+
 ; start of loop
 .bl3
-; map source in PAGE1 to C:HL
-			save	ix as counter
-			save	ix as n
-			ld		a, 1		; A=page, map C:IX
-			getRP	bc
-			getRP	hl
-			ld		ix, hl		; gives address in C:IX
-			ld		iy, .bl4
-			jr		_setPage	; uses A HL BC IX IY
-.bl4		save	ix as source local address
-; map destination as PAGE2
-			ld		a, 2		; A=page, map C:IX
-			getRP	bc
-			getRP	de
-			ld		ix, de		; gives address in C:IX
-			ld		c, b
-			ld		iy, .bl5
-			jr		_setPage	; uses A HL BC IX IY
-.bl5		save	ix as dest local address
-; nS = 0x4000 - (source & 0x3fff)  aka number of bytes left in its page
-			usave	count as ix
-			; if IX>=0x4000 IX=0x4000
-			usave	source local address to HL
-			ld		a, h
-			and		0x3f
-			ld		hl, a
-			ld		de, 0x4000
-			sub		de, hl		; gives nS
-			; if de<IX IX=de
 
+; map source in PAGE1 as source
+			get24	.source, c, ix
+			ld		iy, .bl4
+			ld		a, 1				; A=page, map C:IX
+			jp		_setPage			; uses A HL BC IX IY
+.bl4		ld		[.localsource], ix
+
+; nS = 0x4000 - (localsource & 0x3fff); aka number of bytes left in source page
+			ld		e, ixl				; ix = localsource
+			ld		a, ixh
+			and		0x3f
+			ld		d, a				; DE = localsource & 0x3fff
+			ld		hl, 0x4000
+			sub		hl, de
+			ld		bc, hl				; nS in BC
+
+; map destination as PAGE2
+			get24	.dest, c, ix
+			ld		iy, .bl5
+			ld		a, 2				; A=page, map C:IX
+			jp		_setPage			; uses A HL BC IX IY
+.bl5		ld		[.localdest], ix
 
 ; nD = 0x4000 - (dest & 0x3fff)
+			ld		e, ixl
+			ld		a, ixh
+			and		0x3f
+			ld		d, a				; DE = localdest & 0x3fff
+			ld		hl, 0x4000
+			sub		hl, de
+			ld		de, hl				; copy nD into DE
 
-; n = least of count, nS and nD
+; n = min(nS and nD)
+			sub		hl, bc				; nD - nS
+			jr		nc, .bl6			; jump if HL<=BC aka nS<nD
+			ld		bc, de				; nS>nD so use nD
+.bl6									; BC is min value
+
+; n = min(n and count)
+			ld		hl, [.count]		; HL and DE are count
+			ld		de, hl
+			sub		hl, bc
+			jr		nc, .bl7				; jump if HL>BC aka count>n
+			ld		bc, de				; count<n so use count
+.bl7		ld		[.n], bc
 
 ; copy PAGE1 to PAGE2 for n
-			usave	local source pointer as hl
-			usave	local dest pointer as de
-			usave	n as BC
+			ld		hl, [.localsource]
+			ld		de, [.localdest]
 			ldir
+
 ; count -= n
-			usave	n as de
-			usave count as hl
-			sub		hl, de
-			save	hl as count
-; if count==0 {
+			ld		bc, [.n]
+			ld		hl, [.count]
+			sub		hl, bc
+			ld		[.count], hl
+
+; if count==0 finish
 			ld		a, h
 			or		l
-			jr		nz, .blP
-; unmap PAGE1
-			ld		a, 1
-			ld		iy, .blX
-			jp		_resPage
-.blX
-; unmap PAGE2
-			ld		a, 2
-			ld		iy, .blY
-			jp		_resPage
-.blY
-; return good
-			scf
-			jp		.bl2
-; }
+			jr		z, .bl8				; done, so clean up
+
 ; source += n
-.blP		getRP	bc
-			getRP	de
-			getRP	hl
-			usave counter as ix
-			ld		a, c		; source A:HL
-			add20	hl, ix		; add IX to A:HL
-			ld		c, a
+			get24	.source, a, hl
+			ld		de, [.count]
+			add		hl, de				; A:HL += DE
+			adc		0
+			put24	.source, a, hl
+
 ; dest += n;
-			ld		a, d
-			add20	de, ix
-			ld		d, a
-			putRP	bc
-			putRP	de
-			putRP	hl
+			get24	.dest, a, hl
+			add		hl, de
+			adc		0
+			put24	.dest, a, hl
+
 ; jump to start of loop
 			jp		.bl3
 
-	endif
+; unmap PAGE1
+.bl8		ld		a, 1
+			ld		iy, .bl9
+			jp		_resPage
+.bl9
+
+; unmap PAGE2
+			ld		a, 2
+			ld		iy, .bl10
+			jp		_resPage
+.bl10
+
+; return good
+			scf
+			ret
+
+; local variables
+.source			d24		0
+.dest			d24		0
+.count			dw		0
+.localsource	dw		0
+.localdest		dw		0
+.n				dw		0

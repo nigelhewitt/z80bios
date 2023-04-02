@@ -5,6 +5,7 @@
 ;===============================================================================
 
 BIOSROM		equ			1				; which ROM page are we compiling
+BIOSRAM		equ			RAM4
 			include		"zeta2.inc"		; common definitions
  			include		"macros.inc"
 			include		"vt.inc"
@@ -16,7 +17,7 @@ logo		db		"BIOS1 ", __DATE__, " ", __TIME__, 0
 bios_functions
 			dw		f_biosver			; 0	show signon
 			dw		f_readsector		; 1 read media
-			dw		f_spi_test			; 2 spi test
+			dw		f_dircommand		; 2 DIR command
 bios_count	equ		($-bios_functions)/2
 
 

@@ -101,3 +101,11 @@ the interrupt system working in 'other' BIOS chips.
 Save the FLAG code at RTC ram so they are preserved across boots and power
 downs.
 
+0.1.19
+More coding for the fat system.
+Also revised the 20bit addressing ldir code.
+Started concept work on a heap allocation to make the wide open spaces of
+paged RAM accessible.
+Debug bank_ldir fort this and add a COPY command to test it
+This leaves me with some variants on DUMP but macros cost nothing if you don't
+use then so I'll leave them on file.

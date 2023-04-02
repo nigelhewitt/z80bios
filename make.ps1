@@ -6,7 +6,8 @@ $error = $LastExitCode
 sjasmplus --lst=bios1.lst --raw=bios1.bin `
 	bios1.asm router.asm serial.asm stdio.asm maths.asm map.asm `
 	spi.asm sd.asm interrupt.asm `
-	fat-struct.inc fat-drive.asm fat-clusters.asm fat-folder.asm stepper.asm
+	fat-struct.inc fat-drive.asm fat-clusters.asm fat-folder.asm fat-file.asm `
+	stepper.asm
 $error = $error -or $LastExitCode
 
 sjasmplus --lst=bios2.lst --raw=bios2.bin `

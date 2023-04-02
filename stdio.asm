@@ -603,6 +603,13 @@ gethex32	call	skip			; get the first character
 ; Restricted versions of gethex32 that preserve the registers we don't use and
 ; overflow as appropriate
 
+; gethex24	gets a 24 bit address in C:IX
+gethex24	call	gethex32
+			ld		a, b
+			or		a
+			jr		z, gh8			; good end
+			jr		gh10			; bad end
+
 ; gethex20	gets a 20 bit address in C:IX
 gethex20	call	gethex32
 			ld		a, c

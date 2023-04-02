@@ -44,8 +44,8 @@ that in and since the ROM code is only about 6K you get an extra 10K of RAM to
 play in.
 
 Then I added some lights and switches and a micro SD card slot wired into the
-PIO. It's the software to read the SD in FAT32 and the FDC in FAT12 that I'm
-growing at the moment.
+PIO. (see **Z80 addons.pdf**)It's the software to read the SD in FAT32 and the
+FDC in FAT12 that I'm growing at the moment.
 
 ## Commands
 

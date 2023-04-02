@@ -850,9 +850,9 @@ SetClusterEntry
 		ret
 
 ;-------------------------------------------------------------------------------
-;
 ; GetNextSector		the classic FAT table question
-;					call current sector in DE:HL
+;					call DRIVE in IY
+;					current sector in DE:HL
 ;					returns next sector in DE:HL
 ;					or 0 if EOF
 ;-------------------------------------------------------------------------------
@@ -862,12 +862,12 @@ GetNextSector
 ;	if(current_sector < drive->cluster_begin_sector)
 ;		return ++current_sector >= drive->cluster_begin_sector ? 0 : current_sector;
 
-		CPDEHLIY	DRIVE.cluster_begin_sector
+		CP32i		iy, DRIVE.cluster_begin_sector
 		jr			z, .gn2				; =
 		jr			nc, .gn2			; >
 
-		INCDEHL
-		CPDEHLIY	DRIVE.cluster_begin_sector
+		INC32
+		CP32i		iy, DRIVE.cluster_begin_sector
 		jr			z, .gn1				; =
 		jr			nc, .gn1			; >
 		ret								; not >=
@@ -882,7 +882,7 @@ GetNextSector
 		inc		a
 		and		[iy+DRIVE.sectors_in_cluster_mask]
 		jr		z, .gn3
-		INCDEHL
+		INC32
 		ret
 
 ;	uint32_t n = GetClusterEntry(drive, SectorToCluster(drive, current_sector));
@@ -891,7 +891,7 @@ GetNextSector
 
 .gn3	call	SectorToCluster
 		call	GetClusterEntry
-		CPDEHL	0xffffffff
+		CP32	0xffffffff
 		jr		z, .gn1
 		call	ClusterToSector
 		ret

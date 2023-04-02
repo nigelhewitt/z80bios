@@ -84,6 +84,7 @@ cmd_help	db	"\r\n"
  if ALLOW_ANSI
  			db	"CLS   clear screen\r\n"
  endif
+ 			db	"DIR   fledgling SD/FDD handlers\r\n"
 			db	"DUMP  dump from an address  DUMP address [count]\r\n"
 			db	"CORE  zero all of user RAM and refresh the reset vectors et al.\r\n"
 			db	"ERR   get the last error text\r\n"
@@ -102,8 +103,8 @@ cmd_help	db	"\r\n"
 			db	"TIME  time set/get   t [21:55[:45]] [26/03/[20]23]\r\n"
 			db	"W     write memory   w address20 value8 value8 value8...\r\n"
 			db	"EXEC  execute from an address16\r\n"
-			db	"Y     whatever I am currently testing\r\n"
-			db	"Z     something else to test\r\n"
+;			db	"Y     whatever I am currently testing\r\n"
+;			db	"Z     something else to test\r\n"
 			db	"WAIT  switch to ROM2 and wait while SW7 is down with interrupts on\r\n"
 			db	"?     list commands"
 			db	0

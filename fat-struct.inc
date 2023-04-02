@@ -181,8 +181,8 @@ drive					dw		0			; pointer to the drive (ie: partition)
 startCluster			dd		0			;
 sector					dd		0			; the sector we are working through
 sectorinbuffer			dd		0			;
-buffer					ds		512			; where we read our directory sectors too
 slot					db		0			; next DIRN[] slot
+buffer					ds		512			; where we read our directory sectors too
 longPath				ds		MAX_PATH*2	; name of our folder
 	ends
 

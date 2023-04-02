@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.18"		; version number for sign on message
+	define	VERSION	"v0.1.19"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.17"		move to local repository, use version number
+;   	git commit -m "0.1.19"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -24,6 +24,7 @@
 ;===============================================================================
 
 BIOSROM		equ			0				; which ROM page we are compiling
+BIOSRAM		equ			RAM3
 			include		"zeta2.inc"		; hardware definitions and code options
  			include		"macros.inc"	; macro library
 			include		"vt.inc"		; definitions of Z80 base memory
@@ -469,22 +470,30 @@ good_end	ld		e, 0			; use \r\n
 ;===============================================================================
 
 ; The jump table matches a command to a jump address
-cmd_list	db	"FLAG"				; set bitflags
-			dw	cmd_flag
+cmd_list	db	"BOOT"
+			dw	reboot
 ;			db	"BLK",0				; read a block of data to an address
 ;			dw	cmd_b
  if ALLOW_ANSI
  			db	"CLS",0				; clear screen
 			dw	cmd_cls
  endif
+ 			db	"COPY"				; copy command
+ 			dw	cmd_copy
  			db	"CORE"				; clear memory to 0
  			dw	cmd_core
+			db	"DIR",0				; SD interface
+			dw	cmd_dir
 			db	"DUMP"				; dump from an address
 			dw	cmd_dump
 			db	"ERR",0				; error command
 			dw	cmd_error
+			db	"EXEC"				; execute from an address
+			dw	cmd_exec
 			db	"FILL"				; fill memory
 			dw	cmd_fill
+			db	"FLAG"				; set bitflags
+			dw	cmd_flag
 			db	"HEX",0				; hex test
 			dw	cmd_hex
 			db	"IN",0,0			; input from a port
@@ -495,30 +504,24 @@ cmd_list	db	"FLAG"				; set bitflags
 			db	"LED",0				; set the LEDs
 			dw	cmd_led
  endif
-			db	"M",0,0,0			; SD interface
-			dw	cmd_m
-			db	"ROM",0				; program ROM
-			dw	cmd_rom
 			db	"OUT",0				; output to a port
 			dw	cmd_out
 			db	"READ"				; read memory
 			dw	cmd_read
+			db	"ROM",0				; program ROM
+			dw	cmd_rom
 			db	"SAVE"				; save command
 			dw	cmd_save
 			db	"TIME"				; time set/get
 			dw	cmd_time
 			db	"W",0,0,0			; write memory
 			dw	cmd_w
-			db	"EXEC"				; execute from an address
-			dw	cmd_exec
-			db	"Y",0,0,0
-			dw	cmd_y
-			db	"Z",0,0,0			; anything test
-			dw	cmd_z
 			db	"WAIT"				; wait command
 			dw	cmd_wait
-			db	"BOOT"
-			dw	reboot
+;			db	"Y",0,0,0
+;			dw	cmd_y
+;			db	"Z",0,0,0			; anything test
+;			dw	cmd_z
 			db	"?",0,0,0
 			dw	cmd_hlp
 			db	0
@@ -622,17 +625,27 @@ cmd_hex		CALLBIOS	HEXcommand
 			jp			bad_end
 
 ;===============================================================================
-; READ read memory command		READ address20  (not 24)
+; COPY
+;===============================================================================
+cmd_copy	CALLBIOS	COPYcommand
+			jp			c, good_end
+			jp			bad_end
+
+;===============================================================================
+; DIR
+;===============================================================================
+cmd_dir		CALLBIOS	DIRcommand
+			jp			c, good_end
+			jp			bad_end
+
+;===============================================================================
+; READ read memory command		READ address24
 ;===============================================================================
 cmd_read	ld		ix, [Z.def_address]		; default value
 			ld		bc, [Z.def_address+2]
-			call	gethex20				; in C:IX
-			jp		nc, err_badaddress		; address syntax
+			call	gethex24				; in C:IX
 			call	skip					; more data on line?
 			jp		z, err_toomuch
-			ld		a, c
-			and		0xf0					; bad address
-			jp		nz, err_outofrange
 			ld		[Z.def_address], ix		; save as default
 			ld		[Z.def_address+2], bc
 
@@ -647,17 +660,13 @@ cmd_read	ld		ix, [Z.def_address]		; default value
 			jp		good_end
 
 ;===============================================================================
-; W write memory command 	W address20 data8 [data8] ...
+; W write memory command 	W address24 data8 [data8] ...
 ;	NB: if the third data item is bad the first two have already been written
 ;		so I do not complain on data errors, they are just terminators
 ;===============================================================================
 cmd_w		ld		ix, [Z.def_address]		; default value
 			ld		bc, [Z.def_address+2]
-			call	gethex20				; in C:IX
-			jp		nc, err_badaddress		; address syntax
-			ld		a, c
-			and		0xf0					; illegal for an address
-			jp		nz, err_outofrange
+			call	gethex24				; in C:IX
 			ld		[Z.def_address], ix		; useful so I can use R to check it
 			ld		[Z.def_address+2], bc
 			ld		iy, ix					; save the address in B:IY
@@ -688,15 +697,11 @@ cmd_w		ld		ix, [Z.def_address]		; default value
 			jp		cmd_err
 
 ;===============================================================================
-; FILL fill memory command 	FILL address20 count16 data8
+; FILL fill memory command 	FILL address24 count16 data8
 ;===============================================================================
 cmd_fill	ld		ix, [Z.def_address]		; default value
 			ld		bc, [Z.def_address+2]
-			call	gethex20				; in C:IX
-			jp		nc, err_badaddress		; address syntax
-			ld		a, c
-			and		0xf0					; legal address?
-			jp		nz, .cf2				; no
+			call	gethex24				; in C:IX
 			ld		[Z.def_address], ix		; useful so I can use R to check it
 			ld		[Z.def_address+2], bc
 
@@ -822,7 +827,7 @@ cmd_dump	call	skip					; start by handling the + option
 
 .cd3		ld		ix, [Z.def_address]		; default address
 			ld		bc, [Z.def_address+2]
-			call	gethex20				; in C:IX
+			call	gethex24				; in C:IX
 			jp		nc, err_badaddress		; address syntax
 .cd4		ld		iy, ix					; address in C:IY
 
@@ -835,10 +840,16 @@ cmd_dump	call	skip					; start by handling the + option
 			ld		[Z.def_address], iy		; all details OK so save
 			ld		[Z.def_address+2], bc
 
-			; we have the address in C:IY and count in IX
-			; Add a quick heading to stop mistakes
+; we have the address in C:IY and count in IX
+; Add a quick heading to stop mistakes
 			ld		a, c
-			and		a, 0x08					; set for ROM
+			cp		0xff
+			jr		nz, .cd4a
+			call 	stdio_str
+			db		"  LOCAL",0
+			jr		.cd7
+
+.cd4a		and		a, 0x08					; set for ROM
 			jr		z, .cd5
 			call	stdio_str
 			db		"  ROM",0
@@ -853,8 +864,9 @@ cmd_dump	call	skip					; start by handling the + option
 			rl		a
 			and		0x1f					; 0-31
 			call	stdio_decimalB
-			; and output
-			ld		hl, iy					; address in C:HL
+
+; and output
+.cd7		ld		hl, iy					; address in C:HL
 			ld		de, ix					; count in DE
 			call	stdio_dump
 			jp		good_end
@@ -1044,19 +1056,19 @@ cmd_time	AUTO	7				; 7 bytes of stack please
 ;===============================================================================
 ; Y  the current thing being tested
 ;===============================================================================
-cmd_y		ld		hl, 'HL'
-			ld		bc, 'BC'
-			ld		de, 'DE'
-			push	bc, de, hl
-			CALLBIOS ShowStack		; see macros.inc and rom.asm
-			pop		hl, de, bc
-			jp		good_end
+;cmd_y		ld		hl, 'HL'
+;			ld		bc, 'BC'
+;			ld		de, 'DE'
+;			push	bc, de, hl
+;			CALLBIOS ShowStack		; see macros.inc and rom.asm
+;			pop		hl, de, bc
+;			jp		good_end
 
 ;===============================================================================
 ; Z  another thing being tested
 ;===============================================================================
-cmd_z		CALLBIOS SPItest
-			jp		good_end
+;cmd_z	;	CALLBIOS SPItest
+;			jp		bad_end
 
 ;===============================================================================
 ; KILL  the kill command
@@ -1156,19 +1168,6 @@ cmd_save	ld		ix, [Z.def_address]		; default address
 cmd_rom		CALLBIOS	ROMcommand
 			jp			c, good_end
 			jp			cmd_err
-
-;===============================================================================
-; M  read/write SD cards  M sector_number read to 0x100
-;===============================================================================
-cmd_m		call	gethex32		; in BC:IX
-			call	stdio_str
-			db		"\r\n", 0
-			push	ix				; IX->HL
-			pop		hl
-			ld		de, 0x100		; DE destination address
-			ld		a, 'C'
-			CALLBIOS ReadSector		; read sector BC:HL to address DE
-			jp		good_end
 
 ;===============================================================================
 ; FLAG  set diagnostic etc bit flags A-X (24 bits)
