@@ -42,8 +42,13 @@
 ;-------------------------------------------------------------------------------
 
 ; place data in PAGE0 slots for the transfer
-wedgeROM	push	hl					; 11T
-			di							; 4T
+; the macro has put:
+;	A	-> Z.cr_a
+;	ROM	-> Z.cr_rom
+;	FN	-> Z.cr_fn
+
+wedgeROM	di							; 4T
+			push	hl					; 11T
 			ld		hl, 2				; 10T miss push hl so it points to ret
 			add		hl, sp				; 11T
 			ld		[Z.cr_sp], hl		; 20T
@@ -54,6 +59,7 @@ wedgeROM	push	hl					; 11T
 			cp		RAM5				; 7T
 			jp		z, gotoRAM5			; 10T
 
+	SNAP "BAD CALLBIOS 1"
 			ld		hl, ERR_BADFUNCTION
 			ld		[Z.last_error], hl
 			ei
@@ -63,9 +69,9 @@ wedgeROM	push	hl					; 11T
 ; handle the return from other ROM
 ;-------------------------------------------------------------------------------
 
-bios		ld		sp, [Z.cr_sp]		; 20T
+bios		ld		sp, [Z.cr_sp]		; 20T	as we saved above
 			push	hl					; 11T
-			ld		hl, [Z.cr_a]		; 20T
+			ld		hl, [Z.cr_a]		; 20T	AF saved by target
 			push	hl					; 11T
 			pop		af					; 10T
 			pop		hl					; 10T
@@ -91,10 +97,10 @@ bios		ld		sp, [Z.cr_sp]		; 20T
 
 bios		ld		sp, local_stack		; a stack that will work
 
-			ld		[saveHL], hl		; put a return address on the stack
+			ld		[.saveHL], hl		; put a return address on the stack
 			ld		hl, return
 			push	hl					; 11T
-			ld		hl, [saveHL]
+			ld		hl, [.saveHL]
 
 			push	hl, bc				; 11T + 11T
 			ld		a, [Z.cr_fn]		; function number
@@ -109,17 +115,20 @@ bios		ld		sp, local_stack		; a stack that will work
 			ld		a, [hl]				; ld  hl, (hl)
 			inc		hl
 			ld		h, [hl]
-			ld		l, a				; funtion address in HL
+			ld		l, a				; function address in HL
 			pop		bc					; 10T restore BC
-			ld		a, [Z.cr_a]
+			ld		a, [Z.cr_a]			; restore the callers A
 			ex		[sp], hl			; restore HL, put 'goto' address on SP
 			ei
 			ret							; 10T aka POP PC
+.saveHL		dw		0
+
 			; this leaves us a return address to return on the stack
 			; so a function can either jp to good/bad end to set/clear carry
 			; or return to preserve its flags
 
-.bi1		ld		hl, ERR_BADFUNCTION	; bad function number
+.bi1	SNAP  "BAD CALLBIOS 2"
+			ld		hl, ERR_BADFUNCTION	; bad function number
 			ld		[Z.last_error], hl
 			pop		bc, hl
 			ld		a, [Z.cr_a]
@@ -135,6 +144,7 @@ good_end	scf							; set carry
 bad_end		or		a					; clear carry
 
 return		di							; 4T
+			ld		sp, local_stack
 			push	hl, af				; 11T + 11T
 			pop		hl					; 10T actually AF
 			ld		[Z.cr_a], hl		; 20T uses cr_rom as well
@@ -142,7 +152,7 @@ return		di							; 4T
 			jp		gotoRAM3			; 10T
 
 ; Local Stack
+local_stack_bottom
 			ds		100
 local_stack
-saveHL		dw		0
 	endif

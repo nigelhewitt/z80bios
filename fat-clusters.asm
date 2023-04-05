@@ -38,7 +38,7 @@
 ; Convert from a cluster number in a partition to the absolute sector number on
 ; the media of the first sector in that cluster
 ;
-; call with IY as a pointer to the DRIVE structure for a mounted drive
+; call with IX as a pointer to the DRIVE structure for a mounted drive
 ; and cluster number in this partition in DE:HL
 ; returns the absolute sector number on the drive in DE:HL
 ; uses A
@@ -57,19 +57,19 @@ ClusterToSector
 			jr		nc, .cs1
 			dec		d
 .cs1							; now do the <<  (much faster than a multiply)
-			ld		a,	[iy+DRIVE.sector_to_cluster_slide]
+			ld		a,	[ix+DRIVE.sector_to_cluster_slide]
 			or		a
 			jr		z, .cs3		; aka divide by 1
 			ld		b, a
-.cs2		srl		d
-			rr		e
-			rr		h
-			rr		l
+.cs2		sla		l
+			rl		h
+			rl		e
+			rl		d
 			djnz	.cs2
 .cs3							; add the begin sector
-			ld		bc, [iy+DRIVE.cluster_begin_sector]
+			ld		bc, [ix+DRIVE.cluster_begin_sector]
 			add		hl, bc
-			ld		bc, [iy+DRIVE.cluster_begin_sector+2]
+			ld		bc, [ix+DRIVE.cluster_begin_sector+2]
 			adc		de, bc
 			pop		bc
 			ret
@@ -78,7 +78,7 @@ ClusterToSector
 ; Convert from an absolute sector number on the media to the cluster number
 ; containing that sector in a partition
 ;
-; call with IY as a pointer to the DRIVE structure for a mounted drive
+; call with IX as a pointer to the DRIVE structure for a mounted drive
 ; and an absolute sector number on the drive in DE:HL
 ; returns the cluster number in this partition containing the sector in DE:HL
 ; use A
@@ -87,19 +87,19 @@ ClusterToSector
 SectorToCluster
 ;	return ((s - drive->cluster_begin_sector) >> drive->sectors_to_cluster_right_slide) + 2;
 			push	bc
-			ld		bc, [iy+DRIVE.cluster_begin_sector]
+			ld		bc, [ix+DRIVE.cluster_begin_sector]
 			sub		hl, bc
-			ld		bc, [iy+DRIVE.cluster_begin_sector+2]
+			ld		bc, [ix+DRIVE.cluster_begin_sector+2]
 			sbc		de, bc
 
-			ld		a,	[iy+DRIVE.sector_to_cluster_slide]
+			ld		a,	[ix+DRIVE.sector_to_cluster_slide]
 			or		a
 			jr		z, .sc2			; aka multiply by 1
 			ld		b, a
-.sc1		srl		l
-			rl		h
-			rl		e
-			rl		d
+.sc1		srl		d
+			rr		e
+			rr		h
+			rr		l
 			djnz	.sc1
 .sc2
 			pop		bc
@@ -116,40 +116,40 @@ SectorToCluster
 
 ;-------------------------------------------------------------------------------
 ; Flush the FAT table buffer if it was written to
-;	call with DRIVE in IY
+;	call with DRIVE in IX
 ;	DRIVE.last_fat_sector contains the sector number in the FAT of the cache
 ;	uses A
 ;-------------------------------------------------------------------------------
 
-FlushFat	ld		a, [iy+DRIVE.fat_dirty]
+FlushFat	ld		a, [ix+DRIVE.fat_dirty]
 			or		a
 			ret		z
-			ld		b, [iy+DRIVE.fat_count]				; almost invariably 2
+			ld		b, [ix+DRIVE.fat_count]				; almost invariably 2
 
 ; make the sector number in the first fat table
 			push	bc, de, hl
-			ld		hl, [iy+DRIVE.fat_begin_sector]		; first sector of FAT
-			ld		de, [iy+DRIVE.fat_begin_sector+2]
-			ld		bc, [iy+DRIVE.last_fat_sector]
+			ld		hl, [ix+DRIVE.fat_begin_sector]		; first sector of FAT
+			ld		de, [ix+DRIVE.fat_begin_sector+2]
+			ld		bc, [ix+DRIVE.last_fat_sector]
 			add		hl, bc
-			ld		bc, [iy+DRIVE.last_fat_sector+2]
+			ld		bc, [ix+DRIVE.last_fat_sector+2]
 			adc		de, bc
 
-			ld		b, [iy+DRIVE.fat_count]		; how many FATs?
+			ld		b, [ix+DRIVE.fat_count]		; how many FATs?
 			push	bc
 			jr		.ff2
 .ff1		push	bc
-			ld		bc, [iy+DRIVE.fat_size]
+			ld		bc, [ix+DRIVE.fat_size]
 			add		hl, bc
-			ld		bc, [iy+DRIVE.fat_size+2]
+			ld		bc, [ix+DRIVE.fat_size+2]
 			adc		de, bc
 .ff2		call	media_seek			; seek to DE:HL
-			ERROR	nz, 11
-			ld		hl, iy
+			ERROR	nz, 11			; media_seek fails in FlushFat
+			ld		hl, ix
 			ld		bc, DRIVE.fatTable
 			add		hl, bc
 			call	media_write
-			ERROR	nz, 12
+			ERROR	nz, 12			; media write fails in FlushFat
 			pop		bc
 			djnz	.ff1
 			pop		hl, de, bc
@@ -157,17 +157,17 @@ FlushFat	ld		a, [iy+DRIVE.fat_dirty]
 
 ;-------------------------------------------------------------------------------
 ;  Read and cache a FAT sector
-;	call with DRIVE in IY and the FAT sector in DE:HL
+;	call with DRIVE in IX and the FAT sector in DE:HL
 ;	uses A
 ;-------------------------------------------------------------------------------
 
 GetFatSector
 ; if required_sector == last_fat_sector return
 			push	bc, hl, de
-			ld		bc, [iy+DRIVE.last_fat_sector]
+			ld		bc, [ix+DRIVE.last_fat_sector]
 			sub		hl, bc
 			jr		nz, .gf1
-			ld		bc, [iy+DRIVE.last_fat_sector+2]
+			ld		bc, [ix+DRIVE.last_fat_sector+2]
 			sub		de, bc
 			jr		nz, .gf1
 			pop		de, hl, bc		; we have a match
@@ -176,20 +176,21 @@ GetFatSector
 			call	FlushFat		; it may need doing
 			pop		de, hl
 			push	hl, de
-			ld		bc, [iy+DRIVE.fat_begin_sector]
+	SNAP "GetFatSector"
+			ld		bc, [ix+DRIVE.fat_begin_sector]
 			add		hl, bc
-			ld		bc, [iy+DRIVE.fat_begin_sector+2]
+			ld		bc, [ix+DRIVE.fat_begin_sector+2]
 			adc		de, bc
 			call	media_seek		; seek to DE:HL
-			ERROR	nz, 13
-			ld		hl, iy
+			ERROR	nz, 13			; media_seek fails in GetFatSector
+			ld		hl, ix
 			ld		bc, DRIVE.fatTable
 			add		hl, bc
 			call	media_write
-			ERROR	nz, 14
+			ERROR	nz, 14			; media_write fails in GetFatSector
 			pop		de, hl
-			ld		[iy+DRIVE.last_fat_sector], hl
-			ld		[iy+DRIVE.last_fat_sector+2], de
+			ld		[ix+DRIVE.last_fat_sector], hl
+			ld		[ix+DRIVE.last_fat_sector+2], de
 			pop		bc
 			ret
 
@@ -340,7 +341,7 @@ set12bitsA
 ; Now wrap that with cluster selection
 ;-------------------------------------------------------------------------------
 ; get12bitsFAT
-;		call with IY = DRIVE and HL=cluster index (12 bit)
+;		call with IX = DRIVE and HL=cluster index (12 bit)
 ;		returns HL = cluster value (12 bit)
 ;		uses A
 ;-------------------------------------------------------------------------------
@@ -385,7 +386,7 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to array
 
 ; return get12bitsA(array, index);
@@ -400,14 +401,16 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable + 511
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to last byte of the array
 
 ; drive->fatPrefix = array[511];	// save the overlap byte in front of the buffer
 		ld		a, [hl]
-		inc		iyh							; shameful frig to get over the
-		ld		[iy+DRIVE.fatPrefix-256], a	; +127/-128 byte limit on offsets
-		dec		iyh							; as the offset is signed!!
+		inc		ixh							; shameful frig to get over the
+		inc		ixh
+		ld		[ix+DRIVE.fatPrefix-512], a	; +127/-128 byte limit on offsets
+		dec		ixh							; as the offset is signed!!
+		dec		ixh
 
 ; array = (uint8_t*)GetFatSector(drive, triad*3+1) - 2;
 		ld		l, d				; fat sector we want
@@ -416,7 +419,7 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable-2
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to two bytes before the array
 
 ; we are pointing to the pair 340/341
@@ -432,7 +435,7 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable+1
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to after the overlapped byte
 
 ; index is in BC, array in HL
@@ -451,14 +454,16 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable + 511
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to last byte of the array
 
 ; drive->fatPrefix = array[511];	// save the overlap byte in front of the buffer
 		ld		a, [hl]
-		inc		iyh							; shameful frig to get over the
-		ld		[iy+DRIVE.fatPrefix-256], a	; +127/-128 byte limit on offsets
-		dec		iyh							; as the offset is signed!!
+		inc		ixh							; shameful frig to get over the
+		inc		ixh
+		ld		[ix+DRIVE.fatPrefix-512], a	; +127/-128 byte limit on offsets
+		dec		ixh							; as the offset is signed!!
+		dec		ixh
 
 ; array = (uint8_t*)GetFatSector(drive, triad*3+2) - 1;
 		ld		l, d				; fat sector we want
@@ -468,7 +473,7 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable-1
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to one byte before the array
 
 ; we are pointing to the pair 682/683
@@ -485,7 +490,7 @@ get12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable-1
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to the overlapped byte
 
 ; index is in BC, array in HL
@@ -499,7 +504,7 @@ get12bitsFAT
 
 ;-------------------------------------------------------------------------------
 ; set12bitsFAT
-;		call with IY = DRIVE and HL=cluster index (12 bit)
+;		call with IX = DRIVE and HL=cluster index (12 bit)
 ;				  DE = required cluster value
 ;		uses A
 ;-------------------------------------------------------------------------------
@@ -539,14 +544,14 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to the array
 
 ; set12bitsA(array, index, value);
 .sf2	pop		de					; recover the data
 		call	set12bitsA			; HL=array, BC=index, DE=value
 		ld		a, 1
-		ld		[iy+DRIVE.fat_dirty], a
+		ld		[ix+DRIVE.fat_dirty], a
 		pop		hl, bc
 		ret
 
@@ -557,7 +562,7 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to array
 
 ; set12bitsA(array, 341, value);	// spills over into DRIVE.fatSuffix
@@ -567,7 +572,7 @@ set12bitsFAT
 		ld		bc, 341
 		call	set12bitsA			; HL=array, BC=index, DE=value
 		ld		a, 1
-		ld		[iy+DRIVE.fat_dirty], a
+		ld		[ix+DRIVE.fat_dirty], a
 		pop		bc
 
 ; array = (uint8_t*)GetFatSector(drive, triad*3+1) - 2;
@@ -577,7 +582,7 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable-2
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to array-2
 
 ; set12bitsA(array, 1, value);
@@ -593,7 +598,7 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable+1
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to after the overlapped byte
 
 ; index is in BC, array in HL
@@ -614,7 +619,7 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable + 511
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to last byte of the array
 
 ; set12bitsA(array, 341, value);
@@ -624,7 +629,7 @@ set12bitsFAT
 		ld		bc, 341
 		call	set12bitsA			; HL=array, BC=index, DE=value
 		ld		a, 1
-		ld		[iy+DRIVE.fat_dirty], a
+		ld		[ix+DRIVE.fat_dirty], a
 		pop		bc
 
 ; array = (uint8_t*)GetFatSector(drive, triad*3+2) - 1;
@@ -635,7 +640,7 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable-1
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to one byte before the array
 
 ; we are pointing to the pair 682/683
@@ -652,7 +657,7 @@ set12bitsFAT
 		ld		de, 0
 		call	GetFatSector
 		ld		hl, DRIVE.fatTable-1
-		ld		de, iy
+		ld		de, ix
 		add		hl, de				; pointer to the overlapped byte
 
 ; index is in BC, array in HL
@@ -668,28 +673,26 @@ set12bitsFAT
 ; now we have the messy bits done we can write the cluster entry handlers
 ;-------------------------------------------------------------------------------
 ;  GetClusterEntry
-;		call with IY = DRIVE
+;		call with IX = DRIVE*
 ;				  DE:HL = cluster number
 ;		returns	  DE:HL = FAT entry 12/16/32 bits
 ;		uses A
 ;-------------------------------------------------------------------------------
 
 GetClusterEntry
-		ld		a, [iy+DRIVE.fat_type]
+		ld		a, [ix+DRIVE.fat_type]
 		cp		FAT12
-		jr		z, .gc3
-		cp		FAT16
 		jr		z, .gc2
-		cp		FAT32
+		cp		FAT16
 		jr		z, .gc1
-		ld		hl, 0xffff
-		ld		de, hl
-		ret
+		cp		FAT32
+		ERROR	nz, 22		; bad FAT type in GlusterEntry
+		; fallthrough
 
 ; do the FAT32 entry
 ;	return ((uint32_t*)GetFatSector(drive, cluster/128))[cluster%128] & 0xfffffff;	// not the top 4 bits
 
-.gc1	push	bc, hl
+		push	bc, hl
 		; divide by 128 taking advantage of the fact that the cluster number is actually 28 bits
 		sla		l				; slide DEHL << 1
 		rl		h
@@ -721,7 +724,7 @@ GetClusterEntry
 
 ; do the FAT16 entry
 ;	return ((uint32_t*)GetFatSector(drive, cluster/256))[cluster%256];
-.gc2	push	bc, hl
+.gc1	push	bc, hl
 		ld		l, h			; DE:HL >>8
 		ld		h, e
 		ld		e, d
@@ -745,36 +748,36 @@ GetClusterEntry
 
 ; do the FAT12 entry
 ;	return get12bitsFAT(drive, cluster);
-.gc3	call	get12bitsFAT	; HL=cluster (12 bit)
+.gc2	call	get12bitsFAT	; HL=cluster (12 bit)
 		ld		de, 0
 
 ; sign extend: if(hl==0x0fff) de=0ffff
 		CPHL	0x0fff
-		jr		nz, .gc3a
+		jr		nz, .gc3
 		ld		hl, 0xffff
 		ld		de, hl
-.gc3a	pop		bc
+.gc3	pop		bc
 		ret
 ;-------------------------------------------------------------------------------
 ;  GetClusterEntry
-;		call with IY = DRIVE
+;		call with IX = DRIVE
 ;				  DE:HL = cluster number
 ;				  DE':HL' = FAT entry 12/16/32 bits (ALT REGISTERS!)
 ;		uses A
 ;-------------------------------------------------------------------------------
 ; again the structure is taken from the routine above
 SetClusterEntry
-		ld		a, [iy+DRIVE.fat_type]
+		ld		a, [ix+DRIVE.fat_type]
 		cp		FAT12
-		jr		z, .sc3
-		cp		FAT16
 		jr		z, .sc2
-		cp		FAT32
+		cp		FAT16
 		jr		z, .sc1
-		ret
+		cp		FAT32
+		ERROR	nz, 23		; bad FAT type in SetClusterEntry
+		; fallthrough
 
 ; do the FAT32 entry
-.sc1	push	bc, hl
+		push	bc, hl
 		; divide by 128 taking advantage of the fact that the cluster number is actually 28 bits
 		sla		l				; slide DEHL << 1
 		rl		h
@@ -812,7 +815,7 @@ SetClusterEntry
 		ret
 
 ; do the FAT16 entry
-.sc2	push	bc, hl
+.sc1	push	bc, hl
 		ld		l, h			; DE:HL >>8
 		ld		h, e
 		ld		e, d
@@ -834,7 +837,7 @@ SetClusterEntry
 
 ; do the FAT12 entry
 ;	return get12bitsFAT(drive, cluster);
-.sc3	push	de, hl
+.sc2	push	de, hl
 		ld		a, h
 		and		0x0f			; 12 bits
 		ld		h, a
@@ -851,7 +854,7 @@ SetClusterEntry
 
 ;-------------------------------------------------------------------------------
 ; GetNextSector		the classic FAT table question
-;					call DRIVE in IY
+;					call DRIVE in IX
 ;					current sector in DE:HL
 ;					returns next sector in DE:HL
 ;					or 0 if EOF
@@ -862,12 +865,12 @@ GetNextSector
 ;	if(current_sector < drive->cluster_begin_sector)
 ;		return ++current_sector >= drive->cluster_begin_sector ? 0 : current_sector;
 
-		CP32i		iy, DRIVE.cluster_begin_sector
+		CP32i		ix, DRIVE.cluster_begin_sector
 		jr			z, .gn2				; =
 		jr			nc, .gn2			; >
 
 		INC32
-		CP32i		iy, DRIVE.cluster_begin_sector
+		CP32i		ix, DRIVE.cluster_begin_sector
 		jr			z, .gn1				; =
 		jr			nc, .gn1			; >
 		ret								; not >=
@@ -880,7 +883,7 @@ GetNextSector
 
 .gn2	ld		a, l
 		inc		a
-		and		[iy+DRIVE.sectors_in_cluster_mask]
+		and		[ix+DRIVE.sectors_in_cluster_mask]
 		jr		z, .gn3
 		INC32
 		ret
@@ -889,9 +892,11 @@ GetNextSector
 ;	if(n==0xfffffff) return 0;
 ;	return YY_ClusterToSector(drive, n);
 
-.gn3	call	SectorToCluster
+.gn3
+	SNAP	"SectorToCluster call"
+		call	SectorToCluster
 		call	GetClusterEntry
-		CP32	0xffffffff
-		jr		z, .gn1
+		CP32	0xffffffff			; end of chain
+		jr		z, .gn1				; return zero
 		call	ClusterToSector
 		ret

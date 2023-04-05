@@ -162,7 +162,7 @@ BIOS_START	equ		$				; where we actually start
 
 signon		db		"\r"
 			RED
-			db		"Nigsoft Z80 BIOS "
+			db		"Nigsoft Z80 BIOS Λ "
 			db		VERSION
 			db		" "
 			db		__DATE__
@@ -399,6 +399,8 @@ SIZEOF_BUFFER	equ		80
 			jr		nz, good_end
 			CALLBIOS ShowLogo1		; see macros.inc and rom.asm
 			CALLBIOS ShowLogo2
+			xor		a				; clear the default drive
+			CALLBIOS SetDrive
 			jr		good_end		; skip the error return
 
 ; Come here to respond with an error message and re-prompt
@@ -448,6 +450,9 @@ good_end	ld		e, 0			; use \r\n
 .j5			call	stdio_str
 			db		"\r"
 			GREEN
+			db		0
+			CALLBIOS PrintCWD
+			call	stdio_str
 			db		"> "
 			WHITE
 			db		0
@@ -472,8 +477,8 @@ good_end	ld		e, 0			; use \r\n
 ; The jump table matches a command to a jump address
 cmd_list	db	"BOOT"
 			dw	reboot
-;			db	"BLK",0				; read a block of data to an address
-;			dw	cmd_b
+ 			db	"CD",0,0			; cd command
+ 			dw	cmd_cd
  if ALLOW_ANSI
  			db	"CLS",0				; clear screen
 			dw	cmd_cls
@@ -504,6 +509,8 @@ cmd_list	db	"BOOT"
 			db	"LED",0				; set the LEDs
 			dw	cmd_led
  endif
+ 			db	"LOAD"				; load command
+ 			dw	cmd_load
 			db	"OUT",0				; output to a port
 			dw	cmd_out
 			db	"READ"				; read memory
@@ -514,6 +521,8 @@ cmd_list	db	"BOOT"
 			dw	cmd_save
 			db	"TIME"				; time set/get
 			dw	cmd_time
+ 			db	"TYPE"				; type command
+ 			dw	cmd_type
 			db	"W",0,0,0			; write memory
 			dw	cmd_w
 			db	"WAIT"				; wait command
@@ -536,54 +545,65 @@ do_commandline
 			ld		ix, Z.cmd_exp	; 4 character buffer
 
 			call	skip			; get the first character on the line
-			jp		z, .d2a			; end of line (just spaces?)
-			jr		.d0				; first character
+			jp		z, .d9			; end of line (just spaces?)
+			jr		.d2				; first character
 
-.d0S		call	getc			; get next character (not first)
-			jp		z, .d1F			; end of line
+.d1		call	getc			; get next character (not first)
+			jp		z, .d4			; end of line
 			cp		' '				; end of command?
-			jp		z, .d1F
+			jp		z, .d4
 			cp		0x09			; tab
-			jp		z, .d1F
-.d0			call	islower			; test for a-z set CY if true
-			jr		nc, .d1
+			jp		z, .d4
+.d2			call	islower			; test for a-z set CY if true
+			jr		nc, .d3
 			and		~0x20			; convert to upper case
-.d1			ld		[ix], a
+.d3			ld		[ix], a
 			inc		ix
-			djnz	.d0S
+			djnz	.d1
 
 ; we have 4 characters
-			jr		.d1D
+			jr		.d6
 
 ; we have an end of command (either white space or the input ran out)
-.d1F		xor		a				; zero fill the buffer
-.d1G		ld		[ix], a
+.d4			xor		a				; zero fill the buffer
+.d5			ld		[ix], a
 			inc		ix
-			djnz	.d1G
+			djnz	.d5
+
+; first check for a drive select eg: C:
+.d6			ld		a, [Z.cmd_exp+1]
+			cp		':'
+			jr		nz, .d7
+			ld		a, [Z.cmd_exp]
+		SNAP "sd1"
+			CALLBIOS SetDrive
+		SNAP "sd2"
+			jp		c, good_end
+			jp		bad_end
 
 ; Look for match in the table
-.d1D		ld		iy, cmd_list	; table of commands and functions
+.d7			ld		iy, cmd_list	; table of commands and functions
 			ld		ix, Z.cmd_exp
 
 ; Check for end of table
-.d2			ld		a, [iy]			; read command list first char of a command
+.d8			ld		a, [iy]			; read command list first char of a command
 			or		a				; end of list?
-			jr		nz, .d3			; no, so keep going
+			jr		nz, .d10		; no, so keep going
 
 ; bad end
-.d2a		ld		a, ERR_UNKNOWN_COMMAND
+.d9			ld		a, ERR_UNKNOWN_COMMAND
 			ld		[Z.last_error], a
 			jp		bad_end
 
 ; Test for match
-.d3			ld		b, 4
+.d10		ld		b, 4
 			ld		ix, Z.cmd_exp
-.d3d		ld		a, [iy]			; test command letter
+.d11		ld		a, [iy]			; test command letter
 			cp		[ix]
-			jr		nz, .d4			; fail
+			jr		nz, .d12		; fail
 			inc		ix
 			inc		iy
-			djnz	.d3d
+			djnz	.d11
 
 ; Match
 			ld		c, [iy]			; lsbyte
@@ -592,11 +612,11 @@ do_commandline
 			jp		[iy]
 
 ; No match
-.d4			inc		iy				; move over rest of command
-			djnz	.d4
+.d12		inc		iy				; move over rest of command
+			djnz	.d12
 			inc		iy				; move over jump address
 			inc		iy
-			jp		.d2
+			jp		.d8
 
 ;===============================================================================
 ; ?  Display help text
@@ -635,6 +655,27 @@ cmd_copy	CALLBIOS	COPYcommand
 ; DIR
 ;===============================================================================
 cmd_dir		CALLBIOS	DIRcommand
+			jp			c, good_end
+			jp			bad_end
+
+;===============================================================================
+; CD
+;===============================================================================
+cmd_cd		CALLBIOS	CDcommand
+			jp			c, good_end
+			jp			bad_end
+
+;===============================================================================
+; TYPE
+;===============================================================================
+cmd_type	CALLBIOS	TYPEcommand
+			jp			c, good_end
+			jp			bad_end
+
+;===============================================================================
+; LOAD
+;===============================================================================
+cmd_load	CALLBIOS	LOADcommand
 			jp			c, good_end
 			jp			bad_end
 

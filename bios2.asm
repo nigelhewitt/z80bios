@@ -55,7 +55,7 @@ f_biosver	ld		a, 1
 ;-------------------------------------------------------------------------------
 f_stacktest
 			ld		hl, [Z.cr_sp]
-			DUMPrr	hl, 0, 32
+			DUMPrr	0xff, hl, 32
 			scf
 			ret						; should go to return
 

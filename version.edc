@@ -111,3 +111,8 @@ This leaves me with some variants on DUMP but macros cost nothing if you don't
 use then so I'll leave them on file.
 
 0.1.20
+I typed up the rest of the FAT system to the point of having a test function
+ready to call. This is just that untested stuff so only a local version.
+It compiles so it might be a good point to recover to...
+The DIR command works for C:/ and the scaffolding for the other command is in
+place and disk selection works.

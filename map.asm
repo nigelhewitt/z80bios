@@ -188,6 +188,30 @@ incCIX		push	de
 			ret
 
 ;===============================================================================
+;
+;	Local memory	To allow things like the SD and FAT systems plenty of room
+;					to play in I use RAM6 in PAGE2 as it's internal memory.
+;					The routines to handle this are virtually trivial but do
+;					need to 'play nicely' interface with the normal 'return
+;					to base' code
+;
+;  NB: The absolute address20 for items in Local memory is
+;		(RAM6^0x20)<<14 + (offset & 0x3fff)
+;===============================================================================
+
+; here is the pre-'play nicely' code
+LocalON		push	af
+			ld		a, RAM6
+			out		(MPGSEL2), a
+			pop		af
+			ret
+LocalOFF	push	af
+			ld		a, RAM2
+			out		(MPGSEL2), a
+			pop		af
+			ret
+
+;===============================================================================
 ; banked memory LDIR	copy from C:HL to B:DE for IX counts
 ;						destination must be RAM, IX==0 results in 64K copy
 ;						works the 'stack free' trick

@@ -31,20 +31,20 @@ zeroBlock	push	bc, de, hl
 ;			IY = DIRN* (DIRL) the directory entry
 ;-------------------------------------------------------------------------------
 
-; copy a block of B WCHARs from [HL]->[DE] return Z on a 0
-; uses A, B, DE, HL
+; copy a block of B WCHARs from [HL]->[DE] return Z on 0
+; uses A, BC, DE, HL
 unpackWorker
 			ld		a, [hl]
 			ld		[de], a
+			ld		c, a		; save low byte
 			inc		hl
 			inc		de
-			or		[hl]		; is this a zero WCHAR?
-			ld		[de], a		; save a zero if it is, overwritten if it isn't
-			ret		z
 			ld		a, [hl]
-			ld		[de], a
-			inc		hl
+			ld		[de], a		; save a zero if it is, overwritten if it isn't
 			inc		de
+			inc		hl
+			or		c			; was that a 0,0 WCHAR?
+			ret		z
 			djnz	unpackWorker
 			or		1			; set NZ
 			ret
@@ -53,9 +53,9 @@ UnpackLong
 ; check the 'first' flag in the order byte
 			ld		a, [iy+DIRL.LDIR_Ord]
 			and		0x40
-			jr		nz, .ul1			; not first
+			jr		z, .ul1			; not first
 
-; first so clear the long name in the FILE
+; if first clear the long name in the FILE
 			ld		hl, ix				; file
 			ld		bc, FILE.longName
 			add		hl, bc				; pointer to longName
@@ -67,31 +67,29 @@ UnpackLong
 			ld		[ix+FILE.shortnamechecksum], a
 			jr		.ul2
 
-; not the first entry so check the checksum matches
+; not the first entry so check the checksum matches previous one
 .ul1		ld		a, [iy+DIRL.LDIR_ChkSum]
 			cp		[ix+FILE.shortnamechecksum]
-			ERROR	nz, 24						; error, no recovery, just die
+			ERROR	nz, 15		; shortnamechecksum fails in UnpackLong
 
 ; make a pointer to where the text goes in WCHAR longName[]
-.ul2		ld		a, [iy+DIRL.LDIR_Ord]		; get the sequence number
+.ul2		ld		a, [iy+DIRL.LDIR_Ord]	; get the sequence number
 			and		0x3f
-			dec		a							; slot number
-			ld		c, a						; copy to BC
-			ld		b, 0						; multiply * 13  aka 1+4+8
-			ld		hl, bc						; HL = slot*1
-			sla		c
-			rl		b							; BC = slot*2
-			sla		c
-			rl		b							; BC = slot*4
-			add		hl, bc						; HL = slot*5
-			sla		c
-			rl		b							; BC = slot*8
-			add		hl, bc						; HL = slot*13 = index in longName[]
-			add		hl, hl						; HL = (slot*13)*2
-			ld		bc, FILE.longName			; byte offset in longName
+			dec		a						; slot number (0-0x3f/63.)
+			ld		c, a					; copy to BC
+			ld		b, 0					; multiply * 13  aka 1+4+8
+			ld		hl, bc					; HL = slot*1
+			sla		c						; (0-0x7e)
+			sla		c						; (0-0xfc)
+			add		hl, bc					; HL = slot*5
+			sla		c						; (0-0x1f8)
+			rl		b						; BC = slot*8 (first time C involved
+			add		hl, bc					; HL = slot*13 = index in longName[]
+			add		hl, hl					; HL = (slot*13)*2
+			ld		bc, FILE.longName		; byte offset to WCHAR[] longName
 			add		hl, bc
-			ld		bc, ix						; FILE*
-			add		hl, bc						; pointer to text
+			ld		bc, ix					; FILE*
+			add		hl, bc					; pointer to text for this slot
 			ld		de, hl
 
 ; do the blocks of text
@@ -113,54 +111,49 @@ UnpackLong
 			ld		bc, DIRL.LDIR_Name3
 			add		hl, bc
 			ld		b, 2						; last 2 characters
-			call	unpackWorker
-			ret									; finished
+			jp		unpackWorker
 
 ;-------------------------------------------------------------------------------
 ; Make the flag letters for the folder display
-;		call with HL pointer text* to where you want the six sequential characters
-;		C	flag bits
+;		call with HL pointer text* to where you want six sequential characters
+;		call with C	flag bits
 ;		uses A, HL
 ;-------------------------------------------------------------------------------
 
-makeFlags	ld		a, 'R'
-			bit		0, d
-			jr		z, .mf1
+makeFlags	ld		a, 'R'			; read only
+			bit		0, c
+			call	.makeFlagsWorker
+
+			ld		a, 'H'			; hidden
+			bit		1, c
+			call	.makeFlagsWorker
+
+			ld		a, 'S'			; system
+			bit		2, c
+			call	.makeFlagsWorker
+
+			ld		a, 'V'			; volume
+			bit		3, c
+			call	.makeFlagsWorker
+
+			ld		a, 'D'			; directory
+			bit		4, c
+			call	.makeFlagsWorker
+
+			ld		a, 'A'			; archive
+			bit		5, c
+			; fallthrough
+
+.makeFlagsWorker
+			jr		nz, .mf1
 			ld		a, '.'
 .mf1		ld		[hl], a
-
-			ld		a, 'H'
-			bit		1, d
-			jr		z, .mf2
-			ld		a, '.'
-.mf2		ld		[hl], a
-
-			ld		a, 'S'
-			bit		2, d
-			jr		z, .mf3
-			ld		a, '.'
-.mf3		ld		[hl], a
-
-			ld		a, 'V'
-			bit		3, d
-			jr		z, .mf4
-			ld		a, '.'
-.mf4		ld		[hl], a
-
-			ld		a, 'D'
-			bit		4, d
-			jr		z, .mf5
-			ld		a, '.'
-.mf5		ld		[hl], a
-
-			ld		a, 'A'
-			bit		5, d
-			jr		z, .mf1
-			ld		a, '.'
-.mf6		ld		[hl], a
+			inc		hl
 			ret
-
-decimal2digits			; call with 0-99 in A, writes to HL, uses B
+;-------------------------------------------------------------------------------
+; decimal2digits	call with 0-99 in A, writes to HL, uses B
+;-------------------------------------------------------------------------------
+decimal2digits
 			push	hl
 			ld		l, a
 			ld		h, 0
@@ -177,72 +170,90 @@ decimalDigit			; call	 with 0-9 in A, write to HL++
 			ld		[hl], a
 			inc		hl
 			ret
-
-ndigitworker
-			call	div10b32		; divide BC:HL by 10, remainder in A
-			push	af				; save remainder
-			ld		a, d
-			or		e
-			or		b
-			or		c				; if BC:HL!=0 recursive call
-			call	nz, ndigitworker
-			jr		decimalDigit
-
-decimalNdigits		; write DE:BC to HL, in A characters
-					; right justified and space filled
+;-------------------------------------------------------------------------------
+; decimalNdigits	Write BC:DE to [HL], in A characters
+;					right justified and space filled
+;-------------------------------------------------------------------------------
+decimalNdigits
 			push	de, bc, af, hl
 
 ; first do it left justified (the easy one)
-			call	ndigitworker
-			pop		de, af				; was HL = start pointer
-			push	af, de				; A = width
+			call	.ndigitworker		; use BC, DE, AF and advances HL
+			pop		de, af				; DE = start pointer (was HL)
 
-; the aim is to do an LDDR to move the characters
-; so we want HL = source      = current_pointer - 1
-;			 DE = destination = initial_pointer+width-1
-;			 BC = count		  = width - (current_pointer - initial_pointer)
-;			 A  = mumber of spaces = width - count
-; currently
-;			 DE = initial_pointer
-;			 HL = current_pointer
-;			 A = width
-;			 BC free
+; Currently:
+;	DE = initial_pointer (in HL when called)
+;	HL = current_pointer (one beyond the last digit added)
+;	A = width
+;	BC free
+;	stack is callers DE BC
 
-			dec		hl
-			push	hl					; source on the stack
-			inc		hl
+; The aim is to do an LDDR to move the characters forwards, then space fill
+; so I want:
+;	HL = source      = current_pointer - 1 (on last digit)
+;	DE = destination = initial_pointer+width-1 (where I want the last digit)
+;	BC = count		  = current_pointer - initial_pointer
+;	A  = number of spaces to add = width - count
+;	if width >= count no move - return HL=current_pointer
+;	else LDDR then space fill [DE--] for A, return HL=destination+1
 
+			push	hl					; current pointer (return HL if no move)
+										; also source+1 for the copy
 			ld		bc, hl				; save current pointer
 			sub		hl, de				; current_pointer - initial pointer
-			ld		h, a				; save width
-			sub		l					; gives count (small number)
-			jr		z, .dn2				; no move
-			jr		c, .dn2				; negative move, needed more space
-			ld		c, a
-			ld		b, 0
-			push	bc					; count on the stack
-			ld		a, h				; width
-			ld		b, a				; save width again
-			dec		a					; width -1
-			ld		l, a
-			ld		h, 0				; HL = width-1
-			add		hl, de				; HL = initial_pointer + width -1
-			ld		a, b				; recover width again
+			push	hl					; put count on stack
 
-			ld		de, hl				; destination
-			pop		bc					; count
-			sub		c					; A = width - count
-			pop		hl					; source
+			ld		h, a				; save width
+			sub		l					; width - count
+			jr		c, .dn2 			; count>width ie: overflow no move
+			jr		z, .dn2				; count==width ie: no move
+			ld		l, a				; save as spaces in L
+
+			ld		a, h				; recover width
+			add		e					; initial_pointer + width
+			ld		e, a
+			ld		a, d
+			adc		0
+			ld		d, a				; destination in DE
+			pop		bc					; count from stack in BE
+			ld		a, l				; recover spaces number into A
+			pop		hl					; source+1 from stack
+			dec		hl					; gives source
+			push	de					; initial+width as return HL value
+			dec		de					; destination for copy
 			lddr						; the decrementing copy
 
 ; space fill
+; now DE is the space before the first character
 			ld 		b, a				; width-count = number of spaces
 			ld		a, ' '
 .dn1		ld		[de], a
 			dec		de
 			djnz	.dn1
-.dn2		pop		hl, af, bc, de
+
+; unwind the return values
+			pop		hl					; next_address
+			jr		.dn3
 			ret
+
+; overflow case return final counter DE in HL
+.dn2		pop		bc					; discard the counter
+			pop		hl					; current pointer
+.dn3		pop		bc, de
+			ret
+
+.ndigitworker		; BC:DE/10->BC:DE
+			ex		de, hl
+			call	div10b32		; divide BC:HL by 10, remainder in A
+			ex		de, hl
+			push	af				; save the remainder
+			ld		a, d
+			or		e
+			or		b
+			or		c				; if BC:HL!=0 recursive call
+			call	nz, .ndigitworker
+			pop		af
+			jp		decimalDigit	; A + '0' -> [HL++]
 
 ;-------------------------------------------------------------------------------
 ;  MakeTime
@@ -271,6 +282,9 @@ makeTime		; b0-4 = seconds/2, b5-10 = minutes, b11-15=hours
 			ld		a, b
 			and		0x3f
 			call	decimal2digits
+			ld		a, ':'
+			ld		[hl], a
+			inc		hl
 			ld		a, e			; seconds
 			and		0x1f
 			sla		a				; double it
@@ -286,17 +300,21 @@ makeDate		; b0-4 = day,  b5-8 = month, b9-15 = year
 			ld		[hl], a
 			inc		hl
 			ld		bc, de			; months
-			rl		c
+			sla		c
 			rl		b
-			rl		c
+			sla		c
 			rl		b
-			rl		c
+			sla		c
 			rl		b
 			ld		a, b
 			and		0x0f
 			call	decimal2digits
+			ld		a, '/'
+			ld		[hl], a
+			inc		hl
 			ld		a, d			; years
 			srl		a
+			sub		20				; dates based on 1980
 			pop		bc
 			jp		decimal2digits
 
@@ -318,15 +336,15 @@ MakeSmallCharacter		; call with text pointer in HL, max_count in DE
 			dec		de
 			ret
 
-WriteDirectoryItem	; "%8s %8s %6s %8u %10u  %s"
+WriteDirectoryItem	; "%8s %8s %6s %11u %11u  %s"
 					; date, time, flags, filesize, startcluster, longname
-			push	de, bc, iy, ix
+			push	ix, iy, bc, hl, de
 ; check DE>=59 so the fixed text fits and an 8.3 and a trailing null
 			CPDE	59
-			ERROR	nc, 23
+			ERROR	c, 16		; not enough buffer for WriteDirectoryItem
 
 ; get a pointer to the DIRN
-			ld		bc, hl
+			ld		bc, hl				; save the output pointer
 			ld		hl, FILE.dirn
 			ld		de, ix
 			add		hl, de
@@ -339,6 +357,7 @@ WriteDirectoryItem	; "%8s %8s %6s %8u %10u  %s"
 			ld		a, ' '
 			ld		[hl], a
 			inc		hl
+
 ; time
 			ld		de, [iy+DIRN.DIR_WrtTime]
 			call	makeTime
@@ -352,42 +371,56 @@ WriteDirectoryItem	; "%8s %8s %6s %8u %10u  %s"
 			ld		a, ' '
 			ld		[hl], a
 			inc		hl
-
 ; file size
-			GET32i	iy, DIRN.DIR_FileSize
-			ld		a, 8					; 8 digits
-			call	decimalNdigits
+			push	hl
+			GET32i	iy, DIRN.DIR_FileSize	; loads DE:HL
+			ld		bc, de
+			ld		de, hl
+			pop		hl
+			ld		a, 11					; 11 digits
+			call	decimalNdigits			; BC:DE to [HL++]
 			ld		a, ' '
 			ld		[hl], a
 			inc		hl
-
+;	SNAP "cluster"
 ; start cluster
-			GET32i	ix, FILE.startCluster
-			ld		a, 10					; 10 digits
-			call	decimalNdigits
+			push	hl
+			GET32i	ix, FILE.startCluster	; load DE:HL
+			ld		bc, de
+			ld		de, hl
+			pop		hl
+			ld		a, 11					; 11 digits
+			call	decimalNdigits			; BC:DE to [HL++]
 			ld		a, ' '
 			ld		[hl], a
 			inc		hl
-			SUBDE	45
 
 ; long name
+			pop		de						; get the max count back
+			push	de
 			push	hl
+			ex		de, hl
+			ld		bc, 46					; characters so far
+			sub		hl, bc
+			ex		de, hl
 			ld		hl, ix					; FILE*
 			ld		bc, FILE.longName
 			add		hl, bc					; pointer to long name
-			ld		iy, hl					; in ix
+			ld		iy, hl					; in IY
 			pop		hl
-.wd1		ld		a, [iy]
-			ld		c, a
+.wd1		ld		c, [iy]
 			inc		iy
-			ld		a, [iy]
-			ld		b, a
+			ld		b, [iy]
+			inc		iy
+			ld		a, b
 			or		c
 			jr		z, .wd2					; finished
 			call	MakeSmallCharacter
 			jr		.wd1
 
-.wd2		pop		ix, iy, bc, de
+.wd2		xor		a
+			ld		[hl], a					; terminating null
+			pop		de, hl, bc, iy, ix
 			ret
 
 ;-------------------------------------------------------------------------------
@@ -408,14 +441,14 @@ MakeLongFromShort
 			add		hl, bc				; pointer to longName
 			ld		de, hl
 
-; pointer to shortName in DIR
+; pointer to shortName in DIRN
 			ld		hl, ix
 			ld		bc, FILE.dirn + DIRN.DIR_Name
 			add		hl, bc
 
-; copy in the filename
+; copy in the filename part
 			ld		a, [ix+FILE.dirn+DIRN.DIR_NTRes]
-			ld		c, a
+			ld		c, a			; save the 'make lower case flags'
 			ld		b, 8
 .ml1		ld		a, [hl]
 			bit		3, c			; make name lowercase?
@@ -432,9 +465,9 @@ MakeLongFromShort
 			djnz	.ml1
 
 ; now remove trailing spaces (just backspace DE)
-; (only trailing as "A B C.TXT" is legal but "abc  .txt" needs a longName)
+; (only trailing as "A B C.TXT" might be legal but "abc  .txt" needs a longName)
 			ld		b, 8
-.ml3		dec		de
+.ml3		dec		de				; back up from 'ready for next char'
 			dec		de
 			ld		a, [de]
 			cp		' '
@@ -450,11 +483,9 @@ MakeLongFromShort
 			inc		de
 
 ; copy in the extension
-			ld		a, [ix+FILE.dirn+DIRN.DIR_NTRes]
-			ld		c, a
 			ld		b, 3
 .ml5		ld		a, [hl]
-			bit		4, c			; make name lower case?
+			bit		4, c			; make ext lower case?
 			jr		z, .ml6
 			call	isupper
 			jr		nc, .ml6
@@ -465,21 +496,26 @@ MakeLongFromShort
 			ld		[de], a			; that's a WCHAR
 			inc		de
 			inc		hl
-			djnz	.ml5
+			djnz	.ml5			; leave [DE] pointing to after the EXT
 
 ; now remove trailing spaces (just backspace DE)
-			ld		b, 8
-.ml7		dec		de
+			ld		b, 4			; need an extra pass to move before the ext
+.ml7		dec		de				; back to the character
 			dec		de
 			ld		a, [de]
 			cp		' '
 			jr		nz, .ml8		; until [DE] points to a non space
-			djnz	.ml7			; stop at 8 for no-name eg: ".abc"
+			djnz	.ml7
+
+; remove a trailing dot or it goes on directories et al
+.ml8		ld		a, [de]
+			cp		'.'
+			jr		z, .ml9
 
 ; add the trailing null
-.ml8		inc		de
 			inc		de
-			xor		a
+			inc		de
+.ml9		xor		a
 			ld		[de], a
 			inc		de
 			ld		[de], a
@@ -636,101 +672,108 @@ NormalisePath
 ;===============================================================================
 
 ;-------------------------------------------------------------------------------
-; ResetDirectory			called with IY=DIRECTORY
+; ResetDirectory			called with IY=DIRECTORY*
 ;	basically rewind it so NextDirectoryItem can start over
 ;-------------------------------------------------------------------------------
 ResetDirectory
 			push	de, hl, ix
-			ld		hl, [iy+DIRECTORY.drive]	; point IY to drive
+			ld		hl, [iy+DIRECTORY.drive]	; point IX to DRIVE
 			ld		ix, hl
 
-; do we have a start cluster? (ie use the root)
-			ld		hl, [iy+DIRECTORY.startCluster]
+; start cluster is zero for root directory
+			GET32i	iy, DIRECTORY.startCluster
 			CP32	0
 			jr		nz, .rd1
 
-; no, so FAT12/16 use the root directory
+; zero so use the root_dir_first_sector from DRIVE
 			GET32i	ix, DRIVE.root_dir_first_sector
 			jr		.rd2						; save as dir->sector
 
-; FAT32, use the startCluster as sector
+; not zero so use it to generate a sector number
 .rd1		GET32i	iy, DIRECTORY.startCluster	; start Cluster from DIRECTORY
-			call	ClusterToSector				; needs DRIVE in iy
+			call	ClusterToSector				; needs DRIVE* in IX
 .rd2		SET32i	iy, DIRECTORY.sector		; save as sector
 
 ; set the slot to zero
 			xor		a
 			ld		[iy+DIRECTORY.slot], a
+			pop		ix, hl, de
 			ret
 
 ;-------------------------------------------------------------------------------
 ;  NextDirectoryItem
-;	pass in		IY = DIRECTORY
-;				IX = FILE
+;	pass in		IY = DIRECTORY*
+;				IX = FILE*
 ;		returns C on OK or NC is there are none left
 ;-------------------------------------------------------------------------------
-
 NextDirectoryItem
-			push bc, de, hl
-
-; clear the file's longName
+			push	bc, de, hl
+; clear all the file variables
 			ld		hl, ix
-			ld		bc, FILE.longName
-			add		hl, bc
-			ld		bc, MAX_PATH
+			ld		bc, FILE
 			call	zeroBlock
 
 ; load the buffer for NextDirectoryItem
-			GET32i	iy, DIRECTORY.sector
+			GET32i	iy, DIRECTORY.sector		; to DE:HL
 			CP32i	iy, DIRECTORY.sectorinbuffer
-			jr		z, .nd1					; OK
+			jp		z, .nd1					; OK
+
 ; read sector
-			SET32i	iy, DIRECTORY.sectorinbuffer
+			SET32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
 			call	media_seek				; to DE:HL
+			ERROR	nz, 17		; media_seek fails in NextDirectoryItem
 			ld		hl, iy
 			ld		bc, DIRECTORY.buffer
 			add		hl, bc
 			ld		e, 1					; one block only
 			call	media_read
-			ERROR	nz, 20
+			ERROR	nz, 18		; media_read fails in NextDirectoryItem
 
 ; loop
 .nd1		ld		a, [iy+DIRECTORY.slot]
 			cp		16						; 16 slots to a block
-			jr		c, .nd2					; still in range
+			jp		c, .nd2					; still in range (0-15)
 
 ; get a new sector
 	;	DirFlush()					<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
 ; GetNextSector
 			push	ix						; put the FILE on hold
 			ld		hl, [iy+DIRECTORY.drive]
-			ld		iy, hl
-			GET32i	iy, DIRECTORY.sector	; update the sector
-			call	GetNextSector
+			ld		ix, hl
+			GET32i	iy, DIRECTORY.sector	; update the sector (DE:HL)
+			call	GetNextSector			; needs DRIVE* in IX, value in DE:HL
 			SET32i	iy, DIRECTORY.sector
 			pop		ix
 
+			ld		a, d					; end of chain?
+			or		e
+			or		h
+			or		l
+			jp		z, .nd9					; ought to be signalled by a zero
+
 ; read sector
-			SET32i	iy, DIRECTORY.sectorinbuffer
-			call	media_seek				; to DE:HL
+			SET32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
+			call	media_seek						; to DE:HL
 			ld		hl, iy
 			ld		bc, DIRECTORY.buffer
 			add		hl, bc
 			ld		e, 1					; one block only
 			call	media_read
-			ERROR	nz, 21
+			ERROR	nz, 19				; media_read fails in NextDirectoryItem
 			xor		a
 			ld		[iy+DIRECTORY.slot], a
-.nd2
 
 ; locate next entry
-			ld		l, a					; A contains slot
+.nd2		ld		l, a					; A contains slot (0-15)
 			ld		h, 0
-			ld		b, 5					; multiply by 32
-.nd3		sla		l
-			rr		h
-			djnz	.nd3
-			ld		bc, iy					; DIRECTORY
+			sla		l						; multiply by 32
+			sla		l
+			sla		l
+			sla		l
+			sla		l						; first one that might carry out
+			rl		h
+			ld		bc, iy					; DIRECTORY*
 			add		hl, bc
 			ld		bc, DIRECTORY.buffer
 			add		hl, bc					; pointer to DIRN
@@ -758,14 +801,16 @@ NextDirectoryItem
 ; copy the DIRN	into the FILE
 .nd4		ld		hl, ix					; FILE
 			ld		bc, FILE.dirn
-			add		hl, bc
-			ld		de, iy
+			add		hl, bc					; destination
+			ld		de, hl
+			ld		hl, iy					; source = DIRN
 			ld		bc, DIRN				; size of a DIRN
 			ldir
 
 ; get the start cluster
 			ld		hl, [iy+DIRN.DIR_FstClusLO]
 			ld		de,	[iy+DIRN.DIR_FstClusHI]
+			SET32i	ix, FILE.startCluster
 
 ; test for a long file name and if none make one
 			ld		a, [ix+FILE.longName]
@@ -774,16 +819,17 @@ NextDirectoryItem
 			call	MakeLongFromShort			; needs IY=FILE
 			jr		.nd7
 
-; test the supplied longname's checksum
+; test the supplied shortname's checksum
 ; 	csum = ((csum & 1) ? 0x80 : 0) + (csum >> 1) + d->DIR_Name[i];
 .nd5		ld		b, 11
 			ld		hl, iy					; DIRN (DIRN.DIR_Name==0)
 			xor		a
 .nd6		rrca							; direct b0->b7
 			add		a, [hl]
+			inc		hl
 			djnz	.nd6
 			cp		[ix+FILE.shortnamechecksum]
-			ERROR	nz, 21
+			ERROR	nz, 20			; shortnamecheckum fails in NextDirctoryItem
 
 ; last details
 .nd7		pop		iy						; restore DIRECTORY*
@@ -817,7 +863,7 @@ NextDirectoryItem
 			jp		.nd1
 
 ; this is the 'we have run out of entries' ending, return NC set
-.nd9		or		a
+.nd9		or		a				; clear carry (do not increment slot)
 			pop		hl, de, bc
 			ret
 
@@ -937,44 +983,52 @@ ChangeDirectory
 ;-------------------------------------------------------------------------------
 
 OpenDirectory
-			ld		a, [defaultDrive]		; letter code 'A'=FDC, 'C'=SD
-			ld		c, a
 			ld		a, [de]					; save a prospective drive letter
 			ld		b, a
 			inc		de						; skip the high byte fix later
 			inc		de
 			ld		a, [de]					; driver indicator
-			cp		a, ':'					; was that C:
+			cp		':'						; was that C: ?
 			jr		nz, .od2				; no
 			ld		a, b
 			call	islower
 			jr		nc, .od1
 			and		~0x20
-.od1		ld		c, a
-.od2		ld		a, c					; leave it in C
+.od1
+; we have a C: style start so use that as the drive and advance DE to the path
+			ld		c, a					; save the drive letter in C
+			inc		de						; msb of ch[1]
+			inc		de						; point to ch[2]
+			jr		.od2a
+; we have no C: start so ise the default drive and restore DE
+.od2		ld		a, [defaultDrive]		; letter code 'A'=FDC, 'C'=SD
+			ld		c, a					; drive letter in C
+			dec		de
+			dec		de
+.od2a
 
 ; so get a DRIVE in IX
 			call	get_drive				; 'C' letter in A returns IX
-			ret		nc						; the short way with Dissenters
+			ERROR	nc, 21					; get_drive fails in OpenDirectory
 
 ; set up some basic values as if it is "" or "A:\" this is what they get
 			xor		a
 			ld		hl, ix
-			ld		[iy+DIRECTORY.drive], hl			; dw DRIVE
+			ld		[iy+DIRECTORY.drive], hl			; dw drive*
 			ld		hl, 0
 			ld		[iy+DIRECTORY.startCluster], hl		; dd start from root
 			ld		[iy+DIRECTORY.startCluster+2], hl
 			ld		[iy+DIRECTORY.sector], hl			; dd not yet
 			ld		[iy+DIRECTORY.sector+2], hl
 			dec		hl									; 0xffff
-			ld		[iy+DIRECTORY.sectorinbuffer], hl	; dd					// none yet
+			ld		[iy+DIRECTORY.sectorinbuffer], hl	; dd	not yet
 			ld		[iy+DIRECTORY.sectorinbuffer+2], hl
 			ld		[iy+DIRECTORY.slot], a				; db as reset
 
 ; put something sensible in the longpath	"C:/"
 			ld		a, c								; get the drive letter
 			ld		hl, DIRECTORY.longPath				; point to the buffer
-			ld		bc, ix
+			ld		bc, iy
 			add		hl, bc
 			ld		[hl], a								; drive letter
 			inc		hl
@@ -986,6 +1040,7 @@ OpenDirectory
 			inc		hl
 			xor		a
 			ld		[hl], a
+			inc		hl
 			ld		a, '/'								; /
 			ld		[hl], a
 			inc		hl
@@ -1000,14 +1055,16 @@ OpenDirectory
 			ld		a, [de]
 			cp		'/'
 			jr		z, .od4				; not CWD
+			inc		de
+			inc		de
 
 ; loop through the elements of the drive's CWD
-			push	de					; save out path pointer
+			push	de					; save our path pointer
 			ld		hl, ix				; DRIVE*
 			ld		bc, DRIVE.cwd
 			add		hl, bc				; pointer to CWD
 			ld		bc, 3				; the CWD is at least "A:\"
-			ld		de, .temp1			; text buffer
+			ld		de, local.buffer			; text buffer
 .od3		call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od5			; run out of tokens
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
@@ -1025,19 +1082,13 @@ OpenDirectory
 ; now do the path's tokens
 			ld		hl, de				; path in HL
 			ld		bc, 0				; zero the index
-			ld		de, .temp1			; text buffer
+			ld		de, local.buffer	; text buffer
 .od7		call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od8			; run out of tokens
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			jr		c, .od7				; done OK
-			pop		de					; fail
 			xor		a
 			ret
-.od8
-			call	ResetDirectory		; IY=DIRECTORY*
+.od8		call	ResetDirectory		; IY=DIRECTORY*
 			scf
 			ret
-
-; local variable
-.temp1		ds		MAX_PATH*2
-

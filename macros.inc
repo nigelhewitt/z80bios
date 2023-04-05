@@ -16,6 +16,18 @@ ROUT		macro
 			out		(REDIRECT), a
 			endm
 
+; Take the current RAM number and the offset in that  RAM and return C:HL
+; offset in RAM/ROM = offset16 & 0x3fff
+; I swap RAM and ROM in the mapper to make ROM addresses low by complementing
+; the RAM/ROM CS bit 0x20
+; start of ROM/RAM = (RAM ^ 0x20)*0x4000
+; so address = (RAM^0x20)*0x4000 + offset
+
+MAKE20		macro	RAMn, offset16
+			ld		c, (RAMn ^ 0x20) >> 2
+			ld		hl, ((offset16 & 0x3fff) | (RAMn << 14)) & 0xffff
+			endm
+
 ; Diagnostic register dump to serial port (all pushed)
 SNAP		macro	id
 			push	af
@@ -47,13 +59,13 @@ DUMP		macro	ptr24, count
 			pop		af
 			endm
 
-; as above but takes a double register as the pointer
-DUMPrr		macro	rr, cr, count
+; as above but takes a register:double register as the pointer eg C:HL
+DUMPrr		macro	r, rr, count
 			push	af
 			DOUT	0					; force serial op
 			push	hl, de, bc
 			ld		hl, rr
-			ld		c, cr
+			ld		c, r
 			ld		de, count
 			call	stdio_dump
 			pop		bc
@@ -64,22 +76,11 @@ DUMPrr		macro	rr, cr, count
 			endm
 
 ; as above but takes a bunch of parts to find the address
-; offset in RAM/ROM = offset-(PAGE*0x4000)
-; I swap RAM and ROM in the mapper to make ROM addresses low by complementing
-; the RAM/ROM CS bit
-; start of ROM/RAM = (RAM ^ 0x20)*0x4000
-; so address = (RAM^0x20)*0x4000 + offset - PAGEn
-
-DUMPpg		macro	RAMn, PAGEn, offset, count
+DUMPpg		macro	RAMn, offset, count
 			push	af
 			DOUT	0					; force serial op
 			push	hl, de, bc
-			ld		hl, (RAMn^0x20)<<6
-			ld		c, h				; then <<8 by byte shuffling
-			ld		h, l
-			ld		l, 0
-			ld		de, offset - PAGEn
-			add		hl, de
+			MAKE20	RAMn, offset
 			ld		de, count
 			call	stdio_dump
 			pop		bc, de, hl
@@ -324,8 +325,13 @@ ERR_BADFUNCTION			equ		15
 	define ShowHelp			RAM5,3		// Show command help
 	define ReadSector		RAM4,1		// read sector BC:HL to DE
 	define DIRcommand		RAM4,2		// DIR command
+	define CDcommand		RAM4,3		// CD command
+	define TYPEcommand		RAM4,4		// TYPE command
+	define LOADcommand		RAM4,5		// LOAD command
 	define ShowStack		RAM5,1		// data on stack text
 	define ROMcommand		RAM5,4		// ROM programming command
 	define HEXcommand		RAM5,5		// HEX command
 	define WAITcommand		RAM5,6		// WAIT command
 	define COPYcommand		RAM5,7		// copy command
+	define PrintCWD			RAM4,6		// print CWD
+	define SetDrive			RAM4,7		// set drive

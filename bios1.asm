@@ -18,6 +18,11 @@ bios_functions
 			dw		f_biosver			; 0	show signon
 			dw		bad_end				; 1 spare
 			dw		f_dircommand		; 2 DIR command
+			dw		f_cdcommand			; 3 CD command
+			dw		f_typecommand		; 4 TYPE command
+			dw		f_loadcommand		; 5 LOAD command
+			dw		f_printCWD			; 6 print CWD
+			dw		f_setdrive			; 7 set drive
 bios_count	equ		($-bios_functions)/2
 
 

@@ -2,7 +2,7 @@
 DIO_FNCNT			equ		12		; number of functions
 MID_HD				equ		1		; responses to STATUS check
 MID_NONE			equ		0
-SDTRACE				equ		1
+SDTRACE				equ		0
 
 ;=============================================================================
 ; MMC/SD/SDHC/SDXC CARD STORAGE DRIVER
@@ -198,8 +198,8 @@ SD_CFGTBL		; DEVICE 0, PRIMARY MASTER
 ;=============================================================================
 
 SD_INIT
-		call	stdio_str
-		db		"\r\nSD:",0
+;		call	stdio_str
+;		db		"\r\nSD:",0
 
 ; Initialize individual unit(s) and display device inventory
 		ld		b, SD_DEVCNT	; init loop counter to device count
@@ -224,6 +224,7 @@ SD_INITUNIT
 		CALL	SD_INITCARD		; INIT THE SELECTED CARD
 		RET		NZ				; ABORT ON ERROR
 
+ if 0
 		CALL	SD_PRTPREFIX
 ; PRINT CARD TYPE
 		LD		A, [IY+SD_TYPE]
@@ -266,7 +267,7 @@ SD_INITUNIT
 
 	; PRINT PRODUCT NAME
 		call	stdio_str			; PRINT LABEL
-		db		"\r\nNAME=",0
+		db		"  Name=",0
 		LD		B, 5				; PREPARE TO PRINT 5 BYTES
 		LD		HL, SD_BUF + 3		; AT BYTE OFFSET 3 IN RESULT BUFFER
 .si3
@@ -277,7 +278,7 @@ SD_INITUNIT
 
 	; PRINT STORAGE CAPACITY (BLOCK COUNT)
 		call	stdio_str			; PRINT FIELD LABEL
-		db		" BLOCKS=0x",0
+		db		" Blocks=0x",0
 		LD		A, SD_MEDCAP		; OFFSET TO CAPACITY FIELD
 		CALL	LDHLIYA				; HL := IY + A, REG A TRASHED
 		CALL	LD32				; GET THE CAPACITY VALUE
@@ -285,13 +286,14 @@ SD_INITUNIT
 
 	; PRINT STORAGE SIZE IN MB
 		call	stdio_str			; PRINT FIELD LABEL
-		db		" SIZE=",0
+		db		" Size=",0
 		LD		B, 11				; 11 BIT SHIFT TO CONVERT BLOCKS --> MB
 		CALL	SRL32				; RIGHT SHIFT DE:HL
 		CALL	stdio_decimalW		; PRINT LOW WORD IN DECIMAL (HIGH WORD DISCARDED)
 		call	stdio_str			; PRINT SUFFIX
-		db		"MB",0
-		xor		a
+		db		"Mbyte",0
+ endif
+		xor		a					; set Z for good exit
 		RET							; DONE
 ;
 ;=============================================================================

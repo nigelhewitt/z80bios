@@ -2,7 +2,7 @@
 ; definitions of data structures used by FAT
 ;-------------------------------------------------------------------------------
 
- define MAX_PATH 90			; max length of a long filename
+ define MAX_PATH 254			; max length of a long filename
 
 ; a partition entry in the boot record (0) of a drive
 	struct	PARTITION
@@ -109,17 +109,22 @@ ERROR	macro	FAULT, ERRNO		; test for FAULT and error number
 		jr		FAULT, .e1
 		jr		.e2
 .e1		ld		a, ERRNO
-		jp		error_handler
+		jp		error_handler		; no return
 .e2
 		endm
 
+; used to decide which set of hardware routines to use (init/seek/read/write)
 HW_SD					equ		0			; hwDrive meanings
 HW_FD					equ		1
 
+; A DRIVE is like the drive letter in Windows. The hardware behind C: and F:
+; maybe totally different but you call 'the same' functions and get routed
+; to the right stuff. Mostly here I am involved in how big the FAT system is.
+
 	struct	DRIVE
-idDrive					db		0			; zero or the character ie: 'A' in "A:/"
-hwDrive					db		0			; 0=SD, 1=FD etc
-iPartition				db		0			; partition number
+idDrive					db		0			; the drive character ie: 'A' or 'C'
+hwDrive					db		0			; hardware type 0=SD, 1=FD etc
+iPartition				db		0			; partition number (or 0 if none)
 
 // fat organisation parameters
 fat_type				db		0			; FAT type
@@ -145,7 +150,7 @@ fatSuffix				ds		1			; only there to get overwritten
 	ends
 
 ; display "size of DRIVE: ", /D, DRIVE
- display "Offset of DRIVE.fatTable: ", /D, DRIVE.fatTable
+; display "Offset of DRIVE.fatTable: ", /D, DRIVE.fatTable
 
 ; A directory entry
 	struct	DIRN

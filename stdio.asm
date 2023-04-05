@@ -41,15 +41,32 @@ stdio_getc
 
 ; output null terminated string starting at HL, uses nothing
 stdio_text
-		push	af
+		push	af, hl
 .st1	ld		a, [hl]				; test the next character
 		or		a					; trailing null?
 		jr		z, .st2				; not
 		call	stdio_putc			; send the character
 		inc		hl					; move to the next character
 		jr		.st1
-.st2	pop		af
+.st2	pop		hl, af
 		ret
+
+; other versions of stdio_text (placeholders)
+stdio_textU8
+		jr	stdio_text		; place holder
+
+stdio_textU16
+		push	af, hl
+.su1	ld		a, [hl]
+		or		a
+		jr		z, stdio_text.st2
+		call	stdio_putc
+		inc		hl
+		inc		hl
+		jr		.su1
+		pop		hl, af
+		ret
+
 ;===============================================================================
 ;
 ; stdio_str		a simple all inline text writer
