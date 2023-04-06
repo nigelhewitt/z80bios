@@ -636,37 +636,6 @@ AddPath		push	bc, hl, de
 			pop		de, hl, bc
 			ret
 
-;-------------------------------------------------------------------------------
-; NormalisePath
-; I am using C:/abc/path/name/file.ext style directory separators here
-; but with years of DOS/Windows I don't need telling off when I type a '\'
-;		call with HL = WCHAR pathname
-; uses A
-;-------------------------------------------------------------------------------
-
-NormalisePath
-			push	de, hl
-.np1		ld		e, [hl]
-			inc		hl
-			ld		d, [hl]			; but don't inc hl
-			ld		a, e
-			or		d
-			jr		z, .np3			; end of string
-			ld		a, d			; MSbyte
-			or		a
-			jr		nz, .np2		; not \
-			ld		a, e
-			cp		'\'
-			jr		nz, .np2		; not \
-			ld		a, '/'
-			dec		hl				; back to first byte of char
-			ld		[hl], a
-			inc		hl				; to second byte
-.np2		inc		hl				; to next char
-			jr		.np1
-.np3		pop		hl, de
-			ret
-
 ;===============================================================================
 ; Now the workers for DIRECTORY
 ;===============================================================================

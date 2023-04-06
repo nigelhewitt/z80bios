@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.20"		; version number for sign on message
+	define	VERSION	"v0.1.21"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -529,8 +529,8 @@ cmd_list	db	"BOOT"
 			dw	cmd_wait
 ;			db	"Y",0,0,0
 ;			dw	cmd_y
-;			db	"Z",0,0,0			; anything test
-;			dw	cmd_z
+			db	"Z",0,0,0			; anything test
+			dw	cmd_z
 			db	"?",0,0,0
 			dw	cmd_hlp
 			db	0
@@ -548,7 +548,7 @@ do_commandline
 			jp		z, .d9			; end of line (just spaces?)
 			jr		.d2				; first character
 
-.d1		call	getc			; get next character (not first)
+.d1			call	getc			; get next character (not first)
 			jp		z, .d4			; end of line
 			cp		' '				; end of command?
 			jp		z, .d4
@@ -575,9 +575,7 @@ do_commandline
 			cp		':'
 			jr		nz, .d7
 			ld		a, [Z.cmd_exp]
-		SNAP "sd1"
 			CALLBIOS SetDrive
-		SNAP "sd2"
 			jp		c, good_end
 			jp		bad_end
 
@@ -628,7 +626,7 @@ cmd_hlp		CALLBIOS	ShowHelp
 ; ERR interpret last error value
 ;===============================================================================
 cmd_error	call		stdio_str
-			db			"\r\n",0
+			db			"\r\nLast error: ",0
 			ld			a, [Z.last_error]
 			call		stdio_decimalB
 			ld			a, ' '
@@ -1108,8 +1106,19 @@ cmd_time	AUTO	7				; 7 bytes of stack please
 ;===============================================================================
 ; Z  another thing being tested
 ;===============================================================================
-;cmd_z	;	CALLBIOS SPItest
-;			jp		bad_end
+cmd_z		ld		ix, .buffer		; buffer
+			ld		b, 100			; size of buffer in WCHARs
+			ld		c, 3			; picky mode
+			call	getW
+			jp		nc, bad_end
+
+			call	stdio_str
+			db		"\r\n",0
+			ld		hl, .buffer
+			call	stdio_textW
+			jp		good_end
+
+.buffer		ds		100 * 2
 
 ;===============================================================================
 ; KILL  the kill command
@@ -1286,7 +1295,6 @@ cmd_flag	call	skip		; first call only
 cmd_wait	CALLBIOS	WAITcommand
 			jp			c, good_end
 			jp			bad_end
-
 
 ;===============================================================================
 ; Error loaders so I can just jp cc, readable_name

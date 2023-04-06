@@ -30,6 +30,8 @@ buffer			ds		512
 f_setdrive	call	LocalON
 			or		a					; zero to reset
 			jr		z, .fs3
+			cp		'0'					; keyboard reset
+			jr		z, .fs3
 
 ; find a matching drive so we know it exists
 			ld		b, nDrive
@@ -51,8 +53,9 @@ f_setdrive	call	LocalON
 			or		a					; clear carry
 			ret
 
-; deinitialise so clear the drive's mounted status too
-.fs3		ld		b, nDrive
+; de-initialise so clear the drive's mounted status too
+.fs3		call	drive_init
+			ld		b, nDrive
 			ld		hl, local.ADRIVE
 			ld		de, DRIVE
 .fs4		ld		ix, hl
@@ -83,8 +86,11 @@ f_printCWD	call	LocalON
 			jr		z, .fp1				; not initialised
 			ld		hl, ix
 			ld		bc, DRIVE.cwd
-			add		hl, bc
-			call	stdio_textU16
+			add		hl, bc				; pointer to CWD
+			ld		a, [hl]
+			or		a
+			jr		z, .fp1
+			call	stdio_textW
 			jr		.fp2
 
 ; fake it
@@ -205,7 +211,7 @@ printDIRECTORY			; IY = DIRECTORY*
 			ld		hl, DIRECTORY.longPath
 			ld		bc, iy
 			add		hl, bc
-			call	stdio_textU16			; wide chars output
+			call	stdio_textW						; wide chars output
 
 			call	stdio_str
 			db		"\r\nstartCluster: 0x",0
@@ -217,7 +223,7 @@ printDIRECTORY			; IY = DIRECTORY*
 			db		"  sector: 0x",0
 			GET32i	iy, DIRECTORY.sector			; DE:HL
 			ld		bc, de
-			call	stdio_32bit					; BC:HL
+			call	stdio_32bit						; BC:HL
 
 			call	stdio_str
 			db		"  sectorinbuffer: 0x",0
@@ -265,7 +271,7 @@ printDRIVE				; IX = DRIVE*
 			ld		hl, DRIVE.cwd
 			ld		bc, ix
 			add		hl, bc
-			call	stdio_textU16
+			call	stdio_textW
 
 			call	stdio_str
 			db		"\r\nfat_size: ", 0
@@ -351,13 +357,13 @@ printFILE		; call with IX = FILE*
 			ld		hl, FILE.pathName
 			ld		bc, ix
 			add		hl, bc
-			call	stdio_textU16
+			call	stdio_textW
 			call	stdio_str
 			db		" ==> ", 0
 			ld		hl, FILE.longName
 			ld		bc, ix
 			add		hl, bc
-			call	stdio_textU16
+			call	stdio_textW
 
 			call	stdio_str
 			db		"\r\ndrive*: 0x", 0

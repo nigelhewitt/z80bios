@@ -71,7 +71,6 @@ drive_init	ld		ix, local.ADRIVE
 			db		'D', HW_SD, 1
 nDrive		equ		($-.init_data)/3	; number of drives
 
-
 ;-------------------------------------------------------------------------------
 ; get_drive	convert Drive code in A currently 'A','C' or 'D'
 ;			returns IX set to DRIVE and C or NC
@@ -91,7 +90,7 @@ get_drive	push	bc, de, hl, iy, af
 			xor		a					; fail
 			jr		.gd3
 
-.gd2		call	mount_drive
+.gd2		call	mount_drive			; CY on success
 .gd3		pop		iy, hl, de, bc
 			ret
 
@@ -101,6 +100,7 @@ get_drive	push	bc, de, hl, iy, af
 ; The either process it as a Volume header of load one.
 ; 	call with IX* DRIVE to fill in with the iDrive and
 ; iPartion values set
+;	returns NC is no such partition or no hardware
 ;-------------------------------------------------------------------------------
 
 testsig		db	"MSDOS5.0"			; used to id a value
@@ -147,7 +147,7 @@ mount_drive
 			ld		de, 0
 			ld		hl, 0
 			call	media_seek			; DE:HL
-			ERROR	nz, 2				; media_seek failed in mount_drive
+			jp		nz, .rb20			; fail soft
 	if	fat_report
 			call	stdio_str
 			BLUE
@@ -160,7 +160,7 @@ mount_drive
 			ld		hl, local.fat_buffer
 			ld		e, 1
 			call	media_read
-			ERROR	nz, 3				; media_read failed in mount_drive
+			jp		nz, .rb20				; fail soft
 	if	fat_report
 			call	stdio_str
 			BLUE
@@ -266,6 +266,8 @@ mount_drive
 ; get the type or error out
 ; (we will redo this on cluster count later, this is just to kick out errors)
 			ld		a, [iy+PARTITION.TypeCode]
+			or		a
+			jp		z, .rb20		; no such partition
 			cp		FAT12
 			jr		z, .rb6
 			cp		FAT16
@@ -542,6 +544,11 @@ mount_drive
 
 			pop		iy
 			scf
+			ret
+
+; soft fail (no drive or partition)
+.rb20		pop		iy
+			or		a
 			ret
 
 ; local variables

@@ -4,12 +4,13 @@
 ;
 ;===============================================================================
 
-; currently  have only two ways to input/output from these routines
+; currently I have only two ways to input/output from these routines
 ; to serial or to strings. I wanted a data location that wasn't in RAM
 ; to select this but the only reasonable one to do this at speed is
 ; the io byte at (UART+7)
 ; zero means use serial_sendW/serial_read
 ; 1 means write to (IY++)
+; I guess we might have more later...
 ;
 ;===============================================================================
 
@@ -39,7 +40,192 @@ stdio_getc
 		inc		iy
 		ret
 
-; output null terminated string starting at HL, uses nothing
+;-------------------------------------------------------------------------------
+; U8toWCHAR		get a 16 bit char in BC from usual input string
+;				based on https://en.wikipedia.org/wiki/UTF-8
+;				return Z on end of line
+;				return CY on good end
+;-------------------------------------------------------------------------------
+
+U8toWCHAR	call	getc			; get a character in A
+			jr		nc, .gu4		; good end of line
+
+; %0wwwwwww are one byte characters
+;	(7 bits)
+			bit		7, a			; 0x80 set
+			jr		nz, .gu1		; no, single byte in BC
+
+; accumulate the result in BC
+			ld		b, 0			; accumulate the character in BC
+			ld		c, a
+			jr		.gu3			; good end
+
+; test for mal-formed code (continuation byte as first byte)
+.gu1		bit		6, a
+			jr		z, .gu5			; error, continuation byte format
+
+; %110xxxxx are the first byte of a two byte char
+; the whole char is %110xxxxx %10wwwwwwww giving char %xxxxxwwwwww
+;	(11 bits)
+			bit		5, a
+			jr		nz, .gu2		; not two bytes
+
+; unpack 2 byte code
+			and		0x1f
+			ld		b, a			; <<6 is quicker as top byte then >>2
+			ld		c, 0
+			srl		b
+			rr		c
+			srl		b
+			rr		c
+			call 	getc			; get second byte
+			jr		z, .gu5			; error, run out of buffer
+			bit		7, a
+			jr		z, .gu5			; error
+			bit		6, a
+			jr		nz, .gu5		; error
+			and		0x3f			; mask
+			or		c
+			ld		c, a
+			jr		.gu3			; good end
+
+; %1110yyyy are the first byte of a three byte char
+; the whole char is %1110yyyy %10xxxxxx %10wwwwww giving %yyyyxxxxxxwwwwww
+;	(16 bits)
+.gu2		bit		4, a			;
+			jr		nz, .gu5		; not three byte so I give up
+
+; unpack 3 byte code
+			and		0x0f
+			ld		b, a			; stil needs shifting  <<4
+
+			call 	getc			; get second byte
+			jr		z, .gu5			; error, run out of input
+			bit		7, a
+			jr		z, .gu5			; error
+			bit		6, a
+			jr		nz, .gu5		; error
+			and		0x3f			; mask
+			sla		a				; slide to top of A
+			sla		a
+			sla		a				; now slide 4 places into B
+			rl		b
+			sla		a
+			rl		b
+			sla		a
+			rl		b
+			sla		a
+			rl		b
+			ld		c, a
+
+			call	getc			; get second byte
+			jr		z, .gu5			; error, run out of input
+			bit		7, a
+			jr		z, .gu5			; error
+			bit		6, a
+			jr		nz, .gu5		; error
+			and		0x3f			; mask
+			or		c
+			ld		c, a
+
+; good end  return NZ and C
+.gu3		or		1				; set NZ
+			scf						; and CY good end
+			ret
+
+; good EOL
+.gu4		ld		bc, 0
+			and		0				; set zero
+			scf
+			ret
+
+; bad_end
+.gu5		ld		bc, 0
+			and		0				; set Z and NC
+			ret
+
+;-------------------------------------------------------------------------------
+; WCHARtoU8		write the 16 bit char in BC to stdout_putc using UTF-8
+;				based on https://en.wikipedia.org/wiki/UTF-8
+;				uses AF
+;				returns nothing
+;-------------------------------------------------------------------------------
+
+WCHARtoU8
+; test for one char ie: <=0x7f (7 bits)
+			ld		a, c
+			and		0x80
+			or		b
+			jr		nz, .wc1 	; >0x7f
+
+; single char output %0wwwwwww
+			ld		a, c
+			call	stdio_putc
+			ret
+
+; test for two chars (11 bits)
+.wc1		ld		a, b
+			and		0xf8		; > 0x7ff
+			jr		nz, .wc2
+
+; two char output	%110xxxxx %10wwwwww
+			push	de
+			ld		de, bc		; save the char
+			sla		c			; BC << 2
+			rl		b
+			sla		c
+			rl		b
+			ld		a, b
+			or		0xc0
+			call	stdio_putc
+
+			ld		a, e		; LSBy
+			and		0x3F
+			or		0x80
+			call	stdio_putc
+			ld		bc, de
+			pop		de
+			ret
+
+; no need to test a 16bit register for 16 chars
+; output 3 chars %1110yyyy %10xxxxxx %10wwwwww
+.wc2		push	de
+			ld		de, bc
+			srl		b			; BC >> 4
+			rr		c
+			srl		b
+			rr		c
+			srl		b
+			rr		c
+			srl		b
+			rr		c
+			ld		a, c
+			or		0xe0
+			call	stdio_putc
+
+			ld		bc, de
+			sla		c			; BC <<2
+			rl		b
+			sla		c
+			rl		b
+			ld		a, b
+			or		0x80
+			call	stdio_putc
+
+			ld		a, e
+			and		0x3f
+			or		0x80
+			call	stdio_putc
+			ld		bc, de
+			pop		de
+			ret
+
+;-------------------------------------------------------------------------------
+; stdio_text	output null terminated string starting at HL
+;				uses nothing
+; stdio_textU8	translate chars in the 0x80-0xff to UTF-8 and output
+; stdio_textW	translate 16 bit char string at HL to UTF-8 and output
+;-------------------------------------------------------------------------------
 stdio_text
 		push	af, hl
 .st1	ld		a, [hl]				; test the next character
@@ -51,20 +237,48 @@ stdio_text
 .st2	pop		hl, af
 		ret
 
-; other versions of stdio_text (placeholders)
 stdio_textU8
-		jr	stdio_text		; place holder
-
-stdio_textU16
 		push	af, hl
 .su1	ld		a, [hl]
 		or		a
-		jr		z, stdio_text.st2
+		jr		z, .su3				; delimiter
+		bit		7, a
+		jr		nz, .su2			; 0x80-0xff
+
+; output one char
 		call	stdio_putc
 		inc		hl
+		jr		.su1
+
+; output two chars
+.su2	rlca						; rotate A direct so b7,6 end up as b1,0
+		rlca
+		and		0x03
+		or		0xc0
+		call	stdio_putc
+
+		ld		a, [hl]
+		and		0x3f
+		call	stdio_putc
 		inc		hl
 		jr		.su1
-		pop		hl, af
+
+; end
+.su3	pop	hl, af
+		ret
+
+stdio_textW
+		push	af, bc, hl
+.sw1	ld		c, [hl]
+		inc		hl
+		ld		b, [hl]
+		inc		hl
+		ld		a, b
+		or		c
+		jr		z, .sw2		; null terminator
+		call	WCHARtoU8
+		jr		.sw1
+.sw2	pop		hl, bc, af
 		ret
 
 ;===============================================================================
@@ -745,10 +959,154 @@ getdecimalB	push	bc
 			pop		bc
 			ret							; bad end
 
+;-------------------------------------------------------------------------------
+; Get a WCHAR string from the input allowing UTF-8
+;	delimit on spaces but accept quotes (with "" for a quote)
+;	and while I'm at it map \ to /
+;		call with usual HL pointer to line, D buffer count, use E as index
+;		assume the string is in PAGE0 so accessible
+;		IX = WCHAR receiving buffer
+;		B = buffer size
+;		if C b0 is set apply pathname character rules
+;		if C b1 is set do the anti-annoyance fix of '\' to '/'
+;		returns Carry on string returned (length!=0 and legal)
+; uses A
+;-------------------------------------------------------------------------------
+getW
+; define the bit flags used as local labels
+.B_legal	equ		0		; make test for illegal filename characters
+.B_slash	equ		1		; swap \ to /
+.B_quote	equ		2		; we are in a quoted portion
+.B_last		equ 	3		; the last char was a " ending a quoted section
+
+			push	iy
+			ld		a, c			; clear the bits I use for flags
+			and		3
+			ld		c, a
+			ld		iy, bc			; working space
+
+			call	skip			; skip spaces and return the first char
+			jp		z, .gw12		; end of input with no string
+			dec		e				; back up the index so HL[E] is the char
+
+			call	U8toWCHAR		; get first 16 bit char in BC
+			jp		z, .gw12		; end of line is bad here
+			jp		nc, .gw12		; so is bad character
+			jr		.gw2			; step into the loop
+
+; loop
+.gw1		call	U8toWCHAR		; not first char in BC
+			jp		z, .gw11		; end if line is OK here
+			jp		nc, .gw12		; but not bad character
+.gw2
+; test for double quote
+			ld		a, b
+			or		a
+			jr		nz, .gw5		; not "
+			ld		a, c
+			cp		0x22			; double quote
+			jr		nz, .gw5		; not "
+
+; sort out a double quote
+; using iyl.b2 as 'we are in double quotes so spaces are legal'
+; and	iyl.b3 as the last char was a double quote ending double quotes
+			ld		a, iyl
+			bit		.B_last, a		; was the last char an end of quote?
+			jr		z, .gw3			; no
+
+; last char was a close of quotes so rescind the end of quoted string
+; and insert a "
+			set		.B_quote, a
+			res		.B_last, a
+			ld		iyl, a
+			jp		.gw10			; save the char
+
+; is this a start/end of double quotes?
+.gw3		ld		a, iyl
+			bit		.B_quote, a		; are we in a quoted string?
+			jr		nz, .gw4		; yes
+			set		.B_quote, a		; no so set the quoted string bit
+			ld		iyl, a
+			jr		.gw1			; loop
+.gw4		res		.B_quote, a		; end a quote
+			set		.B_last, a		; set last char was EOQ flag
+			ld		iyl, a
+			jr		.gw1			; loop
+
+; we have a non-quote char
+.gw5		ld		a, iyl			; so it is not an end of quote
+			res		.B_last, a
+			ld		iyl, a
+
+; test for a delimiter aka a space but not in double quotes
+			bit		.B_quote, a		; but are we quoted?
+			jr		nz, .gw6		; can't be a terminator then
+			ld		a, b
+			or		a
+			jr		nz, .gw6		; not a space
+			ld		a, c
+			cp		' '
+			jp		z, .gw11		; delimiting space
+.gw6
+; are we testing for file illegal chars?
+			bit		.B_legal, a
+			jr		z, .gw9			; not testing
+
+; do the 'legal' tests
+			ld		a, b
+			or		b
+			jr		nz, .gw9		; all the chars blocked are in 0-0x7f
+			ld		a, c			; LSbyte
+			push	hl
+			ld		hl, .illegal	; list of bad characters
+.gw7		ld		a, [hl]
+			inc		hl
+			or		a
+			jr		z, .gw8			; end of list so good
+			cp		c
+			jr		nz, .gw7		; good char so loop
+			pop		hl				; bad char
+			jp		.gw12
+.gw8		pop		hl
+.gw9
+
+; are we changing \ to /
+			ld		a, iyl			; was c
+			bit		.B_slash, a
+			jr		z, .gw10		; no
+			cp		a, '\'
+			jr		nz, .gw10
+			ld		c, '/'
+
+; save the character
+.gw10		ld		[ix], c
+			inc		ix
+			ld		[ix], b
+			inc		ix
+			dec		iyh
+			jp		nz, .gw1
+			jr		.gw12			; run out of buffer
+
+; good exit
+.gw11		ld		[ix], 0			; add trailing null
+			ld		[ix+1], 0
+			pop		iy
+			scf
+			ret
+
+; bad exit
+.gw12		ld		[ix], 0			; add trailing null so the string is 'safe'
+			ld		[ix+1], 0
+			or		a				; clear CY	= bad end
+			pop		ix
+			ret
+
+; illegal chars, naturally in actual path/filenames the two slashes also count
+.illegal	db	'<', '>', ':', '"', '|', '?', '*', 0
+
 ;===============================================================================
 ; dump the registers
 ;===============================================================================
-
 _snap		push	af
 			push	bc
 			push	hl

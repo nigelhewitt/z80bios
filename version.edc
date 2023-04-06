@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.20"		move to local repository, use version number
+   	git commit -m "0.1.21"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -116,3 +116,8 @@ ready to call. This is just that untested stuff so only a local version.
 It compiles so it might be a good point to recover to...
 The DIR command works for C:/ and the scaffolding for the other command is in
 place and disk selection works.
+
+0.1.21
+Added getW to get a FAT compatible WCHAR string from the input buffer using
+UTF-8 rules rather than Windows locales. Added a matching stdio_txtW. It works
+with putty OK.
