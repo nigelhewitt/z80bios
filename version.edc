@@ -121,3 +121,8 @@ place and disk selection works.
 Added getW to get a FAT compatible WCHAR string from the input buffer using
 UTF-8 rules rather than Windows locales. Added a matching stdio_txtW. It works
 with putty OK.
+
+0.1.22
+Fix drive selection and prompt to use CWD if mounter or 'fake it' as C:\ if not
+The majority of CD is working (not . or ..) and DIR works
+

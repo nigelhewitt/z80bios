@@ -39,17 +39,12 @@ media_write	push	ix, iy
 			ret
 
 ;-------------------------------------------------------------------------------
-;	Drives as local variables
-;-------------------------------------------------------------------------------
-
-defaultDrive	db		'C'				; just as a starting point
-
-;-------------------------------------------------------------------------------
 ; init_drive	Initialise the drives
 ;				set the drive_letter, hardware_type and partition_number
 ;				since these value never change this can be done repeatedly
 ;-------------------------------------------------------------------------------
-drive_init	ld		ix, local.ADRIVE
+drive_init	push	bc, de, hl, ix, af
+			ld		ix, local.ADRIVE
 			ld		hl, .init_data
 			ld		b, nDrive
 .di1		ld		a, [hl]
@@ -64,6 +59,7 @@ drive_init	ld		ix, local.ADRIVE
 			ld		de, DRIVE
 			add		ix, de
 			djnz	.di1
+			pop		af, ix, hl, de, bc
 			ret
 
 .init_data	db		'A', HW_FD, 0
@@ -73,25 +69,26 @@ nDrive		equ		($-.init_data)/3	; number of drives
 
 ;-------------------------------------------------------------------------------
 ; get_drive	convert Drive code in A currently 'A','C' or 'D'
-;			returns IX set to DRIVE and C or NC
+;			returns IX set to DRIVE and C or IX=0 and NC
 ;-------------------------------------------------------------------------------
-get_drive	push	bc, de, hl, iy, af
-			call	drive_init
-			pop		af
+get_drive	push	bc, de, hl, af
+			call	drive_init			; fill in letters, HW and partitions
 			ld		b, nDrive
 			ld		hl, local.ADRIVE
 			ld		de, DRIVE
 .gd1		ld		ix, hl
 			cp		[ix+DRIVE.idDrive]
-			jp		z, .gd2				; aka call and ret
+			jr		z, .gd2				; match
 			add		hl, de
 			djnz	.gd1
 			ld		ix, 0
+			pop		af
 			xor		a					; fail
 			jr		.gd3
 
-.gd2		call	mount_drive			; CY on success
-.gd3		pop		iy, hl, de, bc
+.gd2		pop		af					; be sure to return the drive letter
+			scf							; drive exists even if not mounted
+.gd3		pop		hl, de, bc
 			ret
 
 ;-------------------------------------------------------------------------------
@@ -102,14 +99,6 @@ get_drive	push	bc, de, hl, iy, af
 ; iPartion values set
 ;	returns NC is no such partition or no hardware
 ;-------------------------------------------------------------------------------
-
-testsig		db	"MSDOS5.0"			; used to id a value
-	if	fat_report
-fat0		db	"NOT FAT",0
-fat12		db	"FAT12  ",0
-fat16		db	"FAT16  ",0
-fat32		db	"FAT32  ",0
-	endif
 
 mount_drive
 ; is this DRIVE already initialised?
@@ -187,7 +176,7 @@ mount_drive
 ; it's hardly definitive but if it has "MSDOS5.0" in BootTest it is a VOLUME
 			ld		b, 8
 			ld		hl, local.fat_buffer + BOOT.BootTest
-			ld		de, testsig
+			ld		de, .testsig
 .rb1		ld		a, [de]
 			cp		[hl]
 			jr		nz, .rb2
@@ -207,13 +196,13 @@ mount_drive
 			ld		a, [iy+PARTITION.TypeCode]
 			or		a
 			jp		z, .rb5
-			ld		hl, fat12		; FAT12
+			ld		hl, .fat12		; FAT12
 			cp		FAT12
 			jr		z, .rb4
-			ld		hl, fat16		; FAT16
+			ld		hl, .fat16		; FAT16
 			cp		FAT16
 			jr		z, .rb4
-			ld		hl, fat32		; FAT32
+			ld		hl, .fat32		; FAT32
 			cp		FAT32
 			jr		nz, .rb5		; display nothing
 .rb4		call	stdio_str
@@ -273,9 +262,8 @@ mount_drive
 			cp		FAT16
 			jr		z, .rb6
 			cp		FAT32
-			ERROR	nz, 6				; FAT type byte not recognised  in mount_drive
+			ERROR	nz, 6				; FAT type byte not recognised in mount_drive
 .rb6		ld		[ix+DRIVE.fat_type], a
-
 ; get the starting cluster
 			ld		hl, [iy+PARTITION.LBA_Begin]
 			ld		[ix+DRIVE.partition_begin_sector], hl
@@ -458,12 +446,12 @@ mount_drive
 			call	stdio_decimal32
 	endif
 ; and now we get the FAT type based on the Microsoft rules
-			ld		a, FAT12
 			CP32	4085
-			jr		nc,	.rb17		; FAT12
-			ld		a, FAT16
+			ld		a, FAT12
+			jr		c,	.rb17		; FAT12
 			CP32	65525
-			jr		nc, .rb17		; FAT16
+			ld		a, FAT16
+			jr		c, .rb17		; FAT16
 			ld		a, FAT32
 .rb17		ld		[ix+DRIVE.fat_type], a
 	if fat_report
@@ -550,6 +538,15 @@ mount_drive
 .rb20		pop		iy
 			or		a
 			ret
+
+; local constants
+.testsig	db	"MSDOS5.0"			; used to id a value
+	if	fat_report
+.fat0		db	"NOT FAT",0
+.fat12		db	"FAT12  ",0
+.fat16		db	"FAT16  ",0
+.fat32		db	"FAT32  ",0
+	endif
 
 ; local variables
 .local_temp1	dd	0

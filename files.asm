@@ -25,7 +25,8 @@ buffer			ds		512
 				ends
 
 ;-------------------------------------------------------------------------------
-; Set default Drive		call with A as a drive letter
+; Set default Drive	Call with A as a drive letter
+;					A drive is OK provided it is defined, no need to exist
 ;-------------------------------------------------------------------------------
 f_setdrive	call	LocalON
 			or		a					; zero to reset
@@ -42,30 +43,28 @@ f_setdrive	call	LocalON
 			ld		de, DRIVE
 .fs2		ld		ix, hl
 			cp		[ix+DRIVE.idDrive]
-			jr		z, .fs5
+			jr		z, .fs6
 			add		hl, de
 			djnz	.fs2
 
-; failed to find that drive so bad return
-			xor		a
-			ld		[local.current], a
+; failed to find that drive so bad return but no change
 			call	LocalOFF
 			or		a					; clear carry
 			ret
 
-; de-initialise so clear the drive's mounted status too
-.fs3		call	drive_init
+; de-initialise so clear the all the drive's mounted statii
+.fs3		call	drive_init			; put in codes
 			ld		b, nDrive
 			ld		hl, local.ADRIVE
 			ld		de, DRIVE
 .fs4		ld		ix, hl
-			ld		[ix+DRIVE.fat_type], 0
+			ld		[ix+DRIVE.fat_type], 0	; 0 = not mounted
 			add		hl, de
 			djnz	.fs4
-			xor		a
 
 ; save drive and exit
-.fs5		ld		[local.current], a
+.fs5		xor		a
+.fs6		ld		[local.current], a
 			call	LocalOFF
 			scf
 			ret
@@ -76,14 +75,14 @@ f_setdrive	call	LocalON
 f_printCWD	call	LocalON
 			ld		a, [local.current]	; do we have a 'current drive'?
 			or		a
-			jr		z, .fp2				; no
+			jr		z, .fp2				; no, so use ""
 
-; we have a current drive but is it mounted yet?
+; We have a current drive but is it mounted yet?
 			call	get_drive			; set IX to drive based on A
-			jr		nc, .fp2			; no such beast
+			jr		nc, .fp2			; aka current is trashed
 			ld		a, [ix+DRIVE.fat_type]
 			or		a
-			jr		z, .fp1				; not initialised
+			jr		z, .fp1				; not mounted
 			ld		hl, ix
 			ld		bc, DRIVE.cwd
 			add		hl, bc				; pointer to CWD
@@ -109,18 +108,39 @@ f_printCWD	call	LocalON
 ;-------------------------------------------------------------------------------
 ; CD command
 ;-------------------------------------------------------------------------------
-f_cdcommand
-			call	stdio_str
-			db		"\r\nCD command",0
-			scf
-			ret
+f_cdcommand	call	LocalON
+			ld		ix, local.text		; buffer
+			ld		b, 100				; size of buffer in WCHARs
+			ld		c, getW.B_badPath + getW.B_slash	; test for legal and /
+			call	getW				; get 16bit char string
+			jp		nc, .fc1			; failed something
+
+			ld		de, local.text		; target name in W16
+			ld		iy, local.folder	; empty folder to work with
+			call	OpenDirectory		; returns IY as DIRECTORY*
+			jp		nc, .fc1			; failed
+
+			ld		hl, [iy+DIRECTORY.drive]	; DRIVE*
+			ld		bc, DRIVE.cwd
+			add		hl, bc
+			ld		de, hl				; destination
+
+			ld		hl, iy
+			ld		bc, DIRECTORY.longPath
+			add		hl, bc				; source
+			call	strcpy16			; WCHAR [HL]->[DE]
+
+			call	LocalOFF
+			jp		good_end
+
+.fc1		call	LocalOFF
+			jp		bad_end
 
 ;-------------------------------------------------------------------------------
 ; DIR command
 ;-------------------------------------------------------------------------------
 f_dircommand
 			call	LocalON
-
 			ld		a, [local.current]
 			or		a
 			jr		nz, .fd1
@@ -185,8 +205,10 @@ f_dircommand
 ; TYPE command
 ;-------------------------------------------------------------------------------
 f_typecommand
+			call	LocalON
 			call	stdio_str
 			db		"\r\nTYPE command",0
+			call	LocalOFF
 			scf
 			ret
 
@@ -194,8 +216,10 @@ f_typecommand
 ; LOAD command
 ;-------------------------------------------------------------------------------
 f_loadcommand
+			call	LocalON
 			call	stdio_str
 			db		"\r\nLOAD command",0
+			call	LocalOFF
 			scf
 			ret
 
@@ -212,6 +236,11 @@ printDIRECTORY			; IY = DIRECTORY*
 			ld		bc, iy
 			add		hl, bc
 			call	stdio_textW						; wide chars output
+
+			call	stdio_str
+			db		"  at: 0x",0
+			ld		hl, iy
+			call	stdio_word
 
 			call	stdio_str
 			db		"\r\nstartCluster: 0x",0
@@ -265,6 +294,11 @@ printDRIVE				; IX = DRIVE*
 			db		"  type: 0x", 0
 			ld		a, [ix+DRIVE.fat_type]
 			call	stdio_byte
+
+			call	stdio_str
+			db		"  at: 0x",0
+			ld		hl, ix
+			call	stdio_word
 
 			call	stdio_str
 			db		"\r\ncwd: ", 0
@@ -364,6 +398,11 @@ printFILE		; call with IX = FILE*
 			ld		bc, ix
 			add		hl, bc
 			call	stdio_textW
+
+			call	stdio_str
+			db		"  at: 0x",0
+			ld		hl, ix
+			call	stdio_word
 
 			call	stdio_str
 			db		"\r\ndrive*: 0x", 0

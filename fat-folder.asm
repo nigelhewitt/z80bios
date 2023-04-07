@@ -382,7 +382,6 @@ WriteDirectoryItem	; "%8s %8s %6s %11u %11u  %s"
 			ld		a, ' '
 			ld		[hl], a
 			inc		hl
-;	SNAP "cluster"
 ; start cluster
 			push	hl
 			GET32i	ix, FILE.startCluster	; load DE:HL
@@ -530,111 +529,61 @@ MakeLongFromShort
 ;					  DE = (WCHAR*)more path to append
 ;	uses A
 ;-------------------------------------------------------------------------------
-
-AddPath		push	bc, hl, de
+AddPath
+			push	bc, de, hl
 
 ; first deal with the special cases of "." and ".."
-; WARNING: if the first char is '.' then the second either is null, so "."
-; or I assume it is ".."
-			ld		b, 0				; use B as the 'special case ".."' flag
-			ld		a, [de]				; lower of [0]
-			cp		'.'
-			jr		nz, .ap3			; not special case
-			inc		de
-			ld		a, [de]				; upper of [0]
-			or		a
-			jr		nz, .ap3			; not special case
-			inc		de
-			inc		de
-			ld		a, [de]				; upper of [1]
-			or		a
-			jr		nz, .ap3			; not special case
-			dec		de
-			ld		a, [de]				; lower of [1]
-			or		a
-			jr		nz, .ap2			; not "."
+			ld		hl, .dotdot
+			call	strcmp16
+			jr		c, .ap2
+			ld		hl, .dot
+			call	strcmp16
+			jr		nc, .ap6			; neither
 
-; process as "."
-.ap1		pop		de, hl, bc			; is "."
-			ret							; the easy one
+; dot
+.ap1		pop		hl, de, bc			; the easy one is "."
+			ret
 
-; ".x" process as ".."
-.ap2		ld		b, 1				; special case ".." marker
+; dotdot 	so move HL to the end of the string
+.ap2		pop		hl					; recover the path pointer
+			push	hl
+			call	strend16			; HL points to terminating null
 
-; advance to the end of HL counting the '/' (should always be 1 for "C:/")
-.ap3		ld		e, 0				; slash counter
-
-.ap4		ld		c, [hl]				; lsbyte
-			inc		hl
-			ld		a, [hl]				; usbyte is zero for '/' or NULL
-			inc		hl					; HL points to next char
-			or		a
-			jr		nz, .ap4			; neither a null nor a '/' so loop
-			or		c					; a is zero so recover char + set flags
-			jr		z, .ap5				; end of string
-			cp		'/'
-			jr		nz, .ap4
-			inc		e					; count a '/'
-			jr		.ap4
-
-; end of string
-.ap5		ld		a, b				; was that a special case or ".."?
-			jr		z, .ap7				; no
-
-; special case ".."
-			ld		a, e				; count of '/'
-			cp		2
-			jr		c, .ap1				; less than so fail soft
-
-; count HL back to the previous '/'
-; since we have a count of 2 or more we need not worry about length tests
-			dec		hl					; step HL back to point at null
+; then move back to the last /
+.ap3		dec		hl
+			ld		a, [hl]				; msb of char
 			dec		hl
-.ap6		dec		hl					; step to the MBbyte of char
-			ld		b, [hl]
-			dec		hl					; step to the start of the char
-			ld		a, [hl]
-			cp		a, '/'				;
-			jr		nz, .ap6			; nope
-			ld		a, b
 			or		a
-			jr		nz, .ap6			; nope
-			inc		hl
-			inc		hl
-			xor		a
-			ld		[hl], a
-			inc		hl
-			ld		[hl], a
-			jr		.ap1					; pop and exit
+			jr		nz, .ap3			; not a delimiter
+			ld		a, [hl]				; lsb of the character
+			cp		':'
+			ERROR	z, 22				; : found trying to do cd ..
+			cp		'/'
+			jr		nz, .ap3			; not a delimiter
 
-; finally do the append
-.ap7		pop		de					; recover the string pointer
-			push	de
-.ap8		ld		a, [de]
-			inc		de
-			ld		c, a
-			ld		a, [de]
-			inc		de
-			ld		b, a
-			or		c					; test for EOS
-			jr		z, .ap9				; end of string
-			ld		[hl], c
+			inc		hl					; move to char after the delimiter
 			inc		hl
-			ld		[hl], b
-			inc		hl
-			jr		.ap8				; add loop
-
-; end of string so add a / and a null
-.ap9		ld		a, '/'
-			ld		[hl], a
-			xor		a
-			ld		[hl], 0				; ms byte of the char
+			ld		[hl], 0				; put in a null
 			inc		hl
 			ld		[hl], 0
-			inc		hl
-			ld		[hl], a
-			pop		de, hl, bc
-			ret
+			jr		.ap1
+
+; do the append version
+; advance HL to the EOL
+.ap6		pop		hl					; recover the pointer
+			push	hl
+			call	strend16			; advance HL to the null
+
+; copy on the addition
+			ex		de, hl				; HL = source, DE = dest
+			call	strcpy16			; advances HL and DE
+			ld		hl, .slash
+			call	strcpy16
+			jp		.ap1
+
+.dotdot		dw		'.'
+.dot		dw		'.',0
+.slash		dw		'/',0
 
 ;===============================================================================
 ; Now the workers for DIRECTORY
@@ -689,7 +638,7 @@ NextDirectoryItem
 
 ; read sector
 			SET32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
-			call	media_seek				; to DE:HL
+ 			call	media_seek				; to DE:HL
 			ERROR	nz, 17		; media_seek fails in NextDirectoryItem
 			ld		hl, iy
 			ld		bc, DIRECTORY.buffer
@@ -837,38 +786,67 @@ NextDirectoryItem
 			ret
 
 ;-------------------------------------------------------------------------------
-; getToken		Read through a path "stuff-abc/def/gei/" starting from the
-;				pointer, say 6 and copy abc into the buffer moving the index
-;				to past the delimiter ie 10
-;  call with HL = text, DE=buffer, BC = index
+; getToken		Read through a WCHAR* path "stuff-abc/def/gei/" starting from
+;				the pointer, say 6 and copy abc into the buffer moving the
+;				index to past the delimiter ie 10
+;  call with HL = (WCHAR*)text, DE=(WCHAR*)buffer, BC = index
 ;  return CY if there is a token and NC if not
 ; uses A and updates BC
 ;-------------------------------------------------------------------------------
 getToken	push		hl, de
 			add			hl, bc			; pointer to indexed item
-.gt1		ld			a, [hl]
-			or			a
-			jr			z, .gt3			; end of input
-			cp			'/'
-			jr			z, .gt2			; delimiter
-			ld			[de], a
+			add			hl, bc			; in WCHARs
+
+; check for no token ie end of input (input starting / dealt with elsewhere)
 			inc			hl
+			ld			a, [hl]
+			dec			hl
+			or			[hl]
+			jr			nz, .gt1
+			pop			de, hl
+			or			a				; NC for no token
+			ret
+
+; loop copying input to output until end of input or /
+.gt1		push		bc
+			ld			c, [hl]			; LD BC, [HL++]
+			inc			hl
+			ld			b, [hl]
+			inc			hl
+			ld			a, c			; CP BC, 0
+			or			b
+			jr			z, .gt3			; end of input
+			ld			a, c			; CP BC, '/'
+			cp			'/'
+			jr			nz, .gt2		; not delimiter
+			ld			a, b
+			or			a
+			jr			z, .gt4			; delimiter
+
+; not delimiter or end of string so copy it over
+.gt2		ld			a, c
+			ld			[de], a
 			inc			de
+			ld			a, b
+			ld			[de], a
+			inc			de
+			pop			bc
+			inc			bc
 			jr			.gt1
 
-; delimiter so step over it
-.gt2		inc			hl
-; end of input so leave HL on end
-.gt3		xor			a
+; end of input
+.gt3		pop			bc
+			jr			.gt5
+
+; delimiter so terminate the buffer
+.gt4		pop			bc
+			inc			bc				; step over the delimiter
+.gt5		xor			a
 			ld			[de], a
-			pop			hl				; original DE
-			push		de
-			sub			hl, de			; if they differ we got a token
-			ld			a, h
-			or			l				; or clears carry
-			jr			z, .gt4
+			inc			de
+			ld			[de], a
+			pop			de, hl
 			scf
-.gt4		pop			de, hl
 			ret
 
 ;-------------------------------------------------------------------------------
@@ -876,8 +854,6 @@ getToken	push		hl, de
 ;					returns CY if it happens
 ; use A
 ;-------------------------------------------------------------------------------
-
-tempFile	FILE
 
 ChangeDirectory
 			call	ResetDirectory		; IX = DIRECTORY*
@@ -903,10 +879,10 @@ ChangeDirectory
 
 ; we need a FILE to work in
 .cd1		push	bc, hl, ix				; DE already pushed
-			ld		ix, tempFile			; get a working FILE*
+			ld		ix, local.file			; get a working FILE*
 
 .cd2		call	NextDirectoryItem		; IY=DIRECTORY*, IX=FILE*
-			jr		nc, .cd3				; finished so failed
+			jp		nc, .cd3				; finished so failed
 
 			call	isDir					; FILE* in IX
 			jr		nc, .cd2				; nope
@@ -918,6 +894,7 @@ ChangeDirectory
 			ld		hl, ix					; FILE*
 			ld		de, FILE.longName
 			add		hl, de
+
 			ld		de, hl					; more path
 			ld		hl, iy					; DIRECTORY*
 			ld		bc, DIRECTORY.longPath
@@ -939,6 +916,7 @@ ChangeDirectory
 .cd4		pop		ix, hl, bc, de
 			ret
 
+
 ;-------------------------------------------------------------------------------
 ; OpenDirectory			open with a path
 ;
@@ -948,7 +926,7 @@ ChangeDirectory
 ; device then you get folder/folder or /folder/folder/
 ;	call with		IY = DIRECTORY*  to empty structure
 ;					DE = WCHAR* path
-;	returns C if oK or NC if it fail
+;	returns C if OK or NC if it fail
 ;-------------------------------------------------------------------------------
 
 OpenDirectory
@@ -959,31 +937,35 @@ OpenDirectory
 			ld		a, [de]					; driver indicator
 			cp		':'						; was that C: ?
 			jr		nz, .od2				; no
-			ld		a, b
+			ld		a, b					; get back the letter
 			call	islower
 			jr		nc, .od1
 			and		~0x20
 .od1
 ; we have a C: style start so use that as the drive and advance DE to the path
 			ld		c, a					; save the drive letter in C
-			inc		de						; msb of ch[1]
-			inc		de						; point to ch[2]
+			inc		de
+			inc		de
 			jr		.od2a
-; we have no C: start so ise the default drive and restore DE
-.od2		ld		a, [defaultDrive]		; letter code 'A'=FDC, 'C'=SD
+; we have no C: to start so use the default drive and restore DE
+.od2		ld		a, [local.current]		; letter code 'A'=FDC, 'C'/'D'=SD
 			ld		c, a					; drive letter in C
 			dec		de
 			dec		de
 .od2a
 
 ; so get a DRIVE in IX
+			push	de, bc
 			call	get_drive				; 'C' letter in A returns IX
 			ERROR	nc, 21					; get_drive fails in OpenDirectory
+			call	mount_drive				; if not mounted mount it
+			ERROR	nc, 22					; mount_drive fails in OpenDirectory
+			pop		bc, de
 
-; set up some basic values as if it is "" or "A:\" this is what they get
+; set up some basic values as if it is "" or "A:/" this is what they get
 			xor		a
 			ld		hl, ix
-			ld		[iy+DIRECTORY.drive], hl			; dw drive*
+			ld		[iy+DIRECTORY.drive], hl			; dw DRIVE*
 			ld		hl, 0
 			ld		[iy+DIRECTORY.startCluster], hl		; dd start from root
 			ld		[iy+DIRECTORY.startCluster+2], hl
@@ -994,38 +976,30 @@ OpenDirectory
 			ld		[iy+DIRECTORY.sectorinbuffer+2], hl
 			ld		[iy+DIRECTORY.slot], a				; db as reset
 
-; put something sensible in the longpath	"C:/"
+; put something sensible in the longpath like "C:/"
+			push	de
 			ld		a, c								; get the drive letter
 			ld		hl, DIRECTORY.longPath				; point to the buffer
 			ld		bc, iy
 			add		hl, bc
-			ld		[hl], a								; drive letter
-			inc		hl
-			xor		a
-			ld		[hl], a
-			inc		hl
-			ld		a, ':'								; :
-			ld		[hl], a
-			inc		hl
-			xor		a
-			ld		[hl], a
-			inc		hl
-			ld		a, '/'								; /
-			ld		[hl], a
-			inc		hl
-			xor		a
-			ld		[hl], a
-			inc		hl
-			ld		[hl], a								; trailing null
-			inc		hl
-			ld		[hl], a
+			ld		de, hl								; target
+			push	de
+			ld		hl, .init							; source "X:\"
+			ld		bc, .size_init
+			ldir
+			pop		de									; target
+			ld		[de], a								; drive letter
+			pop		de
 
 ; if the path does not start with a / use the CWD for that drive
+			inc		de
+			ld		a, [de]
+			dec		de
+			or		a
+			jr		nz, .od4
 			ld		a, [de]
 			cp		'/'
 			jr		z, .od4				; not CWD
-			inc		de
-			inc		de
 
 ; loop through the elements of the drive's CWD
 			push	de					; save our path pointer
@@ -1033,31 +1007,47 @@ OpenDirectory
 			ld		bc, DRIVE.cwd
 			add		hl, bc				; pointer to CWD
 			ld		bc, 3				; the CWD is at least "A:\"
-			ld		de, local.buffer			; text buffer
-.od3		call	getToken			; HL = text, DE=buffer, BC = index
+.od3		ld		de, local.text		; text buffer
+			call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od5			; run out of tokens
+
+			push	hl, bc				; save the token stuff
+			ld		de, local.text		; token
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
-			jr		c, .od3				; done OK
+			pop		bc, hl
+			jr		c, .od3				; done OK so try again
 			pop		de					; fail
 			xor		a
 			ret
 
-.od4		inc		de					; if it was a / move over it
+; not CWD so move over the /
+.od4		inc		de
 			inc		de
 			jr		.od6
+
+; finished with CWD
 .od5		pop		de					; recover main path
 .od6
 
 ; now do the path's tokens
+; DE should now point to the first token
 			ld		hl, de				; path in HL
 			ld		bc, 0				; zero the index
-			ld		de, local.buffer	; text buffer
+			ld		de, local.text		; text buffer
 .od7		call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od8			; run out of tokens
+			push	hl, bc				; save token pointers
+			ld		de, local.text		; text buffer
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
+			pop		bc, hl
 			jr		c, .od7				; done OK
 			xor		a
 			ret
+
 .od8		call	ResetDirectory		; IY=DIRECTORY*
 			scf
 			ret
+
+.init		dw		'X', ':','/', 0
+.size_init	equ	$-.init
+

@@ -967,21 +967,23 @@ getdecimalB	push	bc
 ;		assume the string is in PAGE0 so accessible
 ;		IX = WCHAR receiving buffer
 ;		B = buffer size
-;		if C b0 is set apply pathname character rules
-;		if C b1 is set do the anti-annoyance fix of '\' to '/'
+;		if C b0 is set apply path character rules
+;		if C b1 is set apply filename rules
+;		if C b2 is set do the anti-annoyance fix of '\' to '/'
 ;		returns Carry on string returned (length!=0 and legal)
 ; uses A
 ;-------------------------------------------------------------------------------
 getW
 ; define the bit flags used as local labels
-.B_legal	equ		0		; make test for illegal filename characters
-.B_slash	equ		1		; swap \ to /
-.B_quote	equ		2		; we are in a quoted portion
-.B_last		equ 	3		; the last char was a " ending a quoted section
+.B_badPath	equ		0		; make test for illegal pathname characters
+.B_badName	equ		1		; make test for illegal filename characters
+.B_slash	equ		2		; swap \ to /
+.B_quote	equ		3		; we are in a quoted portion
+.B_last		equ 	4		; the last char was a " ending a quoted section
 
 			push	iy
 			ld		a, c			; clear the bits I use for flags
-			and		3
+			and		7
 			ld		c, a
 			ld		iy, bc			; working space
 
@@ -1048,17 +1050,22 @@ getW
 			cp		' '
 			jp		z, .gw11		; delimiting space
 .gw6
-; are we testing for file illegal chars?
-			bit		.B_legal, a
+; are we testing for filename/pathname illegal chars?
+			bit		.B_badName, a	; name takes precedence
+			jr		nz, .gw6a		; testing the pathname list
+			bit		.B_badPath, a
 			jr		z, .gw9			; not testing
+			push	hl				; testing the filename list
+			ld		hl, .badPath
+			jr		.gw6b
+.gw6a		push	hl
+			ld		hl, .badName	; including /\:
 
 ; do the 'legal' tests
-			ld		a, b
+.gw6b		ld		a, b
 			or		b
-			jr		nz, .gw9		; all the chars blocked are in 0-0x7f
+			jr		nz, .gw8		; all the chars blocked are in 0-0x7f
 			ld		a, c			; LSbyte
-			push	hl
-			ld		hl, .illegal	; list of bad characters
 .gw7		ld		a, [hl]
 			inc		hl
 			or		a
@@ -1101,8 +1108,79 @@ getW
 			pop		ix
 			ret
 
-; illegal chars, naturally in actual path/filenames the two slashes also count
-.illegal	db	'<', '>', ':', '"', '|', '?', '*', 0
+; illegal chars
+.badName	db	':', '/', '\'
+.badPath	db	'<', '>', '"', '|', '?', '*', 0
+
+;-------------------------------------------------------------------------------
+; strcpy16	copy a 16bit string from HL to DE
+;			uses A and advances HL and DE
+;-------------------------------------------------------------------------------
+strcpy16	push	bc
+.sc1		ld		c, [hl]
+			inc		hl
+			ld		a, c
+			ld		[de], a
+			inc		de
+			ld		a, [hl]
+			inc		hl
+			ld		[de], a
+			inc		de
+			or		c
+			jr		nz, .sc1
+			pop		bc
+			dec		de
+			dec		de
+			ret
+
+;-------------------------------------------------------------------------------
+; strcmp16	WCHAR* HL, WCHAR* DE
+;			uses A
+;			return CY on match
+;-------------------------------------------------------------------------------
+
+strcmp16	push	bc, de, hl
+;load BC
+.sc1		ld		c, [hl]		; LD BC, [HL++]
+			inc		hl
+			ld		b, [hl]
+			inc		hl
+
+; test for match
+			ld		a, [de]		; CP [DE++]
+			inc		de
+			cp		a, c
+			jr		nz, .sc2
+			ld		a, [de]
+			inc		de
+			cp		a, b
+			jr		nz, .sc2
+
+; match so if that was a 0 we have a winner
+			ld		a, b
+			or		a, c
+			jr		nz, .sc1
+			pop		hl, de, bc
+			scf
+			ret
+
+; no match so fail
+.sc2		pop		hl, de, bc
+			or		a
+			ret
+
+;-------------------------------------------------------------------------------
+;  strend16		advance HL to the end of a 16bit string
+;				uses A
+;-------------------------------------------------------------------------------
+strend16	ld		a, [hl]
+			inc		hl
+			or		[hl]
+			jr		z, .se1
+			inc		hl
+			jr		strend16
+.se1		dec		hl
+			ret
 
 ;===============================================================================
 ; dump the registers

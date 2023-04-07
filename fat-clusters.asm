@@ -48,7 +48,7 @@ ClusterToSector
 ;	return drive->cluster_begin_sector + ((c - 2) << drive->sectors_to_cluster_right_slide);
 			push	bc
 			ld		a, l		; DE:HL -= 2
-			sub		a, 2
+			sub		2
 			ld		l, a
 			jr		nc, .cs1
 			dec		h
@@ -176,7 +176,7 @@ GetFatSector
 			call	FlushFat		; it may need doing
 			pop		de, hl
 			push	hl, de
-	SNAP "GetFatSector"
+
 			ld		bc, [ix+DRIVE.fat_begin_sector]
 			add		hl, bc
 			ld		bc, [ix+DRIVE.fat_begin_sector+2]
@@ -893,7 +893,6 @@ GetNextSector
 ;	return YY_ClusterToSector(drive, n);
 
 .gn3
-	SNAP	"SectorToCluster call"
 		call	SectorToCluster
 		call	GetClusterEntry
 		CP32	0xffffffff			; end of chain

@@ -57,8 +57,13 @@ isDir		ld		a, [ix+FILE.dirn + DIRN.DIR_Attr]
 			ret
 
 ;-------------------------------------------------------------------------------
-; matchName		test the FIL* in IX against long name in DE
-;				return
-; IX=FILE*, DE=WCHAR*
-matchName	or		a
+; matchName		test the FILE* in IX with wanted item WCHAR* DE
+;				return CY on match
+;-------------------------------------------------------------------------------
+matchName	push	hl, bc
+			ld		hl, ix
+			ld		bc,	FILE.longName
+			add		hl, bc
+			call	strcmp16
+			pop		bc, hl
 			ret
