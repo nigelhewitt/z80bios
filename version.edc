@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.21"		move to local repository, use version number
+   	git commit -m "0.1.23"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -126,3 +126,6 @@ with putty OK.
 Fix drive selection and prompt to use CWD if mounter or 'fake it' as C:\ if not
 The majority of CD is working (not . or ..) and DIR works
 
+0.1.23
+DIR and CD working at a basic level. Consider it an interim save before doing a
+full test and fix study.

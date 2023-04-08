@@ -4,11 +4,6 @@
 ;
 ;===============================================================================
 
-;	OpenDirectory	call with DE=WCHAR* path, returns IY=DIRECTORY* CY on OK
-;	ResetDirectory	IY=DIRECTORY* resets so starts from beginning again
-;	NextDirectoryItem IY=DIRECTORY*, IX=FILE* to fill in, NC on finished
-;	WriteDirectoryItem IX=FILE*, HL=chars, DE=maxChars
-
 ; use local memory
 ; set up so local.thing is the absolute address of thing
 				struct	local
@@ -21,6 +16,7 @@ folder			DIRECTORY
 file			FILE
 fat_buffer		ds		512
 text			ds		MAX_PATH+85
+text2			ds		MAX_PATH+85
 buffer			ds		512
 				ends
 
@@ -111,14 +107,23 @@ f_printCWD	call	LocalON
 f_cdcommand	call	LocalON
 			ld		ix, local.text		; buffer
 			ld		b, 100				; size of buffer in WCHARs
-			ld		c, getW.B_badPath + getW.B_slash	; test for legal and /
+; test for legal, treat illegal as a terminator, translate \ to /
+			ld		c, getW.B_badPath + getW.B_slash + getW.B_term
 			call	getW				; get 16bit char string
-			jp		nc, .fc1			; failed something
+			jr		nc, .fc1			; failed something
 
+; do we have a drive to work on
+			ld		a, [local.text+1]
+			cp		':'
+			jr		z, .fc0
+			ld		a, [local.current]
+			or		a
+			jr		z, .fc3
+.fc0
 			ld		de, local.text		; target name in W16
 			ld		iy, local.folder	; empty folder to work with
 			call	OpenDirectory		; returns IY as DIRECTORY*
-			jp		nc, .fc1			; failed
+			jp		nc, .fc2			; failed
 
 			ld		hl, [iy+DIRECTORY.drive]	; DRIVE*
 			ld		bc, DRIVE.cwd
@@ -133,7 +138,17 @@ f_cdcommand	call	LocalON
 			call	LocalOFF
 			jp		good_end
 
-.fc1		call	LocalOFF
+.fc1		call	stdio_str
+			db		" -- Bad pathname",0
+			call	LocalOFF
+			jp		bad_end
+.fc2		call	stdio_str
+			db		" -- Folder not found",0
+			call	LocalOFF
+			jp		bad_end
+.fc3		call	stdio_str
+			db		" -- No current drive",0
+			call	LocalOFF
 			jp		bad_end
 
 ;-------------------------------------------------------------------------------

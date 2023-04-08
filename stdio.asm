@@ -970,6 +970,7 @@ getdecimalB	push	bc
 ;		if C b0 is set apply path character rules
 ;		if C b1 is set apply filename rules
 ;		if C b2 is set do the anti-annoyance fix of '\' to '/'
+;		if C b3 treat illegal characters as terminators
 ;		returns Carry on string returned (length!=0 and legal)
 ; uses A
 ;-------------------------------------------------------------------------------
@@ -978,12 +979,13 @@ getW
 .B_badPath	equ		0		; make test for illegal pathname characters
 .B_badName	equ		1		; make test for illegal filename characters
 .B_slash	equ		2		; swap \ to /
-.B_quote	equ		3		; we are in a quoted portion
-.B_last		equ 	4		; the last char was a " ending a quoted section
+.B_term		equ		3		; treat illegal as terminator
+.B_quote	equ		4		; we are in a quoted portion
+.B_last		equ 	5		; the last char was a " ending a quoted section
 
 			push	iy
 			ld		a, c			; clear the bits I use for flags
-			and		7
+			and		0x0f
 			ld		c, a
 			ld		iy, bc			; working space
 
@@ -1073,6 +1075,9 @@ getW
 			cp		c
 			jr		nz, .gw7		; good char so loop
 			pop		hl				; bad char
+			ld		a, ixl			; get the flags
+			bit		.B_term, a		; treat illegal as terminator?
+			jp		nz, .gw11
 			jp		.gw12
 .gw8		pop		hl
 .gw9

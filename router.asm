@@ -59,7 +59,6 @@ wedgeROM	di							; 4T
 			cp		RAM5				; 7T
 			jp		z, gotoRAM5			; 10T
 
-	SNAP "BAD CALLBIOS 1"
 			ld		hl, ERR_BADFUNCTION
 			ld		[Z.last_error], hl
 			ei
@@ -127,8 +126,7 @@ bios		ld		sp, local_stack		; a stack that will work
 			; so a function can either jp to good/bad end to set/clear carry
 			; or return to preserve its flags
 
-.bi1	SNAP  "BAD CALLBIOS 2"
-			ld		hl, ERR_BADFUNCTION	; bad function number
+.bi1		ld		hl, ERR_BADFUNCTION	; bad function number
 			ld		[Z.last_error], hl
 			pop		bc, hl
 			ld		a, [Z.cr_a]
@@ -153,6 +151,6 @@ return		di							; 4T
 
 ; Local Stack
 local_stack_bottom
-			ds		100
+			ds		150
 local_stack
 	endif

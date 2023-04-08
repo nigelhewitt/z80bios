@@ -549,7 +549,9 @@ AddPath
 			push	hl
 			call	strend16			; HL points to terminating null
 
-; then move back to the last /
+; then move back to the /
+			dec		hl					; character before
+			dec		hl
 .ap3		dec		hl
 			ld		a, [hl]				; msb of char
 			dec		hl
@@ -858,7 +860,7 @@ getToken	push		hl, de
 ChangeDirectory
 			call	ResetDirectory		; IX = DIRECTORY*
 
-; handle "." with a shortcut
+ ; handle "." with a shortcut
 			push	de
 			ld		a, [de]
 			cp		'.'
@@ -867,9 +869,11 @@ ChangeDirectory
 			ld		a, [de]
 			or		a
 			jr		nz, .cd1
+			inc		de
 			ld		a, [de]
 			or		a
 			jr		nz, .cd1
+			inc		de
 			ld		a, [de]
 			or		a
 			jr		nz, .cd1
@@ -878,7 +882,8 @@ ChangeDirectory
 			ret
 
 ; we need a FILE to work in
-.cd1		push	bc, hl, ix				; DE already pushed
+.cd1		pop		de
+			push	de, bc, hl, ix
 			ld		ix, local.file			; get a working FILE*
 
 .cd2		call	NextDirectoryItem		; IY=DIRECTORY*, IX=FILE*
@@ -908,6 +913,7 @@ ChangeDirectory
 			SET32i	iy, DIRECTORY.sector
 			xor		a
 			ld		[iy+DIRECTORY.slot], a
+			call	ResetDirectory
 			scf
 			jr		.cd4
 
@@ -992,7 +998,7 @@ OpenDirectory
 			pop		de
 
 ; if the path does not start with a / use the CWD for that drive
-			inc		de
+			inc		de					; check msb is zero
 			ld		a, [de]
 			dec		de
 			or		a
@@ -1007,12 +1013,12 @@ OpenDirectory
 			ld		bc, DRIVE.cwd
 			add		hl, bc				; pointer to CWD
 			ld		bc, 3				; the CWD is at least "A:\"
-.od3		ld		de, local.text		; text buffer
+.od3		ld		de, local.text2		; text buffer
 			call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od5			; run out of tokens
 
 			push	hl, bc				; save the token stuff
-			ld		de, local.text		; token
+			ld		de, local.text2		; token
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			pop		bc, hl
 			jr		c, .od3				; done OK so try again
@@ -1033,11 +1039,12 @@ OpenDirectory
 ; DE should now point to the first token
 			ld		hl, de				; path in HL
 			ld		bc, 0				; zero the index
-			ld		de, local.text		; text buffer
+			ld		de, local.text2		; text buffer
 .od7		call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od8			; run out of tokens
+
 			push	hl, bc				; save token pointers
-			ld		de, local.text		; text buffer
+			ld		de, local.text2		; text buffer
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			pop		bc, hl
 			jr		c, .od7				; done OK
