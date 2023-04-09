@@ -4,14 +4,14 @@
 ;
 ;===============================================================================
 
-BIOSROM		equ			1				; which ROM page are we compiling
-BIOSRAM		equ			RAM4
 			include		"zeta2.inc"		; common definitions
  			include		"macros.inc"
 			include		"vt.inc"
 
+BIOSROM		equ			1				; which ROM page are we compiling
+BIOSRAM		equ			RAM4
+
 			org		PAGE3
-			jp		bios
 logo		db		"BIOS1 ", __DATE__, " ", __TIME__, 0
 
 bios_functions
@@ -45,4 +45,8 @@ f_biosver	ld		a, 1
 .fb1		call	stdio_str
 			WHITE
 			db		0
-			jr		good_end
+			jp		good_end
+
+ if SHOW_MODULE
+	 	DISPLAY "bios1 size: ", /D, $-logo
+ endif

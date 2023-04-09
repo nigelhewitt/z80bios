@@ -24,7 +24,7 @@ CTC_CW		equ		0x01		; 0=interrupt vector, 1=control word
 ;			CTC2		input is the UART_INT line
 ;			CTC3		input is PC3 line on the PPI its mode 1 and 2 interrupt
 
-			db		"<CTC driver>"
+ctc_start	db		"<CTC driver>"
 
 ctc_init
 ; CTC0 to divide by 256 no interrupt gives 921.6KHz/256 = 3600Hz
@@ -51,3 +51,6 @@ ctc_init
 			ld		a, iVector	 ; iTable masked with 0x00f8
 			out		(CTC0), a
 			ret
+ if SHOW_MODULE
+	 	DISPLAY "ctc size: ", /D, $-ctc_start
+ endif

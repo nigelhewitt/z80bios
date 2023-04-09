@@ -3,7 +3,8 @@
 ;	Memory addressing
 ;
 ;===============================================================================
-;
+map_start		equ	$
+
 ; The Zeta2 arrangement with 1Mb total over the RAM and ROM means that the
 ; tools need to reflect this. Normally BIOS software just uses 16 bits and that
 ; covers it all but I want to be able to address everything.
@@ -378,3 +379,7 @@ bank_ldir	di						; no interrupts while the stack is volatile
 .localsource	dw		0
 .localdest		dw		0
 .n				dw		0
+
+ if SHOW_MODULE
+	 	DISPLAY "map size: ", /D, $-map_start
+ endif

@@ -9,6 +9,7 @@
 ;	WriteDirectoryItem IX=FILE*, HL=chars, DE=maxChars
 ;
 ;===============================================================================
+fat_folder_start	equ	$
 
 ;-------------------------------------------------------------------------------
 ; zero a block of memory
@@ -121,27 +122,27 @@ UnpackLong
 ;-------------------------------------------------------------------------------
 
 makeFlags	ld		a, 'R'			; read only
-			bit		0, c
+			bit		attrRO, c
 			call	.makeFlagsWorker
 
 			ld		a, 'H'			; hidden
-			bit		1, c
+			bit		attrHIDE, c
 			call	.makeFlagsWorker
 
 			ld		a, 'S'			; system
-			bit		2, c
+			bit		attrSYS, c
 			call	.makeFlagsWorker
 
 			ld		a, 'V'			; volume
-			bit		3, c
+			bit		attrVOL, c
 			call	.makeFlagsWorker
 
 			ld		a, 'D'			; directory
-			bit		4, c
+			bit		attrDIR, c
 			call	.makeFlagsWorker
 
 			ld		a, 'A'			; archive
-			bit		5, c
+			bit		attrARCH, c
 			; fallthrough
 
 .makeFlagsWorker
@@ -612,7 +613,7 @@ ResetDirectory
 ; not zero so use it to generate a sector number
 .rd1		GET32i	iy, DIRECTORY.startCluster	; start Cluster from DIRECTORY
 			call	ClusterToSector				; needs DRIVE* in IX
-.rd2		SET32i	iy, DIRECTORY.sector		; save as sector
+.rd2		PUT32i	iy, DIRECTORY.sector		; save as sector
 
 ; set the slot to zero
 			xor		a
@@ -639,7 +640,7 @@ NextDirectoryItem
 			jp		z, .nd1					; OK
 
 ; read sector
-			SET32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
+			PUT32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
  			call	media_seek				; to DE:HL
 			ERROR	nz, 17		; media_seek fails in NextDirectoryItem
 			ld		hl, iy
@@ -663,7 +664,7 @@ NextDirectoryItem
 			ld		ix, hl
 			GET32i	iy, DIRECTORY.sector	; update the sector (DE:HL)
 			call	GetNextSector			; needs DRIVE* in IX, value in DE:HL
-			SET32i	iy, DIRECTORY.sector
+			PUT32i	iy, DIRECTORY.sector
 			pop		ix
 
 			ld		a, d					; end of chain?
@@ -673,7 +674,7 @@ NextDirectoryItem
 			jp		z, .nd9					; ought to be signalled by a zero
 
 ; read sector
-			SET32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
+			PUT32i	iy, DIRECTORY.sectorinbuffer	; save as new SIB
 			call	media_seek						; to DE:HL
 			ld		hl, iy
 			ld		bc, DIRECTORY.buffer
@@ -700,7 +701,7 @@ NextDirectoryItem
 
 ; get the first byte of the name
 			ld		a, [hl]
-			cp		a, 0xe5					; unused entry
+			cp		0xe5					; unused entry
 			jp		z, .nd8					; goto next slot
 			or		a						; zero is end of directory
 			jp		z, .nd9					; return End of Directory
@@ -730,7 +731,7 @@ NextDirectoryItem
 ; get the start cluster
 			ld		hl, [iy+DIRN.DIR_FstClusLO]
 			ld		de,	[iy+DIRN.DIR_FstClusHI]
-			SET32i	ix, FILE.startCluster
+			PUT32i	ix, FILE.startCluster
 
 ; test for a long file name and if none make one
 			ld		a, [ix+FILE.longName]
@@ -756,10 +757,8 @@ NextDirectoryItem
 			inc		[iy+DIRECTORY.slot]		; slot++ for next time
 			ld		hl, 0
 			ld		de, hl
-			SET32i	ix, FILE.filePointer	; start at 0
+			PUT32i	ix, FILE.filePointer	; start at 0
 			ld		hl, [iy+DIRECTORY.drive]
-			ld		[ix+FILE.drive], hl
-			ld		hl, iy					; directory
 			ld		[ix+FILE.drive], hl
 
 ; copy the dir->longPath to file->pathName
@@ -907,10 +906,10 @@ ChangeDirectory
 			call	AddPath					; HL=path, DE=more path
 
 			GET32i	ix, FILE.startCluster	; move the start cluster over
-			SET32i	iy, DIRECTORY.startCluster
+			PUT32i	iy, DIRECTORY.startCluster
 			ld		hl,	0
 			ld		de, 0
-			SET32i	iy, DIRECTORY.sector
+			PUT32i	iy, DIRECTORY.sector
 			xor		a
 			ld		[iy+DIRECTORY.slot], a
 			call	ResetDirectory
@@ -930,35 +929,53 @@ ChangeDirectory
 ;		the default
 ; If it has / next you have selected the root directory, if not the CWD of that
 ; device then you get folder/folder or /folder/folder/
-;	call with		IY = DIRECTORY*  to empty structure
+; If you ask for "" you get the default directory of the default drive
+;	call with		IY = DIRECTORY*  empty structure to be filled in
 ;					DE = WCHAR* path
 ;	returns C if OK or NC if it fail
 ;-------------------------------------------------------------------------------
 
 OpenDirectory
+;=========================== SELECT THE DRIVE ==================================
+
+			push	de
 			ld		a, [de]					; save a prospective drive letter
 			ld		b, a
-			inc		de						; skip the high byte fix later
 			inc		de
-			ld		a, [de]					; driver indicator
+			ld		a, [de]					; get high byte
+			inc		de
+			or		a
+			jr		nz,	.od2				; not A-? so give up now
+
+			ld		a, [de]					; drive indicator
+			inc		de
 			cp		':'						; was that C: ?
 			jr		nz, .od2				; no
-			ld		a, b					; get back the letter
+			ld		a, [de]					; high byte
+			inc		de
+			or		a
+			jr		nz, .od2
+
+			ld		a, b					; get back the drive letter
 			call	islower
 			jr		nc, .od1
 			and		~0x20
-.od1
+.od1		call	isupper					; a letter A-Z
+			ERROR	nc, 23			; not a drive letter in OpenDirectory
+
 ; we have a C: style start so use that as the drive and advance DE to the path
 			ld		c, a					; save the drive letter in C
-			inc		de
-			inc		de
-			jr		.od2a
+			inc		sp						; discard the pushed DE
+			inc		sp
+			jr		.od3
+
 ; we have no C: to start so use the default drive and restore DE
 .od2		ld		a, [local.current]		; letter code 'A'=FDC, 'C'/'D'=SD
 			ld		c, a					; drive letter in C
-			dec		de
-			dec		de
-.od2a
+			pop		de
+.od3
+
+;========================== INITIALISE TO ROOT =================================
 
 ; so get a DRIVE in IX
 			push	de, bc
@@ -968,21 +985,22 @@ OpenDirectory
 			ERROR	nc, 22					; mount_drive fails in OpenDirectory
 			pop		bc, de
 
-; set up some basic values as if it is "" or "A:/" this is what they get
+; set up some basic values from the DRIVE
+; if the request is for "" or "A:/" this is all we need
 			xor		a
 			ld		hl, ix
 			ld		[iy+DIRECTORY.drive], hl			; dw DRIVE*
 			ld		hl, 0
 			ld		[iy+DIRECTORY.startCluster], hl		; dd start from root
 			ld		[iy+DIRECTORY.startCluster+2], hl
-			ld		[iy+DIRECTORY.sector], hl			; dd not yet
+			ld		[iy+DIRECTORY.sector], hl			; dd nothing yet
 			ld		[iy+DIRECTORY.sector+2], hl
 			dec		hl									; 0xffff
-			ld		[iy+DIRECTORY.sectorinbuffer], hl	; dd	not yet
+			ld		[iy+DIRECTORY.sectorinbuffer], hl	; dd nothing loaded
 			ld		[iy+DIRECTORY.sectorinbuffer+2], hl
 			ld		[iy+DIRECTORY.slot], a				; db as reset
 
-; put something sensible in the longpath like "C:/"
+; Put something sensible in the longpath like "C:/"
 			push	de
 			ld		a, c								; get the drive letter
 			ld		hl, DIRECTORY.longPath				; point to the buffer
@@ -990,71 +1008,76 @@ OpenDirectory
 			add		hl, bc
 			ld		de, hl								; target
 			push	de
-			ld		hl, .init							; source "X:\"
+			ld		hl, .init							; source "X:/"
 			ld		bc, .size_init
 			ldir
 			pop		de									; target
 			ld		[de], a								; drive letter
 			pop		de
 
+;=============================  PROCESS CWD ====================================
+
 ; if the path does not start with a / use the CWD for that drive
+			ld		a, [de]
+			cp		'/'
+			jr		nz, .od4			; not from root
 			inc		de					; check msb is zero
 			ld		a, [de]
 			dec		de
 			or		a
-			jr		nz, .od4
-			ld		a, [de]
-			cp		'/'
-			jr		z, .od4				; not CWD
+			jr		z, .od7				; start from root
 
 ; loop through the elements of the drive's CWD
-			push	de					; save our path pointer
+.od4		push	de					; save our path pointer
 			ld		hl, ix				; DRIVE*
 			ld		bc, DRIVE.cwd
 			add		hl, bc				; pointer to CWD
 			ld		bc, 3				; the CWD is at least "A:\"
-.od3		ld		de, local.text2		; text buffer
+.od5		ld		de, local.text2		; text buffer
 			call	getToken			; HL = text, DE=buffer, BC = index
-			jr		nc, .od5			; run out of tokens
+			jr		nc, .od6			; run out of tokens so OK to move on
 
 			push	hl, bc				; save the token stuff
 			ld		de, local.text2		; token
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			pop		bc, hl
-			jr		c, .od3				; done OK so try again
-			pop		de					; fail
-			xor		a
-			ret
+			ERROR	nc, 24		; failed one element of a CWD in OpenDirectory
+			jr		.od5				; done OK so try again
 
-; not CWD so move over the /
-.od4		inc		de
+; End of CWD
+.od6		pop		de
+			jr		.od8
+
+; Not CWD so move over the /
+.od7		inc		de
 			inc		de
-			jr		.od6
+.od8
 
-; finished with CWD
-.od5		pop		de					; recover main path
-.od6
+;=========================== PROCESS THE PATH ==================================
 
 ; now do the path's tokens
-; DE should now point to the first token
+; DE should point to the first token
 			ld		hl, de				; path in HL
 			ld		bc, 0				; zero the index
 			ld		de, local.text2		; text buffer
-.od7		call	getToken			; HL = text, DE=buffer, BC = index
-			jr		nc, .od8			; run out of tokens
+.od9		call	getToken			; HL = text, DE=buffer, BC = index
+			jr		nc, .od10			; run out of tokens
 
 			push	hl, bc				; save token pointers
 			ld		de, local.text2		; text buffer
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			pop		bc, hl
-			jr		c, .od7				; done OK
+			jr		c, .od9				; done OK
 			xor		a
 			ret
 
-.od8		call	ResetDirectory		; IY=DIRECTORY*
+.od10		call	ResetDirectory		; IY=DIRECTORY*
 			scf
 			ret
 
 .init		dw		'X', ':','/', 0
 .size_init	equ	$-.init
 
+ if SHOW_MODULE
+	 	DISPLAY "fat_folder size: ", /D, $-fat_folder_start
+ endif

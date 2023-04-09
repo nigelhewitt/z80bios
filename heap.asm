@@ -3,6 +3,7 @@
 ;	heap.asm		Access to all that other RAM
 ;
 ;===============================================================================
+heap_start		equ	$
 
 ; I want access to the rest of the 256K bytes of RAM so I need an allocator
 ; and management system.
@@ -59,5 +60,9 @@ HEAPBLOCK	struct
 			db		ram				; which RAM
 			dw		ptr				; start address
 			ends
+
+ if SHOW_MODULE
+	 	DISPLAY "heap size: ", /D, $-heap_start
+ endif
 
 

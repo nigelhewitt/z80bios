@@ -4,6 +4,8 @@
 ;
 ;===============================================================================
 
+fat_cluster_start	equ	$
+
 ; Quick description of a FAT table entry
 
 ; A disk or other media  device is a block of 'sectors' of storage. These tend
@@ -759,7 +761,7 @@ GetClusterEntry
 .gc3	pop		bc
 		ret
 ;-------------------------------------------------------------------------------
-;  GetClusterEntry
+;  SetClusterEntry
 ;		call with IX = DRIVE
 ;				  DE:HL = cluster number
 ;				  DE':HL' = FAT entry 12/16/32 bits (ALT REGISTERS!)
@@ -899,3 +901,7 @@ GetNextSector
 		jr		z, .gn1				; return zero
 		call	ClusterToSector
 		ret
+
+ if SHOW_MODULE
+	 	DISPLAY "fat_cluster size: ", /D, $-fat_cluster_start
+ endif

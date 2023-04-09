@@ -10,13 +10,11 @@ rst00h	jp	reboot					; RST 0 is restart so send it to ROM0
 
 ; handlers for other RST N opcodes
 rst08h	push	af
-		DOUT	0					; force serial op
 		ld		a, 1
 		ld		[Z.snap_mode], a
 		pop		af
 		push	af
 		call	_snap
-		ROUT
 		pop		af
 		ret
 rst10h
@@ -100,7 +98,7 @@ int1		di
 ; strobe leds
 		if	LIGHTS_EXIST
 			ld		a, [Z.preTick]		; drop to 25Hz
-			and		a, 1
+			and		1
 			jr		nz, .lr2
 			ld		a, [led_countdown]	; do we want a countdown?
 			or		a

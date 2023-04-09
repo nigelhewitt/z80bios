@@ -4,7 +4,7 @@
 ;				see MX29F040A.pdf
 ;
 ;===============================================================================
-
+rom_start	equ		$
 			db		"<ROM driver>"
 
 ; Programming the 39SP1040:
@@ -368,3 +368,6 @@ test_block	db		"Test block for ROM programming =0123456789 "
 			db		"ABCDEFGHIJKLMNOPQRSTUVWXYZ "
 size_test	equ		$-test_block	; should be 97 which is a prime
 
+ if SHOW_MODULE
+	 	DISPLAY "rom size: ", /D, $-rom_start
+ endif

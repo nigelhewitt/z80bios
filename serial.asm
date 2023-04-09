@@ -3,6 +3,7 @@
 ; Serial.asm		Manage a 16550 UART
 ;
 ;===============================================================================
+serial_start	equ		$
 
 ; UART registers
 ; <NC> indicates a pin that is not wired on the Zeta board
@@ -63,8 +64,6 @@ DCD		equ		0x80		;	DCD <NC 1>
 ;===============================================================================
 ;	simplistic driver
 ;===============================================================================
-
-		db	"<Serial Driver>"
 
 serial_init							; set to 115200,8,1,N no handshaking
 		ld		a, BITS8+TSB+DLAB
@@ -182,3 +181,6 @@ si_cto							; reading
 si_dummy
 		jr		si1
 
+ if SHOW_MODULE
+	 	DISPLAY "serial size: ", /D, $-serial_start
+ endif

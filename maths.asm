@@ -3,6 +3,7 @@
 ; Maths.asm		Provide simple sums
 ;
 ;===============================================================================
+maths_start		equ	$
 
 ; !! all unsigned value functions
 
@@ -257,3 +258,6 @@ divide32by16			; call with BC,DE = numerator, HL = denominator
 			ld		h, [iy+.remainder+1]
 			RELEASE	9
 			ret
+ if SHOW_MODULE
+	 	DISPLAY "maths size: ", /D, $-maths_start
+ endif

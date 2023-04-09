@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.23"		; version number for sign on message
+	define	VERSION	"v0.1.24"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.23"		move to local repository, use version number
+;   	git commit -m "0.1.24"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -23,11 +23,12 @@
 ;
 ;===============================================================================
 
-BIOSROM		equ			0				; which ROM page we are compiling
-BIOSRAM		equ			RAM3
-			include		"zeta2.inc"		; hardware definitions and code options
- 			include		"macros.inc"	; macro library
-			include		"vt.inc"		; definitions of Z80 base memory
+		include		"zeta2.inc"		; hardware definitions and code options
+		include		"macros.inc"	; macro library
+		include		"vt.inc"		; definitions of Z80 base memory
+
+BIOSROM		equ		0				; which ROM page we are compiling
+BIOSRAM		equ		RAM3
 
 ; This code image is in page 0 of the ROM so, on boot, it is replicated in all
 ; four memory slots of the Zeta2 board. However I want it to run in page 3,
@@ -326,8 +327,6 @@ rst00h		di						; interrupts off
 ; UART and serial stuff in serial.asm
 			call	serial_init		; 19200,8,1,N
 			; !!!! from now on the stdio and debug outputs will work !!!!
-			xor		a
-			out		(REDIRECT), a	; default stdio to serial port
 
 ; Counter Timer in ctc.asm
 			call	ctc_init
@@ -393,14 +392,14 @@ SIZEOF_BUFFER	equ		80
 			db		"K bytes free", 0
 
 ; Only test the BIOS states if SW0 is not set
-; (this escapes the lockout if there is sideways trouble.
+; (this escapes the lockout if there is sideways rom problem.
 			in		a, (SWITCHES)
 			and		1
-			jr		nz, good_end
-			CALLBIOS ShowLogo1		; see macros.inc and rom.asm
-			CALLBIOS ShowLogo2
+			jp		nz, good_end
+			CALLFAR ShowLogo1		; see macros.inc and rom.asm
+			CALLFAR ShowLogo2
 			xor		a				; clear the default drive
-			CALLBIOS SetDrive
+			CALLFAR SetDrive
 			jr		good_end		; skip the error return
 
 ; Come here to respond with an error message and re-prompt
@@ -451,7 +450,7 @@ good_end	ld		e, 0			; use \r\n
 			db		"\r"
 			GREEN
 			db		0
-			CALLBIOS PrintCWD
+			CALLFAR PrintCWD
 			call	stdio_str
 			db		"> "
 			WHITE
@@ -575,7 +574,7 @@ do_commandline
 			cp		':'
 			jr		nz, .d7
 			ld		a, [Z.cmd_exp]
-			CALLBIOS SetDrive
+			CALLFAR SetDrive
 			jp		c, good_end
 			jp		bad_end
 
@@ -619,7 +618,7 @@ do_commandline
 ;===============================================================================
 ; ?  Display help text
 ;===============================================================================
-cmd_hlp		CALLBIOS	ShowHelp
+cmd_hlp		CALLFAR		ShowHelp
 			jp			good_end
 
 ;===============================================================================
@@ -631,49 +630,49 @@ cmd_error	call		stdio_str
 			call		stdio_decimalB
 			ld			a, ' '
 			call		stdio_putc
-			CALLBIOS	ShowError
+			CALLFAR		ShowError
 			jp			good_end
 
 ;===============================================================================
 ; HEX hex echo test	HEX value24  outputs hex and decimal
 ;					HEX          output the current default address
 ;===============================================================================
-cmd_hex		CALLBIOS	HEXcommand
+cmd_hex		CALLFAR		HEXcommand
 			jp			c, good_end
 			jp			bad_end
 
 ;===============================================================================
 ; COPY
 ;===============================================================================
-cmd_copy	CALLBIOS	COPYcommand
+cmd_copy	CALLFAR		COPYcommand
 			jp			c, good_end
 			jp			bad_end
 
 ;===============================================================================
 ; DIR
 ;===============================================================================
-cmd_dir		CALLBIOS	DIRcommand
+cmd_dir		CALLFAR		DIRcommand
 			jp			c, good_end
 			jp			bad_end
 
 ;===============================================================================
 ; CD
 ;===============================================================================
-cmd_cd		CALLBIOS	CDcommand
+cmd_cd		CALLFAR		CDcommand
 			jp			c, good_end
 			jp			bad_end
 
 ;===============================================================================
 ; TYPE
 ;===============================================================================
-cmd_type	CALLBIOS	TYPEcommand
+cmd_type	CALLFAR		TYPEcommand
 			jp			c, good_end
 			jp			bad_end
 
 ;===============================================================================
 ; LOAD
 ;===============================================================================
-cmd_load	CALLBIOS	LOADcommand
+cmd_load	CALLFAR		LOADcommand
 			jp			c, good_end
 			jp			bad_end
 
@@ -888,7 +887,7 @@ cmd_dump	call	skip					; start by handling the + option
 			db		"  LOCAL",0
 			jr		.cd7
 
-.cd4a		and		a, 0x08					; set for ROM
+.cd4a		and		0x08					; set for ROM
 			jr		z, .cd5
 			call	stdio_str
 			db		"  ROM",0
@@ -1099,7 +1098,7 @@ cmd_time	AUTO	7				; 7 bytes of stack please
 ;			ld		bc, 'BC'
 ;			ld		de, 'DE'
 ;			push	bc, de, hl
-;			CALLBIOS ShowStack		; see macros.inc and rom.asm
+;			CALLFAR ShowStack		; see macros.inc and rom.asm
 ;			pop		hl, de, bc
 ;			jp		good_end
 
@@ -1215,7 +1214,7 @@ cmd_save	ld		ix, [Z.def_address]		; default address
 ; ROM  program ROM N
 ;===============================================================================
 
-cmd_rom		CALLBIOS	ROMcommand
+cmd_rom		CALLFAR		ROMcommand
 			jp			c, good_end
 			jp			cmd_err
 
@@ -1292,9 +1291,19 @@ cmd_flag	call	skip		; first call only
 ;===============================================================================
 ; WAIT 	if SW7 is on idle with the interrupts on until it goes off
 ;===============================================================================
-cmd_wait	CALLBIOS	WAITcommand
+
+cmd_wait	CALLFAR		WAITcommand
 			jp			c, good_end
 			jp			bad_end
+
+;===============================================================================
+; functions we make available to other RAMs
+;===============================================================================
+bios_functions
+			dw		f_abc
+bios_count	equ		($-bios_functions)/2
+
+f_abc		ret
 
 ;===============================================================================
 ; Error loaders so I can just jp cc, readable_name
@@ -1330,4 +1339,8 @@ err_manana
 err_badrom
 			ld		a, ERR_BADROM
 			jr		cmd_err
+
+ if SHOW_MODULE
+	 	DISPLAY "bios0 size: ", /D, $-BIOS_START
+ endif
 

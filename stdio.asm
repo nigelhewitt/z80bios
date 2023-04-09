@@ -3,6 +3,7 @@
 ; STDIO.asm		redirectable text io
 ;
 ;===============================================================================
+stdio_start		equ	$
 
 ; currently I have only two ways to input/output from these routines
 ; to serial or to strings. I wanted a data location that wasn't in RAM
@@ -14,31 +15,15 @@
 ;
 ;===============================================================================
 
-; stdio redirect: 0=serial (official), 1=IY++ else got to serial (debug)
+; stdio redirect:  manana
 
 ; write the character in A, uses nothing
 stdio_putc
-		push	af				; do the most common first and fastest
-		in		a, (REDIRECT)
-		cp		1
-		jr		z, .sp1
-		pop		af
 		jp		serial_sendW	; uses nothing
-.sp1	pop		af
-		ld		[iy], a
-		inc		iy
-		ret
 
 ; wait for and return a character in A, uses A only
 stdio_getc
-		in		a, (REDIRECT)
-		cp		1
-		jp		nz, serial_read
-		ld		a, [iy]
-		or		a
-		ret		z				; stick at a null
-		inc		iy
-		ret
+		jp		serial_read
 
 ;-------------------------------------------------------------------------------
 ; U8toWCHAR		get a 16 bit char in BC from usual input string
@@ -549,7 +534,7 @@ stdio_decimalW				; HL in decimal
 			call	div10			; HL=HL/10, A=HL%10  (aka remainder)
 			push	af				; save remainder for this digit
 			ld		a, h			; test zero
-			or		a, l
+			or		l
 			call	nz, stdio_decimalW	; recursive
 			pop		af
 			add		'0'
@@ -564,7 +549,7 @@ stdio_decimal32				; BC:HL in decimal
 			pop		de
 			push	af				; save remainder for this digit
 			ld		a, h			; test zero
-			or		a, l
+			or		l
 			call	nz, stdio_decimal32	; recursive
 			pop		af, bc, hl
 			add		'0'
@@ -984,7 +969,7 @@ getW
 .B_last		equ 	5		; the last char was a " ending a quoted section
 
 			push	iy
-			ld		a, c			; clear the bits I use for flags
+			ld		a, c			; clear the bits I use for internal flags
 			and		0x0f
 			ld		c, a
 			ld		iy, bc			; working space
@@ -995,13 +980,13 @@ getW
 
 			call	U8toWCHAR		; get first 16 bit char in BC
 			jp		z, .gw12		; end of line is bad here
-			jp		nc, .gw12		; so is bad character
+			jp		nc, .gw12		; so is a bad character
 			jr		.gw2			; step into the loop
 
 ; loop
 .gw1		call	U8toWCHAR		; not first char in BC
 			jp		z, .gw11		; end if line is OK here
-			jp		nc, .gw12		; but not bad character
+			jp		nc, .gw12		; but not a bad character
 .gw2
 ; test for double quote
 			ld		a, b
@@ -1012,8 +997,8 @@ getW
 			jr		nz, .gw5		; not "
 
 ; sort out a double quote
-; using iyl.b2 as 'we are in double quotes so spaces are legal'
-; and	iyl.b3 as the last char was a double quote ending double quotes
+; using iyl.B_quote as 'we are in double quotes so spaces are legal'
+; and	iyl.B_last as 'the last char was a double quote ending double quotes'
 			ld		a, iyl
 			bit		.B_last, a		; was the last char an end of quote?
 			jr		z, .gw3			; no
@@ -1029,7 +1014,7 @@ getW
 .gw3		ld		a, iyl
 			bit		.B_quote, a		; are we in a quoted string?
 			jr		nz, .gw4		; yes
-			set		.B_quote, a		; no so set the quoted string bit
+			set		.B_quote, a		; no, so set the quoted string bit
 			ld		iyl, a
 			jr		.gw1			; loop
 .gw4		res		.B_quote, a		; end a quote
@@ -1042,7 +1027,7 @@ getW
 			res		.B_last, a
 			ld		iyl, a
 
-; test for a delimiter aka a space but not in double quotes
+; test for a a space but not in double quotes
 			bit		.B_quote, a		; but are we quoted?
 			jr		nz, .gw6		; can't be a terminator then
 			ld		a, b
@@ -1051,20 +1036,22 @@ getW
 			ld		a, c
 			cp		' '
 			jp		z, .gw11		; delimiting space
-.gw6
+.gw6		ld		a, iyl
+
 ; are we testing for filename/pathname illegal chars?
 			bit		.B_badName, a	; name takes precedence
-			jr		nz, .gw6a		; testing the pathname list
+			jr		nz, .gw6a		; testing to the filename list
 			bit		.B_badPath, a
 			jr		z, .gw9			; not testing
-			push	hl				; testing the filename list
+			push	hl				; testing to the pathname list
 			ld		hl, .badPath
 			jr		.gw6b
 .gw6a		push	hl
 			ld		hl, .badName	; including /\:
+.gw6b
 
 ; do the 'legal' tests
-.gw6b		ld		a, b
+			ld		a, b
 			or		b
 			jr		nz, .gw8		; all the chars blocked are in 0-0x7f
 			ld		a, c			; LSbyte
@@ -1083,10 +1070,11 @@ getW
 .gw9
 
 ; are we changing \ to /
-			ld		a, iyl			; was c
+			ld		a, iyl			; flags
 			bit		.B_slash, a
 			jr		z, .gw10		; no
-			cp		a, '\'
+			ld		a, c
+			cp		'\'
 			jr		nz, .gw10
 			ld		c, '/'
 
@@ -1154,16 +1142,16 @@ strcmp16	push	bc, de, hl
 ; test for match
 			ld		a, [de]		; CP [DE++]
 			inc		de
-			cp		a, c
+			cp		c
 			jr		nz, .sc2
 			ld		a, [de]
 			inc		de
-			cp		a, b
+			cp		b
 			jr		nz, .sc2
 
 ; match so if that was a 0 we have a winner
 			ld		a, b
-			or		a, c
+			or		c
 			jr		nz, .sc1
 			pop		hl, de, bc
 			scf
@@ -1185,6 +1173,64 @@ strend16	ld		a, [hl]
 			inc		hl
 			jr		strend16
 .se1		dec		hl
+			ret
+
+;-------------------------------------------------------------------------------
+; strchr16		search for char DE in [HL]
+; strrchr16		search for char DE in [HL] from the end backwards
+;				uses A updates HL
+;				return CY on success
+;-------------------------------------------------------------------------------
+
+strchr16	push	bc
+.st1		ld		c, [hl]			; ld BC, [HL++]
+			inc		hl
+			ld		b, [hl]
+			inc		hl
+			ld		a, b			; BC==0?
+			or		c
+			jr		z, .st2			; failed EOS
+			ld		a, b
+			cp		d
+			jr		nz, .st1		; no match
+			ld		a, c
+			cp		e
+			jr		nz, .st1		; no match
+			dec		hl
+			dec		hl
+			pop		bc
+			scf
+			ret
+.st2		pop		bc
+			or		a				; clear carry
+			ret
+
+strrchr16	push	bc, ix
+			ld		ix, hl			; save the start position
+			dec		ix				; back one char
+			dec		ix
+			call	strend16		; advance HL to EOS
+.st3		ld		a, ixh
+			cp		h
+			jr		nz, .st4
+			ld		a, ixl
+			cp		l
+			jr		z, .st5		; back at the start so fail
+.st4		dec		hl
+			ld		b, [hl]			; ld BC, [HL--]
+			dec		hl
+			ld		a, [hl]
+			cp		d
+			jr		nz, .st3		; no match
+			ld		a, c
+			cp		e
+			jr		nz, .st3		; no match
+			pop		ix, bc
+			scf
+			ret
+
+.st5		pop		ix, bc
+			or		a				; clear carry
 			ret
 
 ;===============================================================================
@@ -1317,3 +1363,6 @@ delay		call	delay1ms
 			or		c
 			ret		z
 			jr		delay
+ if SHOW_MODULE
+	 	DISPLAY "stdio size: ", /D, $-stdio_start
+ endif

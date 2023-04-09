@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.23"		move to local repository, use version number
+   	git commit -m "0.1.24"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -129,3 +129,13 @@ The majority of CD is working (not . or ..) and DIR works
 0.1.23
 DIR and CD working at a basic level. Consider it an interim save before doing a
 full test and fix study.
+
+0.1.24
+Clean up on Help and the README.md
+Add bad-finder.ps1 to pick up things like xor a,0x10 which really threw me.
+It fixed the \ to / bug.
+Changes to CALLBIOS making it CALLFAR so I can do smaller functions with
+reasonable alacrity.
+Coded the preliminary seekFile. Interim insurance save
+
+

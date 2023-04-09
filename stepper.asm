@@ -17,6 +17,9 @@ gap			equ		0x10000 - (14 + 9*3 + 4*7 + 8 + $)
  else
  	DISPLAY "ROM overrun: ", /D, -gap
  endif
+
+stepper_start	equ		$
+
 			db		"STEPPER TABLE",0		; 14 bytes
 
 rst00		jp		rst00h					; 3 bytes each
@@ -31,15 +34,15 @@ nmi			jp		nmih
 
 gotoRAM3	ld		a, RAM3			; 7T
 			out		(MPGSEL3), a	; 11T
-			jp		bios			; 10T this instruction executes in RAM3
+			jp		transfer		; 10T this instruction executes in RAM3
 
 gotoRAM4	ld		a, RAM4
 			out		(MPGSEL3), a
-			jp		bios
+			jp		transfer
 
 gotoRAM5	ld		a, RAM5
 			out		(MPGSEL3), a
-			jp		bios
+			jp		transfer
 
 reboot		ld		a, 0
 			out		(MPGEN), a
@@ -58,3 +61,6 @@ iTable
 
 iVector		equ		iTable & 0xf8
 			assert	(iTable & 0x07)	== 0, Interrupt vector table alignment
+ if SHOW_MODULE
+	 	DISPLAY "stepper size: ", /D, $-stepper_start
+ endif

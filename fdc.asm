@@ -1,4 +1,5 @@
 ;
+fdc_start		equ	$
 
 ; NVH
 TRUE			equ	1
@@ -729,7 +730,7 @@ FD_IDLE:
 		LD		A,B
 		OR		C
 		RET		NZ					; STILL COUNTING DOWN, RETURN
-	
+
 		CALL	FC_MOTOROFF			; COUNTER JUST EXPIRED, SHUTDOWN MOTOR!
 		RET
 ;
@@ -1317,7 +1318,7 @@ FC_MOTORON:
 ;		LD		BC,300H
 ;		LD		BC,50H
 ;		LD		(FCD_IDLECNT),BC
-	
+
 		LD		A,(CB_CPUMHZ)
 		RLCA
 		LD		(FCD_IDLECNT),A
@@ -1719,7 +1720,7 @@ FOP_EVALST1:
 		LD		C,FRC_MISADR
 		BIT		0,A
 		JR		NZ,FOP_SETFST
-	
+
 		JR		FOP_EXIT
 
 FOP_SETFST:
@@ -2175,3 +2176,7 @@ HB_IOBNK	DB		0		; CURRENT IO BUFFER BANK ID
 HB_WRKBUF	ds		512		;
 HB_SRCBNK	db		BID_USR	;
 HB_DSTBNK	db		BID_USR	;
+
+ if SHOW_MODULE
+	 	DISPLAY "fdc size: ", /D, $-fdc_start
+ endif

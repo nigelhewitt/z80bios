@@ -202,29 +202,30 @@ dirn					ds		DIRN		; copy of our directory entry
 startCluster			dd		0			; first cluster on disk
 shortnamechecksum		db		0			; used to read longName
 
-; working buffer
-sector_in_buffer_abs	dd		0			; first sector of data on disk
-sector_in_buffer_file	dd		0			; first sector of data in file
-first_sector			dd		0			; first sector of first cluster
-first_sector_file		dd		0			; speed up
+; working buffer (see discussion in seekFile (fat-file.asm))
+sector_file				dd		0			; current sector_in_buffer in file terms
+cluster_file			dd		0			; cluster containing above
+cluster_abs				dd		0
+first_sector_in_cluster	dd		0
+
 filePointer				dd		0			; full file pointer
 file_dirty				db		0			; buffer needs a flush before reuse
 
 ; file functions stuff
 open_mode				db		0			; b0=open, b1=read, b2=write
-; big things at the end
+; bulky things at the end
 longName				ds		MAX_PATH*2	; long (real) filename
 pathName				ds		MAX_PATH*2	; where we live
 buffer					ds		512			; current work in progress sector
 	ends
 
 ; DIR_Attr bits
- define ATTR_RO		0x01
- define ATTR_HIDE	0x02
- define ATTR_SYS	0x04
- define ATTR_VOL	0x08		// volume id
- define ATTR_DIR	0x10
- define ATTR_ARCH	0x20		// archive
+  define attrRO			0			// read only
+  define attrHIDE		1			// hidden
+  define attrSYS		2			// system
+  define attrVOL		3			// volume id
+  define attrDIR		4			// directory
+  define attrARCH		5			// archive
 ; the other two bits should be zero
 
 ; file open_mode bits

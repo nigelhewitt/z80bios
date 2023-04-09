@@ -2,20 +2,6 @@
 ;	macros to add things that can't or won't subroutine nicely
 ;===============================================================================
 
-; Force stdio to go to the serial port and then restore it 'as was' so we can
-; just stick debug things in code that may be redirecting
-DOUT		macro	target				; target is 0 for stdio
-			in		a, (REDIRECT)
-			ld 		[Z.spare], a
-			ld		a, target
-			out		(REDIRECT), a
-			endm
-; restore previous
-ROUT		macro
-			ld		a, [Z.spare]
-			out		(REDIRECT), a
-			endm
-
 ; Take the current RAM number and the offset in that  RAM and return C:HL
 ; offset in RAM/ROM = offset16 & 0x3fff
 ; I swap RAM and ROM in the mapper to make ROM addresses low by complementing
@@ -31,77 +17,65 @@ MAKE20		macro	RAMn, offset16
 ; Diagnostic register dump to serial port (all pushed)
 SNAP		macro	id
 			push	af
-			DOUT	0					; force serial op
 			xor		a
 			ld		[Z.snap_mode], a
 			pop		af
 			push	af					; get a pristine AF
 			call	_snap
 			call	stdio_str
-			db		id
-			db		0					; 0=NOP
-			ROUT
+			db		id,0
+			pop		af
+			endm
+
+; Pause until a key is pressed
+PAUSE		macro	text
+			push	af
+			call	stdio_str
+			db		text,0
+			call	stdio_getc
 			pop		af
 			endm
 
 ; Diagnostic memory dump from ptr24 for count (all pushed)
 ; use 0xff0000+offset to force the mapper off and get whatever is mapped in
 DUMP		macro	ptr24, count
-			push	af
-			DOUT	0					; force serial op
-			push	hl, de, bc
+			push	af, hl, de, bc
 			ld		hl, ptr24 & 0xffff
 			ld		c, ptr24 >> 16
 			ld		de, count
 			call	stdio_dump
-			pop		bc, de, hl
-			ROUT
-			pop		af
+			pop		bc, de, hl, af
 			endm
 
 ; as above but takes a register:double register as the pointer eg C:HL
 DUMPrr		macro	r, rr, count
-			push	af
-			DOUT	0					; force serial op
-			push	hl, de, bc
+			push	af, hl, de, bc
 			ld		hl, rr
 			ld		c, r
 			ld		de, count
 			call	stdio_dump
-			pop		bc
-			pop		de
-			pop		hl
-			ROUT
-			pop		af
+			pop		bc, de, hl, af
 			endm
 
 ; as above but takes a bunch of parts to find the address
 DUMPpg		macro	RAMn, offset, count
-			push	af
-			DOUT	0					; force serial op
-			push	hl, de, bc
+			push	af, hl, de, bc
 			MAKE20	RAMn, offset
 			ld		de, count
 			call	stdio_dump
-			pop		bc, de, hl
-			ROUT
-			pop		af
+			pop		bc, de, hl, af
 			endm
 
 ; as above but does not do mapping hence does not reset the mapping registers
 ; offset is 16 bits
 
 DUMP0		macro	offset16, count
-			push	af
-			DOUT	0					; force serial op
-			push	hl, de, bc
+			push	af, hl, de, bc
 			ld		hl, offset16
 			ld		c, 0xff				; local memory
 			ld		de, count
 			call	stdio_dump
-			pop		bc, de, hl
-			ROUT
-			pop		af
+			pop		bc, de, hl ,af
 			endm
 
 ; Crash And Burn
@@ -170,14 +144,13 @@ RETERR		macro	nerr
 			ret
 			endm
 
-; call a BIOSn function: number fn in rom
-CALLBIOS	macro	ROM, FN
-			ld		[Z.cr_a], a		; 13T
-			ld		a, FN			; 7T
-			ld		[Z.cr_fn], a	; 13T
-			ld		a, ROM			; 7T
-			ld		[Z.cr_rom], a	; 13T
-			call	wedgeROM		; 17T see router.asm
+; call a function: number fn in rom
+CALLFAR		macro	RAM, FN
+			push	hl					; 11T
+			ld		hl, RAM | (FN<<8)	; 10T
+			ld		[Z.cr_ram], hl		; 20T H goes in Z.cr_fn
+			pop		hl					; 10T
+			call	wedgeROM			; 17T see router.asm
 			endm
 
 ; make an address20 in A:HL from a ROMn/RAMn code and a 14 bit address:
@@ -234,6 +207,18 @@ SUBDE		macro	n
 ;	Now a bunch of things to mange 32 bit
 ;		all use DE:HL
 ;-------------------------------------------------------------------------------
+; Load DE:HL from IX or IY +offset
+GET32		macro	offset
+			ld		hl, [offset]
+			ld		de, [offset+2]
+			endm
+
+; save DE:HL	to IX or IY +offset
+PUT32		macro	offset
+			ld		[offset], hl
+			ld		[offset+2], de
+			endm
+
 ; compare 32 bit value in DE:HL with a constant
 CP32		macro	value32					; for = return z
 			ld		a, d					; for < return NZ+C
@@ -275,7 +260,7 @@ GET32i		macro	ir, offset
 			endm
 
 ; save DE:HL	to IX or IY +offset
-SET32i		macro	ir, offset
+PUT32i		macro	ir, offset
 			ld		[ir+offset], l
 			ld		[ir+offset+1], h
 			ld		[ir+offset+2], e

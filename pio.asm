@@ -3,6 +3,7 @@
 ; PIO.asm		Provide the parallel port access
 ;
 ;===============================================================================
+pio_start		equ	$
 
 ; At reset the control byte is 0x9b all inputs
 ; mode 0 is simple IO
@@ -33,3 +34,7 @@ pio_init
 			ld		a, %10100000	; SD select inactive. MOSI high
 			out		(PIO_C), a
 			ret
+
+ if SHOW_MODULE
+	 	DISPLAY "pio size: ", /D, $-pio_start
+ endif

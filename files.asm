@@ -3,6 +3,7 @@
 ;	files.asm		The code that understands FAT and disk systems
 ;
 ;===============================================================================
+files_start		equ	$
 
 ; use local memory
 ; set up so local.thing is the absolute address of thing
@@ -18,6 +19,8 @@ fat_buffer		ds		512
 text			ds		MAX_PATH+85
 text2			ds		MAX_PATH+85
 buffer			ds		512
+a				db		0
+b				db		0
 				ends
 
 ;-------------------------------------------------------------------------------
@@ -221,11 +224,46 @@ f_dircommand
 ;-------------------------------------------------------------------------------
 f_typecommand
 			call	LocalON
+
+; first get a filename
+			ld		ix, local.text		; buffer
+			ld		b, 100				; size of buffer in WCHARs
+; test for legal, treat illegal as a terminator, translate \ to /
+			ld		c, getW.B_badPath + getW.B_slash + getW.B_term
+			call	getW				; get 16bit char string
+			jp		nc, .ft1			; failed something
+
+; then two numbers for screen length and width
+			ld		ix, 24
+			call	getdecimalB
+			jr		nc, .ft1
+			ld		a, ixl
+			ld		[local.a], a
+
+			ld		ix, 80
+			call	getdecimalB
+			jr		nc, .ft1
+			ld		a, ixl
+			ld		[local.b], a
+
 			call	stdio_str
-			db		"\r\nTYPE command",0
-			call	LocalOFF
-			scf
-			ret
+			db		"\r\nFile: ",0
+			ld		hl, local.text
+			call	stdio_textW
+
+			call	stdio_str
+			db		"  length: ",0
+			ld		a, [local.a]
+			call	stdio_decimalB
+
+			call	stdio_str
+			db		"  width: ",0
+			ld		a, [local.b]
+			call	stdio_decimalB
+
+			jp		good_end
+
+.ft1		jp		bad_end
 
 ;-------------------------------------------------------------------------------
 ; LOAD command
@@ -446,32 +484,32 @@ printFILE		; call with IX = FILE*
 			call	stdio_byte
 
 			call	stdio_str
-			db		"\n\rsector_in_buffer_abs: ", 0
-			GET32i	ix, FILE.sector_in_buffer_abs
+			db		"\n\rsector_file: ", 0
+			GET32i	ix, FILE.sector_file
 			ld		bc, de
 			call	stdio_decimal32
 
 			call	stdio_str
-			db		"  sector_in_buffer_file: ", 0
-			GET32i	ix, FILE.sector_in_buffer_file
-			ld		bc, de
-			call	stdio_decimal32
-						
-			call	stdio_str
-			db		"\n\rfirst_sector: ", 0
-			GET32i	ix, FILE.first_sector
-			ld		bc, de
-			call	stdio_decimal32
-
-			call	stdio_str
-			db		"  first_sector_file: ", 0
-			GET32i	ix, FILE.first_sector_file
+			db		"  cluster_file: ", 0
+			GET32i	ix, FILE.cluster_file
 			ld		bc, de
 			call	stdio_decimal32
 						
 			call	stdio_str
-			db		"  filePointer: ", 0
+			db		"  cluster_abs: ", 0
+			GET32i	ix, FILE.cluster_abs
+			ld		bc, de
+			call	stdio_decimal32
+						
+			call	stdio_str
+			db		"\r\nfilePointer: ", 0
 			GET32i	ix, FILE.filePointer
+			ld		bc, de
+			call	stdio_decimal32
+						
+			call	stdio_str
+			db		"  first_sector_in_cluster: ", 0
+			GET32i	ix, FILE.first_sector_in_cluster
 			ld		bc, de
 			call	stdio_decimal32
 						
@@ -690,3 +728,7 @@ printDIRN			; call with IY = DIRN*
 ;	char*		writefiledesc(FILE* fp);
 ;
 ;===============================================================================
+
+ if SHOW_MODULE
+	 	DISPLAY "files size: ", /D, $-files_start
+ endif

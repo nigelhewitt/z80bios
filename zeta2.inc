@@ -11,8 +11,9 @@ ALLOW_ANSI		equ		1		; Terminal accepts ANSI strings
 ALLOW_UTF8		equ		1		; Terminal understands UTF-8 extended chars
 LIGHTS_EXIST	equ		1		; switches on PIO_A and lights on PIO_B
 
-ROM_SHIFT	equ		9*1024		; 9K How much of PAGE3 we can give to RAM
-CPUCLK		equ		10000		; master clock in kHz
+ROM_SHIFT		equ		9*1024	; 9K How much of PAGE3 we can give to RAM
+CPUCLK			equ		10000	; master clock in kHz
+SHOW_MODULE		equ		0		; DISPLAY the compiled file sizes
 
 ; IO groups base address
 
@@ -20,7 +21,6 @@ CTC			equ		20H			; counter timer module (Z84C30)
 FDC			equ		30H			; floppy disk controller (WD37C65)
 PIO			equ		60H			; Parallel Port (CP82C55A) 3 x 8 bits
 UART		equ		68H			; UART (16550)
-REDIRECT	equ		UART+7		; 0=stdio goes to serial 1 to (IY++)
 RTC			equ		70H			; RTC (DC1302)
 
 MPGSEL		equ		78H			; memory select registers

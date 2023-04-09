@@ -14,6 +14,8 @@
 ; a zero is returned if the call is OOR
 ; for weird reasons always return with A=L and B=H
 
+cpm_start	equ	$
+
 			db		"<CM/P driver>"
 cpm			ld		a, c			; get the requested function number
 			cp		41				;
@@ -117,3 +119,7 @@ cpm_set_random:
 cpm_reset_drive:
 cpm_write_random_fill:
 			ret
+
+ if SHOW_MODULE
+	 	DISPLAY "cpm size: ", /D, $-cpm_start
+ endif

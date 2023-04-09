@@ -1,8 +1,9 @@
-﻿//==============================================================================
-//
-//		SPI.asm
-//
-//==============================================================================
+﻿;===============================================================================
+;
+;		SPI.asm
+;
+;===============================================================================
+spi_start		equ		$
 
 ; start with the definitions of the i/o bits
 
@@ -102,7 +103,7 @@ spi_read8
 		ld		b, 8
 ; clk hi
 .sr1	ld		d, a				; save clock low output bits while we use A
-		or		a, spi_clk			; set clock hi
+		or		spi_clk				; set clock hi
 		out		(spi_out), a
 ; read a bit						; if we were uber fast we would delay here
 		in		a, (spi_in)			; read data
@@ -199,3 +200,7 @@ spi_write_str
 		inc		hl				; point to the next byte
 		djnz	spi_write_str	; count the byte & continue of not done
 		ret
+
+ if SHOW_MODULE
+	 	DISPLAY "spi size: ", /D, $-spi_start
+ endif

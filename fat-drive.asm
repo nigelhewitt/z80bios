@@ -9,6 +9,8 @@
 ;
 ;===============================================================================
 
+fat_drive_start	equ	$
+
 fat_report	equ	0			; chatty mode
 
 ; We call these routines
@@ -581,3 +583,7 @@ error_handler
 ;			halt
 ;			jr		.dead
 			jp		bad_end
+
+ if SHOW_MODULE
+	 	DISPLAY "fat_drive size: ", /D, $-fat_drive_start
+ endif

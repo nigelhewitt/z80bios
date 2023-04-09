@@ -3,7 +3,7 @@
 ; RTC.asm		Manage the Real Time Clock and the SPI bus
 ;
 ;===============================================================================
-
+rtc_start		equ	$
 ; SPI register bits
 ; We don't have a hardware SPI implementation so it has to be hand cranked
 
@@ -240,7 +240,7 @@ rtc_wrclk
 		; sent the eighth byte to re-write protect it
 		ld		e, 0x80			; add control reg byte, 0x80 = protect on
 		call	rtc_put			; write required 8th byte
-		and		a, ~RTCCE		; CE low before CLK low (NVH add)
+		and		~RTCCE			; CE low before CLK low (NVH add)
 		out		(RTC), a
 		pop		hl, de, bc
 		jp		rtc_init
@@ -283,7 +283,7 @@ rtc_wrram
 		call	rtc_put			; put next byte
 		inc		hl				; increment buffer pointer
 		djnz	.rw1			; loop if not done
-		and		a, ~RTCCE		; CE low before CLK low (NVH add)
+		and		~RTCCE			; CE low before CLK low (NVH add)
 		out		(RTC), a
 
 		; set the write protect bit to one
@@ -610,3 +610,6 @@ packRTC			; call with HL=buffer, D=maxcount, E=index, IY=RTC buffer
 			ld		[iy+rtcdata.hours], a	; hours (with 24hr set)
 			jp		.pr4a
 ;
+ if SHOW_MODULE
+	 	DISPLAY "rtc size: ", /D, $-rtc_start
+ endif

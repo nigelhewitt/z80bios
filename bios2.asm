@@ -4,14 +4,15 @@
 ;
 ;===============================================================================
 
-BIOSROM		equ			2				; which ROM page are we compiling
-BIOSRAM		equ			RAM5
 			include		"zeta2.inc"		; common definitions
  			include		"macros.inc"
 			include		"vt.inc"
 
+BIOSROM		equ			2				; which ROM page are we compiling
+BIOSRAM		equ			RAM5
+
 			org		PAGE3
-			db		"BIOS2 ", __DATE__, " ", __TIME__, 0
+logo		db		"BIOS2 ", __DATE__, " ", __TIME__, 0
 
 ; the works of the calling mechanism is in the share file router.asm
 ; but it wants a table of functions and a count supplied here
@@ -165,3 +166,6 @@ err_badaddress
 			ld		a, ERR_BAD_ADDRESS
 			jr		cmd_err
 
+ if SHOW_MODULE
+	 	DISPLAY "bios2 size: ", /D, $-logo
+ endif

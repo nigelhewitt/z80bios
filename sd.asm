@@ -1,4 +1,6 @@
 ; nig stuff
+sd_start			equ		$
+
 DIO_FNCNT			equ		12		; number of functions
 MID_HD				equ		1		; responses to STATUS check
 MID_NONE			equ		0
@@ -1462,3 +1464,6 @@ PRTHEXBUF
 		INC		DE
 		DJNZ	.pr1
 		RET
+ if SHOW_MODULE
+	 	DISPLAY "sd size: ", /D, $-sd_start
+ endif
