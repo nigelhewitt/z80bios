@@ -883,7 +883,7 @@ ChangeDirectory
 ; we need a FILE to work in
 .cd1		pop		de
 			push	de, bc, hl, ix
-			ld		ix, local.file			; get a working FILE*
+			ld		ix, local.tempfile2		; get a working FILE*
 
 .cd2		call	NextDirectoryItem		; IY=DIRECTORY*, IX=FILE*
 			jp		nc, .cd3				; finished so failed
@@ -938,7 +938,7 @@ ChangeDirectory
 OpenDirectory
 ;=========================== SELECT THE DRIVE ==================================
 
-			push	de
+			push	ix, bc, hl, de, de
 			ld		a, [de]					; save a prospective drive letter
 			ld		b, a
 			inc		de
@@ -1033,12 +1033,12 @@ OpenDirectory
 			ld		bc, DRIVE.cwd
 			add		hl, bc				; pointer to CWD
 			ld		bc, 3				; the CWD is at least "A:\"
-.od5		ld		de, local.text2		; text buffer
+.od5		ld		de, local.temptext1	; text buffer
 			call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od6			; run out of tokens so OK to move on
 
 			push	hl, bc				; save the token stuff
-			ld		de, local.text2		; token
+			ld		de, local.temptext1	; token
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			pop		bc, hl
 			ERROR	nc, 24		; failed one element of a CWD in OpenDirectory
@@ -1059,19 +1059,21 @@ OpenDirectory
 ; DE should point to the first token
 			ld		hl, de				; path in HL
 			ld		bc, 0				; zero the index
-			ld		de, local.text2		; text buffer
+			ld		de, local.temptext1	; text buffer
 .od9		call	getToken			; HL = text, DE=buffer, BC = index
 			jr		nc, .od10			; run out of tokens
 
 			push	hl, bc				; save token pointers
-			ld		de, local.text2		; text buffer
+			ld		de, local.temptext1	; text buffer
 			call	ChangeDirectory		; IY = DIRECTORY* and  DE=WCHAR path*
 			pop		bc, hl
 			jr		c, .od9				; done OK
+			pop		de, hl, bc, ix
 			xor		a
 			ret
 
 .od10		call	ResetDirectory		; IY=DIRECTORY*
+			pop		de, hl, bc, ix
 			scf
 			ret
 

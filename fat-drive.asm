@@ -14,7 +14,9 @@ fat_drive_start	equ	$
 fat_report	equ	0			; chatty mode
 
 ; We call these routines
-; I need to wrap them so we can do SD or FDD based on DRIVE.iDrive
+; I need to wrap them so we can do SD or FDD based on DRIVE.iDrive later
+
+; call with DRIVE* in IX
 
 media_init	push	ix, iy
 			ld		iy, SD_CFGTBL
@@ -44,20 +46,21 @@ media_write	push	ix, iy
 ; init_drive	Initialise the drives
 ;				set the drive_letter, hardware_type and partition_number
 ;				since these value never change this can be done repeatedly
+;	uses nothing
 ;-------------------------------------------------------------------------------
 drive_init	push	bc, de, hl, ix, af
-			ld		ix, local.ADRIVE
-			ld		hl, .init_data
-			ld		b, nDrive
+			ld		ix, local.ADRIVE		; pointer to first DRIVE
+			ld		hl, .init_data			; data to apply
+			ld		b, nDrive				; number of drives
 .di1		ld		a, [hl]
 			inc		hl
-			ld		[ix+DRIVE.idDrive], a
+			ld		[ix+DRIVE.idDrive], a	; set drive letter eg: 'C'
 			ld		a, [hl]
 			inc		hl
-			ld		[ix+DRIVE.hwDrive], a
+			ld		[ix+DRIVE.hwDrive], a	; set hardware type 0=SD, 1=FDD
 			ld		a, [hl]
 			inc		hl
-			ld		[ix+DRIVE.iPartition], a
+			ld		[ix+DRIVE.iPartition], a	; set partition number 0-3
 			ld		de, DRIVE
 			add		ix, de
 			djnz	.di1
@@ -70,36 +73,36 @@ drive_init	push	bc, de, hl, ix, af
 nDrive		equ		($-.init_data)/3	; number of drives
 
 ;-------------------------------------------------------------------------------
-; get_drive	convert Drive code in A currently 'A','C' or 'D'
-;			returns IX set to DRIVE and C or IX=0 and NC
+; get_drive	convert Drive code letter in A currently 'A','C' or 'D'
+;			returns IX set to DRIVE* and CY or IX=0 and NC
 ;-------------------------------------------------------------------------------
-get_drive	push	bc, de, hl, af
+get_drive	push	bc, de, hl
 			call	drive_init			; fill in letters, HW and partitions
-			ld		b, nDrive
-			ld		hl, local.ADRIVE
-			ld		de, DRIVE
+			ld		b, nDrive			; number of drives
+			ld		hl, local.ADRIVE	; pointer to first DRIVE
+			ld		de, DRIVE			; size of a DRIVE
 .gd1		ld		ix, hl
-			cp		[ix+DRIVE.idDrive]
+			cp		[ix+DRIVE.idDrive]	; test the id letter
 			jr		z, .gd2				; match
-			add		hl, de
+			add		hl, de				; move to next DRIVE
 			djnz	.gd1
-			ld		ix, 0
-			pop		af
-			xor		a					; fail
+			ld		ix, 0				; not found so fail
+			xor		a
 			jr		.gd3
 
-.gd2		pop		af					; be sure to return the drive letter
-			scf							; drive exists even if not mounted
+.gd2		scf							; drive exists even if not mounted
 .gd3		pop		hl, de, bc
 			ret
 
 ;-------------------------------------------------------------------------------
 ; Read the boot sector from the drive and decide if it contains a partition
-; table or if it is a one partition drive and it is a volume header.
-; The either process it as a Volume header of load one.
-; 	call with IX* DRIVE to fill in with the iDrive and
+; table or if it is a one partition drive and this is a volume header.
+; If it has a partition table use iPartion to load the required one and load
+; its Volume header.
+; 	call with IX as a blank DRIVE* to fill in with the idDrive, hwDrive and
 ; iPartion values set
 ;	returns NC is no such partition or no hardware
+;	uses A
 ;-------------------------------------------------------------------------------
 
 mount_drive
@@ -116,52 +119,28 @@ mount_drive
 
 ; initialise things
 .rb0a
-			push	iy
-	if	fat_report
-			call	stdio_str
-			BLUE
-			db		"\r\nmount_drive"
-			WHITE
-			db		0
-	endif
-			call	media_init
+			push	bc, de, hl, iy
+			call	media_init		; IX = DRIVE* with hwDrive set
 			ERROR	nz, 1			; media_init failed in mount_drive
-	if	fat_report
-			call	stdio_str
-			BLUE
-			db		"\r\ninit OK"
-			WHITE
-			db		0
-	endif
 
 ; seek to sector 0
 			ld		de, 0
 			ld		hl, 0
-			call	media_seek			; DE:HL
+			call	media_seek			; IX*=drive, DE:HL=sector number
 			jp		nz, .rb20			; fail soft
-	if	fat_report
-			call	stdio_str
-			BLUE
-			db		"\r\nseek 0 OK"
-			WHITE
-			db		0
-	endif
 
-; read the boot sector
-			ld		hl, local.fat_buffer
+; read the boot sector (read into fatTable as we aren't using it yet)
+			ld		hl, ix				; DRIVE*
+			ld		bc, DRIVE.fatTable	; pointer to fatTable
+			add		hl, bc
 			ld		e, 1
-			call	media_read
-			jp		nz, .rb20				; fail soft
-	if	fat_report
-			call	stdio_str
-			BLUE
-			db		"\r\nread 0 OK"
-			WHITE
-			db		0
-	endif
+			call	media_read			; IX=DRIVE*, HL=address, E=sectors
+			jp		nz, .rb20			; fail soft
 
 ; basic confidence test (works for both BOOT or VOLUME)
-			ld		hl, local.fat_buffer+BOOT.sig1
+			ld		hl, ix
+			ld		bc, DRIVE.fatTable + BOOT.sig1
+			add		hl, bc				; pointer to sig1
 			ld		a, [hl]
 			cp		0x55
 			ERROR	nz, 4				; bad sig in BOOT0 in mount_drive
@@ -176,86 +155,40 @@ mount_drive
 			ld		[ix+DRIVE.partition_begin_sector+2], hl
 
 ; it's hardly definitive but if it has "MSDOS5.0" in BootTest it is a VOLUME
+			ld		hl, ix
+			ld		bc, DRIVE.fatTable + BOOT.BootTest
+			add		hl, bc
 			ld		b, 8
-			ld		hl, local.fat_buffer + BOOT.BootTest
 			ld		de, .testsig
 .rb1		ld		a, [de]
 			cp		[hl]
-			jr		nz, .rb2
+			jr		nz, .rb2			; fail
 			inc		hl
 			inc		de
 			djnz	.rb1
 			jp		.rb7				; do this sector as a volume
 .rb2
-
-; so we assume it's a BOOT and report on the partition tables
-	if fat_report
-			ld		b, 4
-			ld		c, 1			; mark partitions 1-4
-			ld		iy, local.fat_buffer + BOOT.Partition1
-.rb3		push	bc
-			ld		hl, 0
-			ld		a, [iy+PARTITION.TypeCode]
-			or		a
-			jp		z, .rb5
-			ld		hl, .fat12		; FAT12
-			cp		FAT12
-			jr		z, .rb4
-			ld		hl, .fat16		; FAT16
-			cp		FAT16
-			jr		z, .rb4
-			ld		hl, .fat32		; FAT32
-			cp		FAT32
-			jr		nz, .rb5		; display nothing
-.rb4		call	stdio_str
-			BLUE
-			db		"\r\nPARTITION: ",0
-			ld		a, c
-			call	stdio_decimalB
-			call	stdio_str
-			db		" FAT type: ", 0
-			call	stdio_text		; print fat type
-			call	stdio_str
-			db		"  LBA begin: ",0
-			ld		hl, [iy+PARTITION.LBA_Begin]
-			ld		bc, [iy+PARTITION.LBA_Begin+2]
-			call	stdio_decimal32		; BC:HL
-			call	stdio_str
-			db		" Sectors: ",0
-			ld		hl, [iy+PARTITION.nSectors]
-			ld		bc, [iy+PARTITION.nSectors+2]
-			call	stdio_decimal32
-.rb5		pop		bc
-			ld		de, PARTITION
-			add		iy, de
-			inc		c
-			djnzF	.rb3
-	endif
-
 ; right time to extract the partition's important bits
 ; point IY to the PARTITION
-			ld		a, [ix+DRIVE.iPartition]
+			ld		a, [ix+DRIVE.iPartition]	; requested partition 0-3
 			cp		4
-			ERROR	nc, 5			; bad partition requested in mount_drive
-			ld		iy, local.fat_buffer + BOOT.Partition1
-			sla		a		; *= 16 aka sizeof PARTITION
+			ERROR	nc, 5		; bad partition requested in mount_drive
+
+			ld		hl, ix
+			ld		de, DRIVE.fatTable + BOOT.Partition1
+			add		hl, de
+			ld		iy, hl
+
+			sla		a		; *= 16 aka sizeof PARTITION (3*16=48 so byte)
 			sla		a
 			sla		a
 			sla		a
 			ld		e, a
 			ld		d, 0
-			add		iy, de				; point ix to partition
-	if fat_report
-			call	stdio_str
-			BLUE
-			db		"\r\nSelecting partition: ",0
-			ld		a, [ix+DRIVE.iPartition]
-			inc		a							; display 0-3 as 1-4
-			call	stdio_decimalB
-	endif
+			add		iy, de				; point IY to partition
 
 ; get the type or error out
-; (we will redo this on cluster count later, this is just to kick out errors)
+; (we will redo this later based on cluster count, this is to kick out non-FAT)
 			ld		a, [iy+PARTITION.TypeCode]
 			or		a
 			jp		z, .rb20		; no such partition
@@ -266,30 +199,28 @@ mount_drive
 			cp		FAT32
 			ERROR	nz, 6				; FAT type byte not recognised in mount_drive
 .rb6		ld		[ix+DRIVE.fat_type], a
+
 ; get the starting cluster
 			ld		hl, [iy+PARTITION.LBA_Begin]
 			ld		[ix+DRIVE.partition_begin_sector], hl
 			ld		de, [iy+PARTITION.LBA_Begin+2]
 			ld		[ix+DRIVE.partition_begin_sector+2], de
-			ld		a, [iy+PARTITION.TypeCode]
 
-; time to read the VOLUME
-			call	media_seek			; DE:HL
+; time to read the VOLUME into DRIVE.fatTable
+			call	media_seek		; IX=DRIVE*, DE:HL=sector address
 			ERROR	nz, 7			; media_seek failed in mount_drive
 
-	if fat_report
-			call	stdio_str
-			db		"\r\nRead VOLUME"
-			WHITE
-			db		0
-	endif
-			ld		hl, local.fat_buffer
+			ld		hl, ix			; DRIVE*
+			ld		de, DRIVE.fatTable
+			add		hl, de
 			ld		e, 1
-			call	media_read
+			call	media_read		; IX*=DRIVE, HL=buffer, E=sector count
 			ERROR	nz, 8			; media_read failed in mount_drive
 
-; checks on a volume
-			ld		hl, local.fat_buffer+VOLUME32.sig1
+; checks on a VOLUME
+			ld		hl, ix
+			ld		de, DRIVE.fatTable + VOLUME32.sig1
+			add		hl, de
 			ld		a, [hl]
 			cp		0x55
 			ERROR	nz, 9			; bad sig in VOLUME in mount_drive
@@ -300,48 +231,36 @@ mount_drive
 
 ; process the data out of the volume
 ; NB: we jump to here is the BOOT isn't a boot
-.rb7		ld		iy, local.fat_buffer
+.rb7		ld		hl, ix
+			ld		de, DRIVE.fatTable
+			add		hl, de
+			ld		iy, hl
+
 ; first ensure we are 512bytes/sector
 			ld		a, [iy+VOLUME32.BPB_BytsPerSec]
 			or		a
 			ERROR	nz, 10		; 512 bytes/sector check failed in mount_drive
 			ld		a, [iy+VOLUME32.BPB_BytsPerSec+1]
-			cp		2
+			cp		2			; aka 512>>8
 			ERROR	nz, 10		; 512 bytes/sector check failed  in mount_drive
-	if fat_report
-			call	stdio_str
-			BLUE
-			db		"\r\nBytes per sector: 512", 0
-	endif
 
 ; Process the BPB_SecPerClus into a slide and a mask
 ; this number is a power of 2 so 1,2,4...128
-; since I need to multiply and divide by it and take remainders that is done
-; with a slide and a mask
+; since I need to multiply and divide by it a lot and take remainders that
+; is done with a slide and a mask
 			ld		a, [iy+VOLUME32.BPB_SecPerClus]		; 1...128
 			ld		de, 0								; D=slide, E=mask
-.rb8		srl		a									; 1 becomes z
-			jr		z, .rb9
+.rb8		srl		a				; slide into CY
+			jr		c, .rb9			; we have the bit
 			inc		d
 			scf
 			sll		e
 			jr		.rb8
-.rb9		ld		[ix+DRIVE.sector_to_cluster_slide], d
+
+.rb9		or		a				; a check, they promise a multiple of two
+			ERROR	nz, 25			; sectors/cluster bad number
+			ld		[ix+DRIVE.sector_to_cluster_slide], d
 			ld		[ix+DRIVE.sectors_in_cluster_mask], e
-	if fat_report
-			call	stdio_str
-			db		"\r\nSectors per cluster: ",0
-			ld		a, [iy+VOLUME32.BPB_SecPerClus]
-			call	stdio_decimalB
-			call	stdio_str
-			db		"  slide: ",0
-			ld		a, [ix+DRIVE.sector_to_cluster_slide]
-			call	stdio_decimalB
-			call	stdio_str
-			db		" mask: 0x",0
-			ld		a, [ix+DRIVE.sectors_in_cluster_mask]
-			call	stdio_byte
-	endif
 
 ; determine FAT size (if FAT12/16 is set use it)
 			ld		de, 0
@@ -353,16 +272,12 @@ mount_drive
 			ld		hl, [iy+VOLUME32.BPB_FATSz32]
 .rb10		ld		[ix+DRIVE.fat_size], hl
 			ld		[ix+DRIVE.fat_size+2], de
-	if fat_report
-			call	stdio_str
-			db		"\r\nFAT size: ",0
-			ld		bc, de
-			call	stdio_decimal32
-	endif
 
 ; we now need to generate the count_of_clusters value
 ; but that involves some transient numbers so they go in .local_temp
 ; total sectors (local)
+
+; if BPB_TotSec16 is set use it else use BPB_TotSec32
 			ld		de, 0
 			ld		hl, [iy+VOLUME12.BPB_TotSec16]
 			ld		a, h
@@ -370,8 +285,8 @@ mount_drive
 			jr		nz, .rb11
 			ld		de, [iy+VOLUME32.BPB_TotSec32+2]
 			ld		hl, [iy+VOLUME32.BPB_TotSec32]
-.rb11		ld		[.local_temp1], hl				; TotSec -> local_temp1
-			ld		[.local_temp1+2], de
+.rb11		ld		[.local_total_sectors], hl		; TotSec -> local_total_sectors
+			ld		[.local_total_sectors+2], de
 
 ; local RootDirSectors = ((volID->BPB_RootEntCnt * 32) + (volID->BPB_BytsPerSec - 1)) / volID->BPB_BytsPerSec;
 			ld		de, 0
@@ -390,15 +305,9 @@ mount_drive
 			srl		h
 			rr		l
 			djnz	.rb13
-			ld		[.local_temp2], hl	; b16*32/512 can't be more than 4096
-	if fat_report
-			call	stdio_str
-			db		"\r\nRoot Directory Sectors: ",0
-			call	stdio_decimalW
-	endif
+			ld		[.local_root_dir_sectors], hl	; b16*32/512 can't be more than 4096
 
 ; local DataSec = TotSec - (volID->BPB_RsvdSecCnt + (volID->BPB_NumFATs * drive->fat_size) + RootDirSectors);
-
 			ld		b, [iy+VOLUME32.BPB_NumFATs]	; actually 1 or 2
 			ld		hl, 0
 			ld		de, 0
@@ -406,11 +315,10 @@ mount_drive
 			ld		bc, [ix+DRIVE.fat_size]
 			add		hl, bc
 			ld		bc, [ix+DRIVE.fat_size+2]
-			adc		de, bc							; compiles as ex de,hl : sbc hl,bc : ex de,hl
+			adc		de, bc
 			pop		bc
 			djnz	.rb14
-
-			ld		bc, [.local_temp2]				; + RootDirSectors
+			ld		bc, [.local_root_dir_sectors]	; + RootDirSectors
 			add		hl, bc
 			ld		bc, 0
 			sbc		de, bc
@@ -418,15 +326,17 @@ mount_drive
 			ld		bc, [iy+VOLUME32.BPB_RsvdSecCnt]
 			add		hl, bc
 			ld		bc, 0
-			ex		hl, de	: adc hl, bc : ex hl, de
+			ex		hl, de
+			adc		hl, bc
+			ex		hl, de
 			ld		[.local_temp3], hl				; save the item to subtract
 			ld		[.local_temp3+2], de
 
-			ld		hl, [.local_temp1]				; TotSec
-			ld		de,	[.local_temp1+2]
+			ld		hl, [.local_total_sectors]		; TotSec
+			ld		de,	[.local_total_sectors+2]
 			ld		bc, [.local_temp3]				; get DataSec
 			sub		hl, bc
-			ld		bc, [.local_temp2+2]
+			ld		bc, [.local_root_dir_sectors+2]
 			sbc		de, bc
 
 ; drive->count_of_clusters = DataSec / volID->BPB_SecPerClus;
@@ -441,12 +351,7 @@ mount_drive
 			djnz	.rb15
 .rb16		ld		[ix+DRIVE.count_of_clusters], hl
 			ld		[ix+DRIVE.count_of_clusters+2], de
-	if fat_report
-			call	stdio_str
-			db		"\r\nCount of clusters: ",0
-			ld		bc, de
-			call	stdio_decimal32
-	endif
+
 ; and now we get the FAT type based on the Microsoft rules
 			CP32	4085
 			ld		a, FAT12
@@ -456,18 +361,6 @@ mount_drive
 			jr		c, .rb17		; FAT16
 			ld		a, FAT32
 .rb17		ld		[ix+DRIVE.fat_type], a
-	if fat_report
-			call	stdio_str
-			db		"\r\nFAT type: ",0
-			ld		hl, fat12
-			cp		FAT12
-			jr		z, .rb18
-			ld		hl, fat16
-			cp		FAT16
-			jr		z, .rb18
-			ld		hl, fat32
-.rb18		call	stdio_text
-	endif
 
 ; drive->root_dir_entries = volID->BPB_RootEntCnt;
 			ld		hl, [iy+VOLUME32.BPB_RootEntCnt]
@@ -501,8 +394,8 @@ mount_drive
 ; drive->cluster_begin_sector = drive->partition_begin_sector
 ;		+ volID->BPB_RsvdSecCnt + (volID->BPB_NumFATs * drive->fat_size)
 ;		+ RootDirSectors;
-;	so just add .local_temp2 ro our current DE:HL
-			ld		bc, [.local_temp2]
+;	so just add .local_root_dir_sectors ro our current DE:HL
+			ld		bc, [.local_root_dir_sectors]
 			add		hl, bc
 			ld		bc, 0
 			adc		de, bc
@@ -531,30 +424,22 @@ mount_drive
 			ld		hl, 0
 			ld		[ix+DRIVE.fat_free_speedup], hl
 			ld		[ix+DRIVE.fat_free_speedup+2], hl
-
-			pop		iy
+			pop		iy, hl, de, bc
 			scf
 			ret
 
 ; soft fail (no drive or partition)
-.rb20		pop		iy
+.rb20		pop		iy, hl, de, bc
 			or		a
 			ret
 
 ; local constants
 .testsig	db	"MSDOS5.0"			; used to id a value
-	if	fat_report
-.fat0		db	"NOT FAT",0
-.fat12		db	"FAT12  ",0
-.fat16		db	"FAT16  ",0
-.fat32		db	"FAT32  ",0
-	endif
 
 ; local variables
-.local_temp1	dd	0
-.local_temp2	dd	0
-.local_temp3	dd	0
-.local_temp4	dd	0
+.local_total_sectors	dd	0
+.local_root_dir_sectors	dd	0
+.local_temp3			dd	0
 
 ;-------------------------------------------------------------------------------
 ;	unmount_drive	called when a FD or an SD is removed so it will be totally

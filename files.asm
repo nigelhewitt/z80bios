@@ -9,18 +9,22 @@ files_start		equ	$
 ; set up so local.thing is the absolute address of thing
 				struct	local
 				ds		PAGE2
-ADRIVE			DRIVE			; DRIVEs for A, C and D
+; global definitions
+ADRIVE			DRIVE				; DRIVEs for A, C and D
 CDRIVE			DRIVE
 DDRIVE			DRIVE
-current			ds		1		; current drive letter
-folder			DIRECTORY
-file			FILE
-fat_buffer		ds		512
-text			ds		MAX_PATH+85
-text2			ds		MAX_PATH+85
-buffer			ds		512
-a				db		0
-b				db		0
+current			ds		1			; current drive letter
+
+; working space for systems
+tempfolder1		DIRECTORY			; used internally by OpenFile
+tempfile1		FILE				; used internally by OpenDirectory
+tempfile2		FILE				; used internally by ChangeDirectory
+temptext1		ds		MAX_PATH+85	; used internally by OpenDirectory
+
+; working space for commands
+cmdfolder		DIRECTORY
+cmdfile			FILE
+cmdtext			ds		MAX_PATH+85	; used in various commands
 				ends
 
 ;-------------------------------------------------------------------------------
@@ -108,7 +112,7 @@ f_printCWD	call	LocalON
 ; CD command
 ;-------------------------------------------------------------------------------
 f_cdcommand	call	LocalON
-			ld		ix, local.text		; buffer
+			ld		ix, local.cmdtext	; text buffer
 			ld		b, 100				; size of buffer in WCHARs
 ; test for legal, treat illegal as a terminator, translate \ to /
 			ld		c, getW.B_badPath + getW.B_slash + getW.B_term
@@ -116,15 +120,15 @@ f_cdcommand	call	LocalON
 			jr		nc, .fc1			; failed something
 
 ; do we have a drive to work on
-			ld		a, [local.text+1]
+			ld		a, [local.cmdtext+1]
 			cp		':'
 			jr		z, .fc0
 			ld		a, [local.current]
 			or		a
 			jr		z, .fc3
 .fc0
-			ld		de, local.text		; target name in W16
-			ld		iy, local.folder	; empty folder to work with
+			ld		de, local.cmdtext	; target name in W16
+			ld		iy, local.cmdfolder	; empty folder to work with
 			call	OpenDirectory		; returns IY as DIRECTORY*
 			jp		nc, .fc2			; failed
 
@@ -189,24 +193,24 @@ f_dircommand
 			ld		de, hl
 
 ; now open the directory in [DE]
-.fd3		ld		iy, local.folder
+.fd3		ld		iy, local.cmdfolder
 			call	OpenDirectory
 			jr		nc, .fd6
 
-			ld		iy, local.folder
+			ld		iy, local.cmdfolder
 			ld		hl, [iy+DIRECTORY.drive]
 			ld		ix, hl
 
-.fd4		ld		ix, local.file
+.fd4		ld		ix, local.cmdfile
 			call	NextDirectoryItem
 			jr		nc, .fd5
 
-			ld		hl, local.text
+			ld		hl, local.cmdtext
 			ld		de, MAX_PATH+85
 			call	WriteDirectoryItem
 			call	stdio_str
 			db		"\r\n", 0
-			ld		hl, local.text
+			ld		hl, local.cmdtext
 			call	stdio_text
 			jr		.fd4
 
@@ -226,44 +230,176 @@ f_typecommand
 			call	LocalON
 
 ; first get a filename
-			ld		ix, local.text		; buffer
-			ld		b, 100				; size of buffer in WCHARs
+			ld		ix, local.cmdtext			; buffer
+			ld		b, 100						; size of buffer in WCHARs
 ; test for legal, treat illegal as a terminator, translate \ to /
 			ld		c, getW.B_badPath + getW.B_slash + getW.B_term
-			call	getW				; get 16bit char string
-			jp		nc, .ft1			; failed something
+			call	getW						; get 16bit char string
+			jp		nc, .ft5					; failed something
 
 ; then two numbers for screen length and width
 			ld		ix, 24
 			call	getdecimalB
-			jr		nc, .ft1
+			jp		nc, .ft5
 			ld		a, ixl
-			ld		[local.a], a
+			ld		[.length], a
 
 			ld		ix, 80
 			call	getdecimalB
-			jr		nc, .ft1
+			jp		nc, .ft5
 			ld		a, ixl
-			ld		[local.b], a
+			ld		[.width], a
 
 			call	stdio_str
+			BLUE
 			db		"\r\nFile: ",0
-			ld		hl, local.text
+			ld		hl, local.cmdtext
 			call	stdio_textW
 
 			call	stdio_str
 			db		"  length: ",0
-			ld		a, [local.a]
+			ld		a, [.length]
 			call	stdio_decimalB
 
 			call	stdio_str
 			db		"  width: ",0
-			ld		a, [local.b]
+			ld		a, [.width]
 			call	stdio_decimalB
 
+			call	stdio_str
+			db		"  Open: ",0
+
+			ld		de, local.cmdtext
+			ld		ix, local.cmdfile
+			call	FileOpen
+			jp		nc, .ft3
+
+			call	stdio_str
+			db		"OK   UTF-8: ",0
+
+; read and discard the UTF-8 preamble if any
+			call	FileGetc
+			jr		nc, .ft1
+			cp		0xef
+			jr		nz, .ft1
+			call	FileGetc
+			jr		nc, .ft1
+			cp		0xef
+			jr		nz, .ft1
+			call	FileGetc
+			jr		nc, .ft1
+			cp		0xef
+			jr		nz, .ft1
+
+; UTF8
+			call	stdio_str
+			db		"yes\r\n"
+			WHITE
+			db		0
+			ld		a, 1
+			ld		[.utf8], a
+			jr		.ft2
+
+; not UTF8
+.ft1		call	stdio_str
+			db		"no\r\n"
+			WHITE
+			db		0
+			ld		a, 1
+			ld		[.utf8], a
+			ld		hl, 0
+			ld		de, hl
+			call	FileSeek
+
+; initialise screen counters
+.ft2		ld		de, 0				; D=lines, E=cols
+
+; read characters to screen
+.ft2a		call	FileGetc
+			jp		nc, .ft4			; EOF
+			ld		h, a
+; <TAB>
+			cp		0x09				; <TAB>
+			jr		nz, .ft2b
+.ft2a1		ld		a, 0x20
+			call	stdio_putc
+			inc		e
+			ld		a, e				; do width check here !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			and		3
+			jr		nz, .ft2a1
+			jr		.ft2a
+; <CR>
+.ft2b		cp		0x0d				; <CR>
+			jr		nz, .ft2c
+			call	stdio_putc
+			ld		e, 0
+			jr		.ft2a
+
+; <LF>
+.ft2c		cp		0x0a				; <LF>
+			jr		nz, .ft2d
+			call	stdio_putc
+			inc		d
+			jr		.ft2c				; will be picked up on next char
+
+; normal char
+; check width
+.ft2d		ld		a, [.width]
+			cp		e
+			jr		c, .ft2f			; no problem
+			ld		a, 0x0d				; <CR>
+			call	stdio_putc
+			ld		a, 0x0a				; <LF>
+			call	stdio_putc
+			ld		e, 0
+			inc		d
+			jr		.ft2a				; next char
+
+; check height
+.ft2e		ld		a, [.length]
+			cp		d
+			jr		c, .ft2e
+			call	stdio_str
+			BLUE
+.z1			equ		$
+			db		" Press <ENTER> to continue:"
+.z2			equ		$-.z1
+			WHITE
+			db		0
+.ft2ca		call	stdio_getc
+			cp		0x03				; ^C
+			jr		z, .ft4				; good_end
+			cp		0x0d				; <ENTER>
+			jr		nz, .ft2ca
+			ld		b, .z2				; count of chars to be over written
+			ld		a, 0x20
+.ft2cb		call	stdio_putc
+			djnz	.ft2cb
+			jp		.ft2a
+
+; just output it then
+.ft2f		ld		a, h
+			call	stdio_putc
+			inc		e
+			jp		.ft2
+
+; file fails to open, good end
+.ft3		call	stdio_str
+			db		"NO\r\n"
+			WHITE
+			db		0
+.ft4		call	LocalOFF
 			jp		good_end
 
-.ft1		jp		bad_end
+; bad command entry so bad end
+.ft5		call	LocalOFF
+			jp		bad_end
+
+; local variables
+.width		db		80
+.length		db		24
+.utf8		db		0
+.tab		db		4
 
 ;-------------------------------------------------------------------------------
 ; LOAD command

@@ -270,14 +270,18 @@ PUT32i		macro	ir, offset
 
 ; increment DE:HL
 INC32		macro
-			inc		l
-			jr		nc, .z2
-			inc		h
-			jr		nc,	.z2
-			inc		e
-			jr		nc, .z2
-			inc		d
-.z2
+			ld		a, l
+			add		a, 1
+			ld		l, a
+			ld		a, h
+			adc		0
+			ld		h, a
+			ld		a, e
+			adc		0
+			ld		e, a
+			ld		a, d
+			adc		0
+			ld		d, a
 			endm
 
 ;-------------------------------------------------------------------------------

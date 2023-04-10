@@ -49,26 +49,27 @@ matchName	push	hl, bc
 			ret
 
 ;-------------------------------------------------------------------------------
-; OpenFile		call with empty FILE* in IX and WCHAR* path in DE
+; FileOpen		call with empty FILE* in IX and WCHAR* path in DE
 ;				loads the FILE and returns CY
 ;				else NC
 ;-------------------------------------------------------------------------------
-OpenFile
+FileOpen
 ; First we need to split the pathname and the filename
-			push	iy, hl, de
+			push	iy, bc, de, hl
 			ld		hl, de			; take the name
+			ld		bc, hl			; also save
 			ld		de, '/'			; reverse search for a '/'
 			call	strrchr16		; reverse search
 			jr		nc, .of1		; no '/' so just a filename
 
 ; we have a pathname/filename so break them with a null on the '/'
-			push	de				; push second copy of full paath
+			push	bc				; initial full path
 			ld		[hl], 0			; '/' is low byte only so this is a null
-			ex		[sp], hl		; HL=pathname, [SP]=char before filename
-			ld		ix, local.folder
+			ex		[sp], hl		; gives HL=pathname, [SP]=&char before filename
+			ld		iy, local.tempfolder1
 			ld		de, hl			; pathname in DE
-			call	OpenDirectory	; get the named DIRECTORY
-			jr		nc,	.of3		; failed
+			call	OpenDirectory	; IY=DIRECTORY*, DE=path
+			jp		nc,	.of3		; failed
 			pop		hl				; char before filename
 			ld		[hl], '/'		; put the full path back together
 			inc		hl				; advance to the filename
@@ -76,15 +77,17 @@ OpenFile
 			jr		.of2
 
 ; just a filename, get the default DIRECTORY on the default DRIVE
-.of1		push	de				; save filename pointer
+.of1		push	bc				; save filename pointer
 			ld		de, .null		; point to a "" pathname
+			ld		iy, local.tempfolder1
 			call	OpenDirectory
-			jr		nc,	.of3		; fail
-			pop		de
-123
+			jp		nc,	.of3		; fail
+			pop		de				; get back pathname
+
 ; now select the file in the folder
-.of2		call	NextDirectoryItem	; fill in FILE
-			jr		nc, .of4				; run out so fail
+.of2		ld		iy, local.tempfolder1
+			call	NextDirectoryItem	; fill in IX FILE*
+			jp		nc, .of4			; run out so fail
 			call	isFile
 			jr		nc, .of2			; folder or stuff
 			call	matchName			; test on DE
@@ -93,7 +96,6 @@ OpenFile
 ; we have the FILE so prep it
 ; NextDirectoryItem has done quite a bit. ie:
 ; drive, dirn, startCluster, longName, pathName, filePointer=0
-
 			ld		a, 0x03				; open for read
 			ld		[ix+FILE.open_mode], a
 			ld		hl, 0xffff
@@ -106,20 +108,20 @@ OpenFile
 			ld		[ix+FILE.first_sector_in_cluster], hl
 			ld		[ix+FILE.first_sector_in_cluster+2], hl
 
-			pop		de, hl, iy
-			scf
+			pop		hl, de, bc, iy
+			call	_FileSeek
 			ret
 
 ; error exits
 .of3		pop		de					; pop an extra item and discard
-.of4		pop		de, hl, iy
+.of4		pop		hl, de, bc, iy
 			or		a
 			ret
 
 .null		dw	0			; aka ""
 
 ;-------------------------------------------------------------------------------
-; SeekFile	set filePointer to DE:HL (for read must be less than fileSize)
+; FileSeek	set filePointer to DE:HL (for read must be less than fileSize)
 ;-------------------------------------------------------------------------------
 ; Time for a discussion on how to 'do' files
 ;	The FAT system provideds me with startCluster
@@ -128,8 +130,8 @@ OpenFile
 ;
 ;	Distinguish between sector/cluster values '_file' which are just counting
 ;	up from zero at the beginning as if everything was nice and flat
-;	and sector/cluster values '_abs' where all the FAT and partition stuff are
-;	taken care of.
+;	and cluster_abs' which is in the partition but mapping to the chain of
+;	clusters and sector_abs which is absolute sectors on disk.
 ;
 ;	So to get to a specific point in a file aka filePointer
 ;
@@ -147,11 +149,13 @@ OpenFile
 ;
 ;	find the new cluster (with a shortcut if we are going forwards)
 ;	we count up cluster_file and absolute cluster_abs in parallel
-;		search_cluster_file = 0;
-;		search_cluster_abs  = startingCluster
-;		if(old_cluster_file < cluster_file){		// FATs only go forwards
-;			search_cluster_file = old_cluster_file;
+;		if(old_cluster_file < cluster_file){		; FATs only go forwards
+;			search_cluster_file = old_cluster_file;	; continue from last time
 ;			search_cluster_abs  = old_cluster_abs
+;		}
+;		else{
+;			search_cluster_file = 0;				; start from root
+;			search_cluster_abs  = startingCluster
 ;		}
 ;		while(search_cluster_file < cluster_file){
 ;			++search_cluster_file;
@@ -159,9 +163,9 @@ OpenFile
 ;			if(search_cluster_abs == 0xffffffff) ERROR
 ;		}
 ;		old_cluster_file = cluster_file
-;		old_cluster_abs  =  search_cluster_abs;
-;		old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
-; XX:	old_sector_file = sector_file
+;		old_cluster_abs  = search_cluster_abs;
+; XX:	old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
+;		old_sector_file = sector_file
 ;		READ: old_first_sector_in_cluster + sector_in_cluster
 ;		finished
 ;
@@ -169,12 +173,15 @@ OpenFile
 ; Just watch out as the values saved in the FILE are all the old_ ones as they
 ; define what is in the buffer.
 ;
-;	Obvious isn't it?
+; There is one snag with the code that all the DRIVE stuff thinks in terms of
+; IX = DRIVE pointer and we have IX=FILE pointer as we use IY for FOLDER*
+;
+; call with IX=FILE* and it bases it's seek on
 ;-------------------------------------------------------------------------------
-_seekFile	GET32i	ix, FILE.filePointer	; entry without SET
-			jr		seekFile.sf1
+_FileSeek	GET32i	ix, FILE.filePointer	; entry without value to seek too
+			jr		FileSeek.sf1
 
-seekFile	PUT32i	ix, FILE.filePointer
+FileSeek	PUT32i	ix, FILE.filePointer
 .sf1		push	de, hl
 
 ; Work out the sector_file
@@ -185,23 +192,23 @@ seekFile	PUT32i	ix, FILE.filePointer
 			ld		d, 0
 			srl		e			; make that >>9 ie /512
 			rr		h
-			rr		l			; gives sector in file
+			rr		l			; gives sector_file
 
 ; if(sector_file == old_sector_file)
 ;	finished
-			PUT32i	ix, FILE.sector_file
+			CP32i	ix, FILE.sector_file
 			jr		nz, .nf1
 			pop		hl, de
+			scf
 			ret
 
-.nf1		PUT32	.nf_sector_file			; save proposed sector_file
-
+.nf1
 ; Get the sector in the cluster
 ; sector_in_cluster	= sector_file % drive->sectors_in_cluster
 ; NB: as sectors_in_cluster are all powers of two we do this with a simple AND
 			push	bc, iy
 			ld		bc, [ix+FILE.drive]
-			ld		iy, bc
+			ld		iy, bc				; IY = DRIVE*
 
 			ld		a, [iy+DRIVE.sectors_in_cluster_mask]
 			or		a
@@ -227,9 +234,6 @@ seekFile	PUT32i	ix, FILE.filePointer
 			CP32i	ix, FILE.cluster_file
 			jp		z, .nf6
 
-; set up for the loop to find the cluster
-			PUT32	.nf_target_cluster_file
-
 ; if(old_cluster_file < cluster_file){		// FATs only go forwards
 			jr		nc,.nf4 		; jr if old_cluster_file >= cluster_file
 
@@ -242,60 +246,78 @@ seekFile	PUT32i	ix, FILE.filePointer
 			GET32i	ix, FILE.startCluster
 			PUT32	.nf_search_cluster_abs
 			jr		.nf5
-
+;}
+;else{
 ; search_cluster_file = old_cluster_file;
 .nf4		GET32i	ix, FILE.cluster_file
 			PUT32	.nf_search_cluster_file
 ; search_cluster_abs  = old_cluster_abs
 			GET32i	ix, FILE.cluster_abs
 			PUT32	.nf_search_cluster_abs
-
-; while(search_cluster_file < target_cluster_file){
+;}
+; while(search_cluster_file < cluster_file){
 .nf5		GET32	.nf_search_cluster_file
-			CP32	.nf_target_cluster_file
-			jr		c, .nf6				; end of loop
-;			++search_cluster_file;
+			CP32	.nf_cluster_file
+			jp		c, .nf5a				; end of loop
+
+; ++search_cluster_file;
 			INC32
 			PUT32	.nf_search_cluster_file
-;			search_cluster_abs = GetClusterEntry(search_cluster_abs)
+; search_cluster_abs = GetClusterEntry(search_cluster_abs)
 			GET32	.nf_search_cluster_abs
+			push 	ix
+			ld		bc, iy
+			ld		ix, bc
 			call	GetClusterEntry
+			pop		ix
 			PUT32	.nf_search_cluster_abs
-;			if(search_cluster_abs == 0xffffffff) ERROR
+; if(search_cluster_abs == 0xffffffff) ERROR
 			CP32	0xffffffff
 			ERROR	z, 25		; search beyond end of chain in seekFile
-			jr		.nf4
-
+			jp		.nf5
+; }
 ; old_cluster_file = cluster_file
-			GET32	.nf_search_cluster_abs
+.nf5a		GET32	.nf_search_cluster_abs
 			PUT32i	ix, FILE.cluster_abs
 
 ; old_cluster_abs  =  search_cluster_abs;
 			GET32	.nf_search_cluster_abs
 			PUT32i	ix, FILE.cluster_abs
 
-; old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
+; XX: old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
+.nf6		GET32i	ix, FILE.cluster_abs
+			push	ix
+			ld		bc, [ix+FILE.drive]
+			ld		ix, bc
 			call	ClusterToSector
+			pop		ix
 			PUT32i	ix, FILE.first_sector_in_cluster
 
-; old_sector_file = sector_file
-.nf6		GET32	.nf_sector_file
+;  old_sector_file = sector_file
+			GET32	.nf_sector_file
 			PUT32i	ix, FILE.sector_file
 
 ; READ: old_first_sector_in_cluster + sector_in_cluster
 			GET32i	ix, FILE.first_sector_in_cluster
 			ld		a, [.nf_sector_in_cluster]
-			add		l, a
-
-			call	media_seek
+			add		a, l
+			ld		l, a
+			push	ix			; we need IX for the DRIVE*
+			ld		bc, iy
+			ld		ix, bc
+			call	media_seek	; IX=DRIVE* DE:HL = sector number
 			ERROR	nz, 25		; failed media_seek in seekFile
+			pop		ix			; recover FILE*
+			push	ix
 			ld		hl, ix
 			ld		bc, FILE.buffer
 			add		hl, bc
+			ld		bc, iy
+			ld		ix, bc
 			ld		e, 1
-			call	media_read
+			call	media_read	; IX=DRIVE*, HL=target, E=sector count
 			ERROR	nz, 26		; failed media_read in seekFile
-
+			pop		ix
 ; finished
 			pop		iy, bc, hl, de
 			scf
@@ -307,43 +329,56 @@ seekFile	PUT32i	ix, FILE.filePointer
 .nf_cluster_file			dd		0
 .nf_search_cluster_file		dd		0
 .nf_search_cluster_abs		dd		0
-.nf_target_cluster_file		dd		0
-
-;-------------------------------------------------------------------------------
-; ReadFileBuffer	loads the buffer with the sector containing filePointer
-;-------------------------------------------------------------------------------
-ReadFileBuffer
-			ret
 
 ;-------------------------------------------------------------------------------
 ; fetch the next DE from the file to C:HL address
 ;-------------------------------------------------------------------------------
-ReadFileBlock
+FileRead
 			ret
 
 ;-------------------------------------------------------------------------------
-; return a byte in A
+; return a character in A with CY, or NC on EOF
 ;-------------------------------------------------------------------------------
-ReadFileByte
+FileGetc	push 	bc, de, hl
+			call	_FileSeek				; make sure we have the sector
+			GET32i	ix, FILE.filePointer
+			CP32i	ix, FILE.dirn+DIRN.DIR_FileSize
+			jr		nc, .rb1			; jump on pointer >= size
+			ld		bc, hl
+			INC32
+			PUT32i	ix, FILE.filePointer
+			ld		hl, ix
+			ld		de, FILE.buffer
+			add		hl, de
+			ld		a, b
+			and		1
+			ld		b, a
+			add 	hl, bc
+			ld		a, [hl]
+			pop		hl, de, bc
+			scf
+			ret
+.rb1		pop		hl, de, bc
+			or		a
 			ret
 
 ;-------------------------------------------------------------------------------
-; ReadFileString to C:HL max, for DE
+; FileGets to C:HL max, for DE
 ;-------------------------------------------------------------------------------
-ReadFileString
+FileGets
 			ret
 
 ;-------------------------------------------------------------------------------
-; TellFile		return the filePointer in DE:HL
+; FileTell		return the filePointer in DE:HL
 ;-------------------------------------------------------------------------------
-TellFile	ld		hl, [ix+FILE.filePointer]
+FileTell	ld		hl, [ix+FILE.filePointer]
 			ld		de, [ix+FILE.filePointer+2]
 			ret
 
 ;-------------------------------------------------------------------------------
-; CloseFile		Mostly a place holder until I add write
+; FileClose		Mostly a place holder until I add write
 ;-------------------------------------------------------------------------------
-CloseFile
+FileClose
 			ret
 
  if SHOW_MODULE

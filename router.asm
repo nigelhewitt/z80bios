@@ -190,7 +190,7 @@ return		di							; 4T
 
 ; Local Stack
 local_stack_bottom
-			ds		150
+			ds		200
 local_stack
 
  if SHOW_MODULE

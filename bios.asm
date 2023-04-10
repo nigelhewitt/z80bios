@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.24"		; version number for sign on message
+	define	VERSION	"v0.1.25"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.24"		move to local repository, use version number
+;   	git commit -m "0.1.25"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -526,8 +526,8 @@ cmd_list	db	"BOOT"
 			dw	cmd_w
 			db	"WAIT"				; wait command
 			dw	cmd_wait
-;			db	"Y",0,0,0
-;			dw	cmd_y
+			db	"Y",0,0,0
+			dw	cmd_y
 			db	"Z",0,0,0			; anything test
 			dw	cmd_z
 			db	"?",0,0,0
@@ -1094,13 +1094,33 @@ cmd_time	AUTO	7				; 7 bytes of stack please
 ;===============================================================================
 ; Y  the current thing being tested
 ;===============================================================================
-;cmd_y		ld		hl, 'HL'
-;			ld		bc, 'BC'
-;			ld		de, 'DE'
-;			push	bc, de, hl
-;			CALLFAR ShowStack		; see macros.inc and rom.asm
-;			pop		hl, de, bc
-;			jp		good_end
+cmd_y		ld		ix, 0					; default value
+			ld		bc, 0
+			call	gethex24				; in C:IX
+			ld		hl, ix
+			ld		de, bc
+
+			ld		a, ' '
+			call	stdio_putc
+			ld		bc, de
+			call	stdio_decimal32
+			ld		a, ' '
+			call	stdio_putc
+			ld		bc, de
+			call	stdio_32bit
+
+			ld		a, ' '
+			call	stdio_putc
+			INC32
+
+			ld		bc, de
+			call	stdio_decimal32
+			ld		a, ' '
+			call	stdio_putc
+			ld		bc, de
+			call	stdio_32bit
+
+			jp		good_end
 
 ;===============================================================================
 ; Z  another thing being tested
