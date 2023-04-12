@@ -603,7 +603,7 @@ ResetDirectory
 
 ; start cluster is zero for root directory
 			GET32i	iy, DIRECTORY.startCluster
-			CP32	0
+			CP32n	0
 			jr		nz, .rd1
 
 ; zero so use the root_dir_first_sector from DRIVE

@@ -134,6 +134,8 @@ FileOpen
 ;	clusters and sector_abs which is absolute sectors on disk.
 ;
 ;	So to get to a specific point in a file aka filePointer
+;	NB: FileOpen sets these all to 0xffffffff so the first time through
+;		everything needs to be filled in.
 ;
 ;	Work out the sector_file
 ;		address_in_sector	= filePointer %= 512	ie: the n in buffer[n]
@@ -162,10 +164,10 @@ FileOpen
 ;			search_cluster_abs = GetClusterEntry(search_cluster_abs)
 ;			if(search_cluster_abs == 0xffffffff) ERROR
 ;		}
-;		old_cluster_file = cluster_file
+;		old_cluster_file = search_cluster_file
 ;		old_cluster_abs  = search_cluster_abs;
-; XX:	old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
-;		old_sector_file = sector_file
+;		old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
+; XX:	old_sector_file = sector_file
 ;		READ: old_first_sector_in_cluster + sector_in_cluster
 ;		finished
 ;
@@ -202,20 +204,20 @@ FileSeek	PUT32i	ix, FILE.filePointer
 			scf
 			ret
 
-.nf1
 ; Get the sector in the cluster
 ; sector_in_cluster	= sector_file % drive->sectors_in_cluster
 ; NB: as sectors_in_cluster are all powers of two we do this with a simple AND
+.nf1		PUT32	.nf_sector_file
+			xor		a
+			ld		[.nf_sector_in_cluster], a	; preset to zero
+
 			push	bc, iy
 			ld		bc, [ix+FILE.drive]
-			ld		iy, bc				; IY = DRIVE*
+			ld		iy, bc					; IY = DRIVE*
 
 			ld		a, [iy+DRIVE.sectors_in_cluster_mask]
 			or		a
-								; if A==0 sector_in_cluster is zero (happy trick)
-			ld		[.nf_sector_in_cluster], a
 			jr		z, .nf3		; 1 sector per cluster = always a new cluster
-								; FAT12 is always one for one
 			and		l			; mask the bottom 8 bits of sector_file
 			ld		[.nf_sector_in_cluster], a
 
@@ -257,8 +259,9 @@ FileSeek	PUT32i	ix, FILE.filePointer
 ;}
 ; while(search_cluster_file < cluster_file){
 .nf5		GET32	.nf_search_cluster_file
-			CP32	.nf_cluster_file
-			jp		c, .nf5a				; end of loop
+			CP32v	.nf_cluster_file
+			jp		z, .nf5a				; I really want A>=B
+			jp		nc, .nf5a				; A>B end of loop
 
 ; ++search_cluster_file;
 			INC32
@@ -272,20 +275,20 @@ FileSeek	PUT32i	ix, FILE.filePointer
 			pop		ix
 			PUT32	.nf_search_cluster_abs
 ; if(search_cluster_abs == 0xffffffff) ERROR
-			CP32	0xffffffff
+			CP32n	0xffffffff
 			ERROR	z, 25		; search beyond end of chain in seekFile
 			jp		.nf5
 ; }
-; old_cluster_file = cluster_file
-.nf5a		GET32	.nf_search_cluster_abs
-			PUT32i	ix, FILE.cluster_abs
+; old_cluster_file = search_cluster_file
+.nf5a		GET32	.nf_search_cluster_file
+			PUT32i	ix, FILE.cluster_file
 
 ; old_cluster_abs  =  search_cluster_abs;
 			GET32	.nf_search_cluster_abs
 			PUT32i	ix, FILE.cluster_abs
 
-; XX: old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
-.nf6		GET32i	ix, FILE.cluster_abs
+; old_first_sector_in_cluster = drive->ClusterToSector(cluster_abs);
+			GET32i	ix, FILE.cluster_abs
 			push	ix
 			ld		bc, [ix+FILE.drive]
 			ld		ix, bc
@@ -293,8 +296,8 @@ FileSeek	PUT32i	ix, FILE.filePointer
 			pop		ix
 			PUT32i	ix, FILE.first_sector_in_cluster
 
-;  old_sector_file = sector_file
-			GET32	.nf_sector_file
+; XX: old_sector_file = sector_file
+.nf6		GET32	.nf_sector_file
 			PUT32i	ix, FILE.sector_file
 
 ; READ: old_first_sector_in_cluster + sector_in_cluster
@@ -329,6 +332,44 @@ FileSeek	PUT32i	ix, FILE.filePointer
 .nf_cluster_file			dd		0
 .nf_search_cluster_file		dd		0
 .nf_search_cluster_abs		dd		0
+
+.print		; local stuff
+			push	bc, de, hl, af
+			call	stdio_str
+			RED
+			db		"\r\n.nf_sector_file: ",0
+			GET32	.nf_sector_file
+			ld		bc, de
+			call	stdio_decimal32
+
+			call	stdio_str
+			db		"  .nf_sector_in_cluster: ",0
+			ld		a, [.nf_sector_in_cluster]
+			call	stdio_decimalB
+
+			call	stdio_str
+			db		"  .nf_cluster_file: ",0
+			GET32	.nf_cluster_file
+			ld		bc, de
+			call	stdio_decimal32
+
+			call	stdio_str
+			db		"\r\n.nf_search_cluster_file: ",0
+			GET32	.nf_search_cluster_file
+			ld		bc, de
+			call	stdio_decimal32
+
+			call	stdio_str
+			db		"  .nf_search_cluster_abs: ",0
+			GET32	.nf_search_cluster_abs
+			ld		bc, de
+			call	stdio_decimal32
+
+			call	stdio_str
+			WHITE
+			db		0
+			pop		af, hl, de, bc
+			ret
 
 ;-------------------------------------------------------------------------------
 ; fetch the next DE from the file to C:HL address

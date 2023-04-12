@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.25"		move to local repository, use version number
+   	git commit -m "0.1.26"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -140,3 +140,10 @@ Coded the preliminary seekFile. Interim insurance save
 
 0.1.25
 Rationalise Local in files.asm
+Seek almost working
+Open, getc and TYPE progressing
+Another insurance save
+
+0.1.26
+TYPE now working over sector and cluster boundaries.
+

@@ -117,10 +117,11 @@ ERROR	macro	FAULT, ERRNO		; test for FAULT and error number
 HW_SD					equ		0			; hwDrive meanings
 HW_FD					equ		1
 
+;-------------------------------------------------------------------------------
 ; A DRIVE is like the drive letter in Windows. The hardware behind C: and F:
 ; maybe totally different but you call 'the same' functions and get routed
 ; to the right stuff. Mostly here I am involved in how big the FAT system is.
-
+;-------------------------------------------------------------------------------
 	struct	DRIVE
 idDrive					db		0			; the drive character ie: 'A' or 'C'
 hwDrive					db		0			; hardware type 0=SD, 1=FD etc
@@ -183,8 +184,9 @@ LDIR_Name3				ds		4		; 28 characters 12-13
 	ends
 	assert DIRL == 32
 
-
+;-------------------------------------------------------------------------------
 ; This is the directory item
+;-------------------------------------------------------------------------------
 	struct	DIRECTORY
 drive					dw		0			; pointer to the drive (ie: partition)
 startCluster			dd		0			;
@@ -195,7 +197,9 @@ buffer					ds		512			; where we read our directory sectors too
 longPath				ds		MAX_PATH*2	; name of our folder
 	ends
 
+;-------------------------------------------------------------------------------
 ; a file/folder item
+;-------------------------------------------------------------------------------
 	struct	FILE
 drive					dw		0			; pointer to our drive for cluster maths
 dirn					ds		DIRN		; copy of our directory entry

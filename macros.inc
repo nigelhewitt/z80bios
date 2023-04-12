@@ -207,20 +207,20 @@ SUBDE		macro	n
 ;	Now a bunch of things to mange 32 bit
 ;		all use DE:HL
 ;-------------------------------------------------------------------------------
-; Load DE:HL from IX or IY +offset
-GET32		macro	offset
-			ld		hl, [offset]
-			ld		de, [offset+2]
+; Load DE:HL from addr16
+GET32		macro	addr16
+			ld		hl, [addr16]
+			ld		de, [addr16+2]
 			endm
 
-; save DE:HL	to IX or IY +offset
-PUT32		macro	offset
-			ld		[offset], hl
-			ld		[offset+2], de
+; save DE:HL to addr16
+PUT32		macro	addr16
+			ld		[addr16], hl
+			ld		[addr16+2], de
 			endm
 
 ; compare 32 bit value in DE:HL with a constant
-CP32		macro	value32					; for = return z
+CP32n		macro	value32					; for = return z
 			ld		a, d					; for < return NZ+C
 			cp		(value32 >> 24) & 0xff	; for > return NZ+NC
 			jr		nz, .ex
@@ -234,8 +234,23 @@ CP32		macro	value32					; for = return z
 			cp		value32 & 0xff
 .ex
 			endm
+; compare 32 bit value with a fixed addr16
+CP32v		macro	addr16					; for = return z
+			ld		a, [addr16+3]			; for < return NZ+C
+			cp		d						; for > return NZ+NC
+			jr		nz, .ex
+			ld		a, [addr16+2]
+			cp		e
+			jr		nz, .ex
+			ld		a, [addr16+1]
+			cp		h
+			jr		nz, .ex
+			ld		a, [addr16]
+			cp		l
+.ex			ccf								; as I reversed the compare
+			endm
 
-; Compare DE:HL to IX or IY +offset
+; Compare DE:HL to IX or IY + offset
 CP32i		macro	ir, offset
 			ld		a, d
 			cp		[ir+offset+3]

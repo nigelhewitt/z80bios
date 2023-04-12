@@ -236,7 +236,7 @@ int main()
 	// Open a file, well two files
 	//=============================================================================
 	// I will put this file on both test devices
-	const uint8_t* fn = (U8)u8"A:/bios/test.edc";
+	const uint8_t* fn = (U8)u8"A:/bios/bios1.asm";
 	ZZ_FILE* fp = ZZ_fopen(fn, (U8)"r");	// open file to read
 	printf("===========================================================================================================\n");
 	if(fp==nullptr)
@@ -251,7 +251,7 @@ int main()
 	}
 	printf("===========================================================================================================\n");
 
-	fn = (U8)u8"C:\\bios\\test.edc";
+	fn = (U8)u8"C:\\bios\\bios1.asm";
 	fp = ZZ_fopen((U8)fn, (U8)"r");	// open file to read
 	printf("===========================================================================================================\n");
 	if(fp==nullptr)

@@ -353,10 +353,10 @@ mount_drive
 			ld		[ix+DRIVE.count_of_clusters+2], de
 
 ; and now we get the FAT type based on the Microsoft rules
-			CP32	4085
+			CP32n	4085
 			ld		a, FAT12
 			jr		c,	.rb17		; FAT12
-			CP32	65525
+			CP32n	65525
 			ld		a, FAT16
 			jr		c, .rb17		; FAT16
 			ld		a, FAT32

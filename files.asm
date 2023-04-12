@@ -235,18 +235,18 @@ f_typecommand
 ; test for legal, treat illegal as a terminator, translate \ to /
 			ld		c, getW.B_badPath + getW.B_slash + getW.B_term
 			call	getW						; get 16bit char string
-			jp		nc, .ft5					; failed something
+			jp		nc, .ft17					; failed something
 
 ; then two numbers for screen length and width
 			ld		ix, 24
 			call	getdecimalB
-			jp		nc, .ft5
+			jp		nc, .ft17
 			ld		a, ixl
 			ld		[.length], a
 
 			ld		ix, 80
 			call	getdecimalB
-			jp		nc, .ft5
+			jp		nc, .ft17
 			ld		a, ixl
 			ld		[.width], a
 
@@ -265,15 +265,13 @@ f_typecommand
 			db		"  width: ",0
 			ld		a, [.width]
 			call	stdio_decimalB
-
 			call	stdio_str
 			db		"  Open: ",0
 
 			ld		de, local.cmdtext
 			ld		ix, local.cmdfile
 			call	FileOpen
-			jp		nc, .ft3
-
+			jp		nc, .ft1
 			call	stdio_str
 			db		"OK   UTF-8: ",0
 
@@ -284,11 +282,11 @@ f_typecommand
 			jr		nz, .ft1
 			call	FileGetc
 			jr		nc, .ft1
-			cp		0xef
+			cp		0xbb
 			jr		nz, .ft1
 			call	FileGetc
 			jr		nc, .ft1
-			cp		0xef
+			cp		0xbf
 			jr		nz, .ft1
 
 ; UTF8
@@ -314,51 +312,78 @@ f_typecommand
 ; initialise screen counters
 .ft2		ld		de, 0				; D=lines, E=cols
 
+;-----------------------------------------
 ; read characters to screen
-.ft2a		call	FileGetc
-			jp		nc, .ft4			; EOF
+;-----------------------------------------
+.ft3		call	FileGetc
+			jr		nc, .ft16			; EOF
 			ld		h, a
-; <TAB>
-			cp		0x09				; <TAB>
-			jr		nz, .ft2b
-.ft2a1		ld		a, 0x20
-			call	stdio_putc
-			inc		e
-			ld		a, e				; do width check here !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-			and		3
-			jr		nz, .ft2a1
-			jr		.ft2a
 ; <CR>
-.ft2b		cp		0x0d				; <CR>
-			jr		nz, .ft2c
+.ft4		cp		0x0d				; <CR>
+			jr		nz, .ft5
 			call	stdio_putc
 			ld		e, 0
-			jr		.ft2a
+			jr		.ft3
 
 ; <LF>
-.ft2c		cp		0x0a				; <LF>
-			jr		nz, .ft2d
+.ft5		cp		0x0a				; <LF>
+			jr		nz, .ft12
 			call	stdio_putc
 			inc		d
-			jr		.ft2c				; will be picked up on next char
+			jr		.ft3				; will be picked up on next char
 
-; normal char
+; <TAB>
+.ft12		cp		0x09				; <TAB>
+			jr		nz, .ft14
+			ld		a, e				; column number (counting from 0)
+			and		3					; r = 0-3 (0=on tab 1=one after..
+			ld		b, a				; se we want 4-r as the number of spaces
+			ld		a, 4
+			sub		b
+			ld		b, a
+			ld		h, 0x20				; <SPACE>
+.ft13		call	.doChar				; with all line and column countering
+			jr		nc, .ft16
+			djnz	.ft13
+			jr		.ft3
+
+; just output it then
+.ft14		call	.doChar
+			jr		nc, .ft16
+			jr		.ft3
+
+; file fails to open, good end
+.ft15		call	stdio_str
+			db		"NO\r\n"
+			WHITE
+			db		0
+.ft16		call	LocalOFF
+			jp		good_end
+
+; bad command entry so bad end
+.ft17		call	LocalOFF
+			jp		bad_end
+
+;-------------------------------------------------------------------------------
+; .doChar  output the char in H with all tests
+; returns CY unless the user selected ^C on a continue check
+;-------------------------------------------------------------------------------
+.doChar
 ; check width
-.ft2d		ld		a, [.width]
+			ld		a, [.width]
 			cp		e
-			jr		c, .ft2f			; no problem
+			jr		nc, .dc1			; no problem
 			ld		a, 0x0d				; <CR>
 			call	stdio_putc
 			ld		a, 0x0a				; <LF>
 			call	stdio_putc
 			ld		e, 0
-			inc		d
-			jr		.ft2a				; next char
+			inc		d					; so drop into check height
 
 ; check height
-.ft2e		ld		a, [.length]
+.dc1		ld		a, [.length]
 			cp		d
-			jr		c, .ft2e
+			jp		nc, .dc6
 			call	stdio_str
 			BLUE
 .z1			equ		$
@@ -366,40 +391,38 @@ f_typecommand
 .z2			equ		$-.z1
 			WHITE
 			db		0
-.ft2ca		call	stdio_getc
+.dc2		call	stdio_getc
 			cp		0x03				; ^C
-			jr		z, .ft4				; good_end
+			ret		z					; and NC so exit
 			cp		0x0d				; <ENTER>
-			jr		nz, .ft2ca
-			ld		b, .z2				; count of chars to be over written
-			ld		a, 0x20
-.ft2cb		call	stdio_putc
-			djnz	.ft2cb
-			jp		.ft2a
+			jr		nz, .dc2
 
-; just output it then
-.ft2f		ld		a, h
+			push	bc
+			ld		a, 0x08				; <BS>
+			ld		b, .z2
+.dc3		call	stdio_putc
+			djnz	.dc3
+			ld		a, 0x20				; <SPACE>
+			ld		b, .z2
+.dc4		call	stdio_putc
+			djnz	.dc4
+			ld		a, 0x08				; <BS>
+			ld		b, .z2
+.dc5		call	stdio_putc
+			djnz	.dc5
+			ld		d, 0
+			pop		bc
+
+.dc6		ld		a, h
 			call	stdio_putc
 			inc		e
-			jp		.ft2
-
-; file fails to open, good end
-.ft3		call	stdio_str
-			db		"NO\r\n"
-			WHITE
-			db		0
-.ft4		call	LocalOFF
-			jp		good_end
-
-; bad command entry so bad end
-.ft5		call	LocalOFF
-			jp		bad_end
+			scf
+			ret
 
 ; local variables
 .width		db		80
 .length		db		24
 .utf8		db		0
-.tab		db		4
 
 ;-------------------------------------------------------------------------------
 ; LOAD command
@@ -827,7 +850,6 @@ printDIRN			; call with IY = DIRN*
 			ex		de, hl
 			call	stdio_decimal32
 
-			DUMPrr	0xff, iy, DIRN
 			jp		prExit
 
 ;===============================================================================

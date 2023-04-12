@@ -47,7 +47,7 @@ fat_cluster_start	equ	$
 ;-------------------------------------------------------------------------------
 
 ClusterToSector
-;	return drive->cluster_begin_sector + ((c - 2) << drive->sectors_to_cluster_right_slide);
+; drive->cluster_begin_sector + ((c - 2) << drive->sectors_to_cluster_right_slide)
 			push	bc
 			ld		a, l		; DE:HL -= 2
 			sub		2
@@ -87,7 +87,7 @@ ClusterToSector
 ;-------------------------------------------------------------------------------
 
 SectorToCluster
-;	return ((s - drive->cluster_begin_sector) >> drive->sectors_to_cluster_right_slide) + 2;
+; ((s - drive->cluster_begin_sector) >> drive->sectors_to_cluster_right_slide) + 2;
 			push	bc
 			ld		bc, [ix+DRIVE.cluster_begin_sector]
 			sub		hl, bc
@@ -126,12 +126,12 @@ SectorToCluster
 FlushFat	ld		a, [ix+DRIVE.fat_dirty]
 			or		a
 			ret		z
+
+			push	bc, de, hl
 			ld		b, [ix+DRIVE.fat_count]				; almost invariably 2
 
 ; make the sector number in the first fat table
-			push	bc, de, hl
-			ld		hl, [ix+DRIVE.fat_begin_sector]		; first sector of FAT
-			ld		de, [ix+DRIVE.fat_begin_sector+2]
+			GET32i	ix, DRIVE.fat_begin_sector		; first sector of FAT
 			ld		bc, [ix+DRIVE.last_fat_sector]
 			add		hl, bc
 			ld		bc, [ix+DRIVE.last_fat_sector+2]
@@ -139,15 +139,16 @@ FlushFat	ld		a, [ix+DRIVE.fat_dirty]
 
 			ld		b, [ix+DRIVE.fat_count]		; how many FATs?
 			push	bc
-			jr		.ff2
+			jr		.ff2						; do first FAT
+
 .ff1		push	bc
-			ld		bc, [ix+DRIVE.fat_size]
+			ld		bc, [ix+DRIVE.fat_size]		; next FAT
 			add		hl, bc
 			ld		bc, [ix+DRIVE.fat_size+2]
 			adc		de, bc
-.ff2		call	media_seek			; seek to DE:HL
+.ff2		call	media_seek					; seek to DE:HL
 			ERROR	nz, 11			; media_seek fails in FlushFat
-			ld		hl, ix
+			ld		hl, ix						; DRIVER*
 			ld		bc, DRIVE.fatTable
 			add		hl, bc
 			call	media_write
@@ -166,18 +167,12 @@ FlushFat	ld		a, [ix+DRIVE.fat_dirty]
 GetFatSector
 ; if required_sector == last_fat_sector return
 			push	bc, hl, de
-			ld		bc, [ix+DRIVE.last_fat_sector]
-			sub		hl, bc
+			CP32i	ix, DRIVE.last_fat_sector
 			jr		nz, .gf1
-			ld		bc, [ix+DRIVE.last_fat_sector+2]
-			sub		de, bc
-			jr		nz, .gf1
-			pop		de, hl, bc		; we have a match
+			pop		de, hl, bc		; we have a match already
 			ret
 .gf1
 			call	FlushFat		; it may need doing
-			pop		de, hl
-			push	hl, de
 
 			ld		bc, [ix+DRIVE.fat_begin_sector]
 			add		hl, bc
@@ -185,14 +180,15 @@ GetFatSector
 			adc		de, bc
 			call	media_seek		; seek to DE:HL
 			ERROR	nz, 13			; media_seek fails in GetFatSector
+
 			ld		hl, ix
 			ld		bc, DRIVE.fatTable
 			add		hl, bc
-			call	media_write
-			ERROR	nz, 14			; media_write fails in GetFatSector
+			ld		e, 1
+			call	media_read
+			ERROR	nz, 14			; media_read fails in GetFatSector
 			pop		de, hl
-			ld		[ix+DRIVE.last_fat_sector], hl
-			ld		[ix+DRIVE.last_fat_sector+2], de
+			PUT32i	ix, DRIVE.last_fat_sector
 			pop		bc
 			ret
 
@@ -684,11 +680,11 @@ set12bitsFAT
 GetClusterEntry
 		ld		a, [ix+DRIVE.fat_type]
 		cp		FAT12
-		jr		z, .gc2
+		jp		z, .gc2
 		cp		FAT16
-		jr		z, .gc1
+		jp		z, .gc1
 		cp		FAT32
-		ERROR	nz, 22		; bad FAT type in GlusterEntry
+		ERROR	nz, 22		; bad FAT type in ClusterEntry
 		; fallthrough
 
 ; do the FAT32 entry
@@ -696,7 +692,7 @@ GetClusterEntry
 
 		push	bc, hl
 		; divide by 128 taking advantage of the fact that the cluster number is actually 28 bits
-		sla		l				; slide DEHL << 1
+		sla		l				; slide DE:HL << 1
 		rl		h
 		rl		e
 		rl		d
@@ -710,11 +706,13 @@ GetClusterEntry
 		and		0x7f
 		ld		l, a
 		ld		h, 0			; give index into fat sector
-		sra		l				; *=4 for dword pointer
-		rr		h
-		sra		l
-		rr		h
+		sla		l				; *=4 for dword pointer
+		rl		h
+		sla		l
+		rl		h
 		ld		bc, DRIVE.fatTable
+		add		hl, bc
+		ld		bc, ix			; DRIVE*
 		add		hl, bc
 		ld		bc, [hl]
 		inc		hl
@@ -734,14 +732,15 @@ GetClusterEntry
 		call	GetFatSector
 		pop		hl				; lsw of cluster
 		ld		h, 0			; give index into fat sector
-		sra		l				; *=2 for word pointer
-		rr		h
+		sla		l				; *=2 for word pointer
+		rl		h
 		ld		bc, DRIVE.fatTable
 		add		hl, bc
 		ld		bc, [hl]
 		ld		hl, bc
 
-; sign extend: if(hl==0xffff) de=0ffff
+; sign extend: if(hl==0xffff) de=0xffff
+		ld		de, 0
 		CPHL	0xffff
 		jr		nz, .gc2a
 		ld		de, hl
@@ -753,13 +752,14 @@ GetClusterEntry
 .gc2	call	get12bitsFAT	; HL=cluster (12 bit)
 		ld		de, 0
 
-; sign extend: if(hl==0x0fff) de=0ffff
+; sign extend: if(hl==0x0fff) de=0xffff
 		CPHL	0x0fff
 		jr		nz, .gc3
 		ld		hl, 0xffff
 		ld		de, hl
 .gc3	pop		bc
 		ret
+
 ;-------------------------------------------------------------------------------
 ;  SetClusterEntry
 ;		call with IX = DRIVE
@@ -795,10 +795,10 @@ SetClusterEntry
 		and		0x7f
 		ld		l, a
 		ld		h, 0			; give index into fat sector
-		sra		l				; *=4 for dword pointer
-		rr		h
-		sra		l
-		rr		h
+		sla		l				; *=4 for dword pointer
+		rl		h
+		sla		l
+		rl		h
 		ld		bc, DRIVE.fatTable
 		add		hl, bc
 		exx
@@ -897,7 +897,7 @@ GetNextSector
 .gn3
 		call	SectorToCluster
 		call	GetClusterEntry
-		CP32	0xffffffff			; end of chain
+		CP32n	0xffffffff			; end of chain
 		jr		z, .gn1				; return zero
 		call	ClusterToSector
 		ret
