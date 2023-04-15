@@ -668,7 +668,8 @@ set12bitsFAT
 		jp		.sf2				; HL = array, BC = index, DATA on stack
 
 ;-------------------------------------------------------------------------------
-; now we have the messy bits done we can write the cluster entry handlers
+; Now we have the messy bits done we can write the cluster entry handlers to
+; work with any cluster type.
 ;-------------------------------------------------------------------------------
 ;  GetClusterEntry
 ;		call with IX = DRIVE*
@@ -701,6 +702,7 @@ GetClusterEntry
 		ld		e, d
 		ld		d, 0			; gives the FAT sector
 		call	GetFatSector
+
 		pop		hl				; lsw of cluster
 		ld		a, l			; cluster % 128
 		and		0x7f
@@ -714,33 +716,41 @@ GetClusterEntry
 		add		hl, bc
 		ld		bc, ix			; DRIVE*
 		add		hl, bc
-		ld		bc, [hl]
+
+		ld		c, [hl]
 		inc		hl
+		ld		b, [hl]
 		inc		hl
-		ld		de, [hl]
+		ld		e, [hl]
+		inc		hl
+		ld		d, [hl]
 		ld		hl, bc
 		pop		bc
 		ret
 
-; do the FAT16 entry
+; do the FAT16 entry (cluster number is in HL)
 ;	return ((uint32_t*)GetFatSector(drive, cluster/256))[cluster%256];
 .gc1	push	bc, hl
-		ld		l, h			; DE:HL >>8
-		ld		h, e
-		ld		e, d
-		ld		d, 0			; gives the FAT sector
+		ld		l, h			; HL >>8
+		ld		h, 0			; gives the FAT sector
+		ld		de, 0
 		call	GetFatSector
-		pop		hl				; lsw of cluster
+
+		pop		hl				; cluster number
 		ld		h, 0			; give index into fat sector
 		sla		l				; *=2 for word pointer
 		rl		h
+		ld		bc, ix			; DRIVE*
+		add		hl, bc
 		ld		bc, DRIVE.fatTable
 		add		hl, bc
-		ld		bc, [hl]
+
+		ld		c, [hl]
+		inc		hl
+		ld		b, [hl]
 		ld		hl, bc
 
 ; sign extend: if(hl==0xffff) de=0xffff
-		ld		de, 0
 		CPHL	0xffff
 		jr		nz, .gc2a
 		ld		de, hl
@@ -750,9 +760,9 @@ GetClusterEntry
 ; do the FAT12 entry
 ;	return get12bitsFAT(drive, cluster);
 .gc2	call	get12bitsFAT	; HL=cluster (12 bit)
-		ld		de, 0
 
-; sign extend: if(hl==0x0fff) de=0xffff
+; sign extend: if(hl==0x0fff) de:hl=0xffffffff
+		ld		de, 0
 		CPHL	0x0fff
 		jr		nz, .gc3
 		ld		hl, 0xffff
@@ -764,7 +774,7 @@ GetClusterEntry
 ;  SetClusterEntry
 ;		call with IX = DRIVE
 ;				  DE:HL = cluster number
-;				  DE':HL' = FAT entry 12/16/32 bits (ALT REGISTERS!)
+;				  IY:BC = new FAT entry 12/16/32 bits
 ;		uses A
 ;-------------------------------------------------------------------------------
 ; again the structure is taken from the routine above
@@ -779,9 +789,10 @@ SetClusterEntry
 		; fallthrough
 
 ; do the FAT32 entry
-		push	bc, hl
+		push	hl, de, iy, bc, iy, bc
 		; divide by 128 taking advantage of the fact that the cluster number is actually 28 bits
-		sla		l				; slide DEHL << 1
+		ld		b, l			; save the LSByte of the cluster number
+		sla		l				; slide DE:HL << 1
 		rl		h
 		rl		e
 		rl		d
@@ -790,8 +801,8 @@ SetClusterEntry
 		ld		e, d
 		ld		d, 0			; gives the FAT sector
 		call	GetFatSector
-		pop		hl				; lsw of cluster
-		ld		a, l			; cluster % 128
+
+		ld		a, b			; cluster % 128
 		and		0x7f
 		ld		l, a
 		ld		h, 0			; give index into fat sector
@@ -799,59 +810,53 @@ SetClusterEntry
 		rl		h
 		sla		l
 		rl		h
+		ld		bc, ix			; DRIVE*
+		add		hl, bc
 		ld		bc, DRIVE.fatTable
 		add		hl, bc
-		exx
-		push	hl
-		exx
-		pop	bc
-		ld		[hl], bc
+
+		pop		bc				; new LSW
+		ld		[hl], c
 		inc		hl
+		ld		[hl], b
 		inc		hl
-		exx
-		push	de
-		exx
-		pop		bc
-		ld		[hl], bc
-		pop		bc
+		pop		bc				; was iy
+		ld		[hl], c
+		inc		hl
+		ld		[hl], b
+		pop		bc, iy, de, hl
 		ret
 
-; do the FAT16 entry
-.sc1	push	bc, hl
-		ld		l, h			; DE:HL >>8
-		ld		h, e
-		ld		e, d
-		ld		d, 0			; gives the FAT sector
+; do the FAT16 entry (cluster number is in HL and new value is in BC)
+.sc1	push	hl, bc
+		ld		b, l			; save lsByte of cluster number
+		ld		l, h			; HL >>8
+		ld		h, 0
+		ld		de, 0
 		call	GetFatSector
-		pop		hl				; lsw of cluster
+
+		ld		l, b
 		ld		h, 0			; give index into fat sector
-		sra		l				; *=2 for word pointer
-		rr		h
+		sla		l				; *=2 for word pointer
+		rl		h
+		ld		bc, ix
+		add		hl, bc
 		ld		bc, DRIVE.fatTable
 		add		hl, bc
-		exx
-		push	hl
-		exx
+
 		pop		bc
-		ld		[hl], bc
-		pop		bc
+		ld		[hl], c
+		inc		hl
+		ld		[hl], b
+		pop		hl
 		ret
 
 ; do the FAT12 entry
 ;	return get12bitsFAT(drive, cluster);
-.sc2	push	de, hl
-		ld		a, h
-		and		0x0f			; 12 bits
-		ld		h, a
-		exx
-		push	hl
-		exx
-		pop		de
-		ld		a, d
-		and 	0x0f
-		ld		d, a
+.sc2	push	de
+		ld		de, bc
 		call	set12bitsFAT	; HL=cluster (12 bit), DE=value
-		pop		hl, de
+		pop		de
 		ret
 
 ;-------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.26"		; version number for sign on message
+	define	VERSION	"v0.1.27"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.26"		move to local repository, use version number
+;   	git commit -m "0.1.27"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -22,6 +22,9 @@
 ;	  Don't ask how long it took me to find that one...
 ;
 ;===============================================================================
+
+		DEVICE	NOSLOT64K
+		SLDOPT	COMMENT WPMEM
 
 		include		"zeta2.inc"		; hardware definitions and code options
 		include		"macros.inc"	; macro library
@@ -486,6 +489,8 @@ cmd_list	db	"BOOT"
  			dw	cmd_copy
  			db	"CORE"				; clear memory to 0
  			dw	cmd_core
+			db	"DEBG"				; DEBUG system
+			dw	cmd_debug
 			db	"DIR",0				; SD interface
 			dw	cmd_dir
 			db	"DUMP"				; dump from an address
@@ -645,6 +650,13 @@ cmd_hex		CALLFAR		HEXcommand
 ; COPY
 ;===============================================================================
 cmd_copy	CALLFAR		COPYcommand
+			jp			c, good_end
+			jp			bad_end
+
+;===============================================================================
+; DEBG
+;===============================================================================
+cmd_debug	CALLFAR		DEBGcommand
 			jp			c, good_end
 			jp			bad_end
 

@@ -336,6 +336,7 @@ ERR_BADFUNCTION			equ		15
 	define ROMcommand		RAM5,4		// ROM programming command
 	define HEXcommand		RAM5,5		// HEX command
 	define WAITcommand		RAM5,6		// WAIT command
-	define COPYcommand		RAM5,7		// copy command
+	define COPYcommand		RAM5,7		// COPY command
 	define PrintCWD			RAM4,6		// print CWD
 	define SetDrive			RAM4,7		// set drive
+	define DEBGcommand		RAM5,8		// DEBG command

@@ -10,9 +10,10 @@ files_start		equ	$
 				struct	local
 				ds		PAGE2
 ; global definitions
-ADRIVE			DRIVE				; DRIVEs for A, C and D
+ADRIVE			DRIVE				; DRIVEs for A, C, D and E
 CDRIVE			DRIVE
 DDRIVE			DRIVE
+EDRIVE			DRIVE
 current			ds		1			; current drive letter
 
 ; working space for systems

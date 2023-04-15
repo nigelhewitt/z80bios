@@ -70,6 +70,7 @@ drive_init	push	bc, de, hl, ix, af
 .init_data	db		'A', HW_FD, 0
 			db		'C', HW_SD, 0
 			db		'D', HW_SD, 1
+			db		'E', HW_SD, 2
 nDrive		equ		($-.init_data)/3	; number of drives
 
 ;-------------------------------------------------------------------------------
@@ -111,6 +112,8 @@ mount_drive
 			cp		FAT12
 			jr		z, .rb0
 			cp		FAT16
+			jr		z, .rb0
+			cp		0x0e		; a FAT16 alias
 			jr		z, .rb0
 			cp		FAT32
 			jr		nz, .rb0a
@@ -195,6 +198,8 @@ mount_drive
 			cp		FAT12
 			jr		z, .rb6
 			cp		FAT16
+			jr		z, .rb6
+			cp		0x0e			; FAT16 alias
 			jr		z, .rb6
 			cp		FAT32
 			ERROR	nz, 6				; FAT type byte not recognised in mount_drive

@@ -33,7 +33,7 @@ isFile		ld		a, [ix+FILE.dirn + DIRN.DIR_Attr]
 ; fileSize	return file size in DE:HL
 ;-------------------------------------------------------------------------------
 fileSize	ld		hl, [ix+FILE.dirn+DIRN.DIR_FileSize]
-			ld		de,	[ix+FILE.dirn+DIRN.DIR_FileSize+2];
+			ld		de,	[ix+FILE.dirn+DIRN.DIR_FileSize+2]
 			ret
 
 ;-------------------------------------------------------------------------------
@@ -171,7 +171,7 @@ FileOpen
 ;		READ: old_first_sector_in_cluster + sector_in_cluster
 ;		finished
 ;
-; Now I will use line from this to comment the assembler code below
+; Now I will use lines from this to comment the assembler code below
 ; Just watch out as the values saved in the FILE are all the old_ ones as they
 ; define what is in the buffer.
 ;

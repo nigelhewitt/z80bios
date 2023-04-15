@@ -1,0 +1,17 @@
+﻿**/*.lst
+**/*.obj
+**/*.pd*
+**/*.tlog
+**/*.ilk
+**/*.ip*
+**/*.vs*
+**/*.log
+**/*.res
+**/*.recipe
+**/*.res
+**/*.iobj
+**/*.idb
+Z80debug/Debug/*
+Z80debug/x64/Debug/*
+Z80debug/Z80debug/x64/*
+**/*.bak

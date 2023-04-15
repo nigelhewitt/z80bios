@@ -26,6 +26,7 @@ bios_functions
 			dw		f_hexcommand			; 5 HEX command
 			dw		f_waitcommand			; 6 WAIT command
 			dw		f_copycommand			; 7 COPY command
+			dw		f_debug					; 8 DEBG command
 bios_count	equ		($-bios_functions)/2
 
 
@@ -165,6 +166,24 @@ err_unknownaction
 err_badaddress
 			ld		a, ERR_BAD_ADDRESS
 			jr		cmd_err
+
+;-------------------------------------------------------------------------------
+;  DEBG command
+;-------------------------------------------------------------------------------
+f_debug		ld		hl, .block
+			ld		de, 0x0100
+			ld		bc, .length
+			ldir
+			call	stdio_str
+			RED
+			db		"\r\nDebug module loaded\r\n"
+			WHITE
+			db		0
+			jp		0x0100
+
+.block
+			incbin	"debug.bin"
+.length		equ	$ - .block
 
  if SHOW_MODULE
 	 	DISPLAY "bios2 size: ", /D, $-logo

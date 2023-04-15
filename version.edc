@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.26"		move to local repository, use version number
+   	git commit -m "0.1.27"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -147,3 +147,8 @@ Another insurance save
 0.1.26
 TYPE now working over sector and cluster boundaries.
 
+0.1.27
+Move to my own terminal in Z80debug rather than putty to start the debugger
+This is a backup to include the prototype debug systems now working as a
+terminal with colours and UTF-8.
+I also added a .gitignore to tidy things up a bit
