@@ -90,6 +90,8 @@ transfer	ld		a, [Z.cr_ret]		; 0xff for a return
 			push	hl					; 11T
 			ld		hl, [Z.cr_af]		; 20T	AF saved by target
 			push	hl					; 11T
+			ld		a, BIOSROM
+			ld		[Z.savePage+3], a
 			pop		af					; 10T
 			pop		hl					; 10T
 			ei							; 4T
@@ -103,6 +105,8 @@ transfer	ld		a, [Z.cr_ret]		; 0xff for a return
 ; return to RAM cr_ret conserving cr_sp,
 
 doCall		ld		sp, local_stack		; a stack that will work
+			ld		a, BIOSRAM
+			ld		[Z.savePage+3], a
 
 ; build a return handler
 			ld		[.saveHL], hl		; save HL while we put stuff on stack

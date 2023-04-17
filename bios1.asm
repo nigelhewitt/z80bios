@@ -4,6 +4,10 @@
 ;
 ;===============================================================================
 
+		DEVICE	NOSLOT64K
+		PAGE	4
+		SLDOPT	COMMENT WPMEM
+
 			include		"zeta2.inc"		; common definitions
  			include		"macros.inc"
 			include		"vt.inc"
@@ -40,7 +44,7 @@ f_biosver	ld		a, 1
 			or		a
 			jr		z, .fb1
 			call	stdio_str
-			BLUE
+			YELLOW
 			db		" in RAM",0
 .fb1		call	stdio_str
 			WHITE

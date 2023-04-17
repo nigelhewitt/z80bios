@@ -139,9 +139,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="serialdrv.cpp" />
-    <ClCompile Include="Source.cpp" />
+    <ClCompile Include="source.cpp" />
     <ClCompile Include="process.cpp" />
     <ClCompile Include="terminal.cpp" />
+    <ClCompile Include="trap.cpp" />
     <ClCompile Include="Z80debug.cpp" />
   </ItemGroup>
   <ItemGroup>

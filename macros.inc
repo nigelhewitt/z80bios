@@ -123,6 +123,9 @@ GREEN		macro
 BLUE		macro
 			db		"\e[94m"
 			endm
+YELLOW		macro
+			db		"\e[93m"
+			endm
  else
 WHITE		macro
 			endm
@@ -131,6 +134,8 @@ RED			macro
 GREEN		macro
 			endm
 BLUE		macro
+			endm
+YELLOW		macro
 			endm
  endif
 

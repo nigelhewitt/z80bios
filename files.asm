@@ -252,7 +252,7 @@ f_typecommand
 			ld		[.width], a
 
 			call	stdio_str
-			BLUE
+			YELLOW
 			db		"\r\nFile: ",0
 			ld		hl, local.cmdtext
 			call	stdio_textW
@@ -386,7 +386,7 @@ f_typecommand
 			cp		d
 			jp		nc, .dc6
 			call	stdio_str
-			BLUE
+			YELLOW
 .z1			equ		$
 			db		" Press <ENTER> to continue:"
 .z2			equ		$-.z1

@@ -25,7 +25,8 @@ cr_fn		ds		1
 			ds		1
 cmd_exp		ds		4
 			ds		3				; JP rst30
-			ds		5
+savePage	ds		4				; save the page selections
+			ds		1
 			ds		3				; JP rst38
 rtc_buffer	ds		31
 			ds		10

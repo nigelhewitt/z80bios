@@ -3,7 +3,6 @@
 ;  Interrupt handlers
 ;
 ;===============================================================================
-
 	if	BIOSROM != 0
 rst00h	jp	reboot					; RST 0 is restart so send it to ROM0
 	endif

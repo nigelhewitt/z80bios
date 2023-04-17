@@ -111,7 +111,7 @@ serial_sendW					; uses nothing
 		jr		z, .ss1			; loop if !CTS || !THRE
 		pop		af
 		; then drop through
-serial_send:					; transmit a byte
+serial_send					; transmit a byte
 		out		(THR), a
 		ret
 

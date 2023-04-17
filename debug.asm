@@ -11,15 +11,19 @@
 ; it is told to continue we replace the command and jump to it. Single step
 ; just implies adding another trap on the next opcode.
 
+	include	"zeta2.inc"		; hardware definitions
+	include	"vt.inc"		; page0 bad 0x069 bytes definitions
+
 			org		0x100
 			jp		setup
+			db		" NIGSOFT Z80 DEBUGGER "
 
 ; select the RST to use 0x08, 0x10, 0x18... 0x38
 useRST		equ		0x28
 
 ; messages sent to the debugger
-HAVE_TRAP	equ		'!'				; trap fired
-BAD_TRAP	equ		'~'				; bad trap fired
+HAVE_TRAP	equ		'!'				; planted trap fired
+RST_TRAP	equ		'~'				; unplanted trap fired
 OK_TRAP		equ		'@'				; instruction carried out
 
 ; convert the RST selection into the OP code
@@ -27,8 +31,9 @@ rstCODE		equ		useRST | 0xc7	; the RST instruction
 
 ; where we store our trap information
 			struct	trap
-PC			dw		0
-CODE		db		0
+PC			dw		0		; 16 bit address
+PAGE		db		0		; RAM number
+CODE		db		0		; the byte we replaced
 			ends
 
 NTRAPS		equ		10
@@ -43,9 +48,14 @@ oldHook		db		0,0,0
 ;===============================================================================
 ; setHook		take over RST28
 ; dropHook		restore RST28
+;				return NC on error
 ;===============================================================================
-setHook		ld		hl, useRST
+setHook		ld		hl, useRST		; the code is the address
 			ld		de, oldHook
+			ld		a, [de]
+			or		a
+			ret		nz				; return NC
+
 			ld		a, [hl]
 			ld		[de], a
 			ld		[hl], 0xc3		; JP address16
@@ -59,16 +69,22 @@ setHook		ld		hl, useRST
 			ld		a, [hl]
 			ld		[de], a
 			ld		[hl], Trap >> 8
+			scf
 			ret
 
-dropHook	ld		hl, useRST
-			ld		de, oldHook
+dropHook	ld		de, useRST
+			ld		hl, oldHook
+			ld		a, [hl]
+			or		a
+			ret		z					; return NC
 			ld		b, 3
-.dh1		ld		a, [de]
-			ld		[hl], a
+.dh1		ld		a, [hl]
+			ld		[de], a
+			ld		[hl], 0
 			inc		hl
 			inc		de
 			djnz	.dh1
+			scf
 			ret
 
 ;===============================================================================
@@ -76,12 +92,11 @@ dropHook	ld		hl, useRST
 ;			if the slot requested is too big returns NC
 ;===============================================================================
 getSlot		cp		NTRAPS
-			ret		nc
-
+			ret		nc					; >= NTRAPS
 			push	hl, de
-			ld		hl, traps
+			ld		hl, traps			; first trap struct
 			or		a
-			jr		z, .gs2
+			jr		z, .gs2				; no adds
 			ld		b, a
 			ld		de, trap			; size of trap structure
 .gs1		add		hl, de
@@ -92,87 +107,183 @@ getSlot		cp		NTRAPS
 			ret
 
 ;===============================================================================
+; getRAM		ensure the RAM we want put a trap in is accessible
+;				call with RAMn in C
+;				returns HL as a pointer to the base of the ram in question.
+;				if it needed mapping it will set up to do that
+;				uses A
+; restoreRAM	to restore the caller (or do nothing)
+;				uses A
+;===============================================================================
+getRAM		push	bc, de
+			ld		hl, Z.savePage		; where we save the page assignments
+			ld		b, 4
+			ld		a, c
+			ld		d, 0
+.st1		ld		a, c				; get RAMn
+			cp		a, [hl]				; what is in what page?
+			jr		z, .st2				; we have a match
+			inc		hl
+			inc		d
+			djnz	.st1
+
+; if we get here the RAM we want is not mapped in so we put it in PAGE1
+			ld		a, [Z.savePage+1]
+			ld		[.saveRAM], a		; page we need to restore
+			ld		a, c
+			out		(MPGSEL+1), a		; map the required page
+			ld		hl, PAGE1
+			pop		de, hl
+			ret
+
+; RAM is accessible
+.st2		ld		hl, 0
+			rr		d			; convert 0-1-2-3 to 0-0x40-0x80-0xc0
+			rr		h
+			rr		d
+			rr		h
+			ld		a, 0
+			ld		[.saveRAM], a
+			pop		de, bc
+			ret
+
+.saveRAM	db		0
+
+restoreRAM	ld		a, [getRAM.saveRAM]
+			or		a
+			ret		z
+			out		(MPGSEL+1), a
+			ret
+
+;===============================================================================
 ;	SetTrap		call	IX pointer to trap structure
-;						HL address to trap
+;						C RAMn to set the trap in (32-63)
+;						HL address14 to trap (we will mask it)
 ;				returns CY if OK (NC = slot already used)
 ;===============================================================================
 
-setTrap		ld		a, [ix+trap.PC]		; chech used (aka PC set)
+; first check if it is already used
+setTrap		ld		a, [ix+trap.PAGE]	; check used (aka PC set)
 			or		[ix+trap.PC+1]
-			jr		nz, .st1			; already used
+			ret		nz					; already used reten NC
+
+; first find if we have that page on the map...
+			push	de, hl, hl
+			call	getRAM
+			pop		de					; was HL
+			ld		l, e
+			ld		a, d
+			and		0x3f
+			or		h
+			ld		h, a				; gives us a mapped HL
+
 			ld		a, [hl]
 			ld		[ix+trap.CODE], a
 			ld		[ix+trap.PC], l
 			ld		[ix+trap.PC+1], h
+			ld		[ix+trap.PAGE], c
 			ld		[hl], rstCODE		; RSTxx
+			call	restoreRAM			; undo any mapping
+			pop		hl, de
 			scf
 			ret
-.st1		or		a					; clear carry
+
+resetTrap	push	de, hl
+			ld		c, [ix+trap.PAGE]
+			call	getRAM
+			pop		de					; was HL
+			ld		l, [ix+trap.PC]
+			ld		a, [ix+trap.PC+1]
+			and		0x3f
+			or		d
+			ld		h, a				; gives us a mapped HL
+			ld		[hl], rstCODE
+			call	restoreRAM
+			pop		hl, de
 			ret
 
-resetTrap	ld		l, [ix+trap.PC]
-			ld		h, [ix+trap.PC+1]
-			ld		a, [ix+trap.CODE]
-			ld		[hl], a
-			ret
+freeTrap	push	de, hl
+			ld		c, [ix+trap.PAGE]
+			call	getRAM
+			pop		de					; was HL
+			ld		l, [ix+trap.PC]
+			ld		a, [ix+trap.PC+1]
+			and		0x3f
+			or		d
+			ld		h, a				; gives us a mapped HL
 
-freeTrap	ld		l, [ix+trap.PC]
-			ld		h, [ix+trap.PC+1]
-			ld		a, h
-			or		l
-			ret		z
 			ld		a, [ix+trap.CODE]
 			ld		[hl], a
-			xor		a
-			ld		[ix+trap.CODE], a
-			ld		[ix+trap.PC], a
-			ld		[ix+trap.PC+1], a
+			call	restoreRAM
+			pop		hl, de
 			ret
 
 ;===============================================================================
 ;	Trap	the hook has caught one
 ;			the PC is on the stack
+; the RAM must be mapped for it to execute so the system is simpler
 ;===============================================================================
 
 Trap		push	af, bc, de, hl, ix, iy	; six on stack (12 bytes)
+			; the alt registers can be directly accessed as they won't change
 			ld		hl, 0
 			add		hl, sp				; points to the HL on the stack
-			ld		bc, 14
+			ld		bc, 12
 			sub		hl, bc				; point to the return address
 			ld		e, [hl]
 			inc		hl
-			ld		d, [hl]				; get the return address
+			ld		d, [hl]				; get the return address in DE
 
+; get the RAM page
+			ld		a, d				; top of address
+			and		0xc0				; mask the PAGE bits
+			rlca						; rotate to b0-1
+			rlca
+			ld		l, a
+			ld		a, [Z.savePage]		; <0x100
+			add		l
+			ld		l, a
+			ld		h, 0
+			ld		c, [hl]				; get the mapped page in C
+
+; match the RAM page and address C:DE to find the slot
 			ld		b, NTRAPS
 			ld		ix, traps			; first trap structure
-.tr1		cp		l, [ix+trap.PC]
-			jr		nz, .tr2
-			cp		h, [ix+trap.PC+1]
+.tr1		ld		a, c				; page
+			cp		a, [ix+trap.PAGE]
+			jr		nz, .tr2			; no
+			cp		e, [ix+trap.PC]
+			jr		nz, .tr2			; no again
+			cp		a, [ix+trap.PC]
+			and		0x3f
+			ld		l, a
+			ld		a, d
+			and		0x3f
+			cp		l
 			jr		z, .tr3 			; match
 .tr2		ld		de, trap			; size of trap structure
 			add		ix, de
 			djnz	.tr1
 
-; unexpected trap
-			ld		a, BAD_TRAP			; crash and burn
+; not on the list so a compiled in trap
+			call	CRLF
+			ld		a, RST_TRAP
 			call	serial_putc
-			call	packW				; send the address
 
-			ld		a, 2				; bad trap mode
+			ld		a, 2				; rst trap mode
 			call	debugger
-			jr		.tr4				; bad trap so nothing to repaint
+			jr		.tr4				; nothing to repaint
 
-; good trap
+; known trap
 .tr3		call	CRLF
 			ld		a, HAVE_TRAP
 			call	serial_putc
-			call	packW				; send address
 
-			ld		a, 1				; good trap mode
+			ld		a, 1				; known trap mode
 			call	debugger
 
-; exit good trap
-; restore the code value we overwrote
+; exit planted trap
+; restore the code value we overwrote so it can execute
 			ld		l, [ix+trap.PC]
 			ld		h, [ix+trap.PC+1]
 			ld		a, [ix+trap.CODE]
@@ -181,7 +292,7 @@ Trap		push	af, bc, de, hl, ix, iy	; six on stack (12 bytes)
 ; decrement the return address so we execute that code
 			ld		hl, 0
 			add		hl, sp
-			ld		bc, 14
+			ld		bc, 12
 			add		hl, bc				; points to return address
 
 			ld		e, [hl]
@@ -199,9 +310,9 @@ Trap		push	af, bc, de, hl, ix, iy	; six on stack (12 bytes)
 ;===============================================================================
 ; debugger	wait for and execute debugger commands
 ;			this runs in three modes:
-;			0 startup 	when it has no context to display
-;			1 trap		with a context
-;			2 badTrap 	unexpected call
+;			0 start up 			when it has no registers to display
+;			1 planned trap
+;			2 compiled in trap
 ;===============================================================================
 
 debugger	ld		[.dbMode], a
@@ -213,25 +324,25 @@ debugger	ld		[.dbMode], a
 			call	serial_putc
 
 			call	serial_getc
-			cp		'H'				; set hook
+			cp		'h'				; set hook
 			jr		z, .db4
-			cp		'U'				; unhook
+			cp		'u'				; unhook
 			jr		z, .db6
 			cp		'+'				; set a trap
 			jr		z, .db7
 			cp		'-'				; clear a trap
 			jr		z, .db8
-			cp		'R'				; send registers
+			cp		'r'				; send registers
 			jr		z, .db9
-			cp		'G'				; get memory
-			jr		z, .db11
-			cp		'P'				; put memory
+			cp		'g'				; get memory
+			jp		z, .db11
+			cp		'p'				; put memory
 			jr		z, .db20
-			cp		'X'				; continue
+			cp		'x'				; continue
 			jr		z, .db30
-			cp		'S'				; step
+			cp		's'				; step
 			jr		z, .db40
-			cp		'Z'				; crash out
+			cp		'z'				; crash out
 			jr		z, .db50
 
 ; ignore hex
@@ -265,6 +376,8 @@ debugger	ld		[.dbMode], a
 			jr		nc, .db2		; no such slot
 			call	unpackW			; address in HL
 			jr		nc, .db2
+			call	unpackB			; get the page
+			jr		nc, .db2
 			call	setTrap
 			jr		nc, .db2		; trap already in use
 			jr		.db5
@@ -280,8 +393,8 @@ debugger	ld		[.dbMode], a
 ; R COMMAND: send registers
 ; the stack is ret SP AF BC DE HL IX IY ret_from_debugger
 .db9		ld		hl, 0
-			add		hl, sp				; points to the HL on the stack
-			ld		bc, 16
+			add		hl, sp				; points to the 14 on the stack
+			ld		bc, 14
 			sub		hl, bc				; point to the return address
 
 			ld		e, [hl]
@@ -290,7 +403,7 @@ debugger	ld		[.dbMode], a
 			inc		hl
 			dec		de					; omit the RST
 			ex		hl, de
-			call	packW
+			call	packW				; PC of the instruction we didn't do
 			ex		hl, de
 			ld		b, 6
 .db10		ld		e, [hl]
@@ -322,7 +435,7 @@ debugger	ld		[.dbMode], a
 CRLF		push	af
 			ld		a, 0x0d
 			call	serial_putc
-			ld		a, 0x0d
+			ld		a, 0x0a
 			call	serial_putc
 			pop		af
 			ret
@@ -408,7 +521,7 @@ packN		push	af
 ; code lifted from serial.asm
 ;===============================================================================
 
-UART	equ		68H			; UART (16550)
+;UART	equ		68H			; UART (16550)
 RBR		equ		UART+0		; Receive Buffer Register (read only)
 THR		equ		UART+0		; Transmit Holding Register (write only)
 LSR		equ		UART+5		; Line Status Register (rw)

@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.27"		move to local repository, use version number
+   	git commit -m "0.1.28"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -136,12 +136,12 @@ Add bad-finder.ps1 to pick up things like xor a,0x10 which really threw me.
 It fixed the \ to / bug.
 Changes to CALLBIOS making it CALLFAR so I can do smaller functions with
 reasonable alacrity.
-Coded the preliminary seekFile. Interim insurance save
+Coded the preliminary seekFile. Interim insurance save.
 
 0.1.25
 Rationalise Local in files.asm
 Seek almost working
-Open, getc and TYPE progressing
+Open, getc and TYPE progressing.
 Another insurance save
 
 0.1.26
@@ -152,3 +152,11 @@ Move to my own terminal in Z80debug rather than putty to start the debugger
 This is a backup to include the prototype debug systems now working as a
 terminal with colours and UTF-8.
 I also added a .gitignore to tidy things up a bit
+
+0.1.28
+Rationalise the system to report what pages are in the map.
+
+0.1.29
+Mostly a save for the Z80debug C++ stuff and the provisional design for the
+'single step' board. The Z80debug now does files and jumps to labels and sets
+up the breakpoint stuff at the PC end. Also some colour tweaks.

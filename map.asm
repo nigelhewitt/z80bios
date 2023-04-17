@@ -69,7 +69,7 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			ld		c, a			; we can use C as an output pointer
 			ld		b, 0
 			ld		a, h
-			ld		[bc], a
+;			ld		[bc], a
 			out		(c), h			; swap the page in
 
 			ld		a, ixh			; get address bits b15-8
@@ -95,7 +95,7 @@ _resPage	and		0x03			; mask
 			ld		a, b
 			add		a, RAM0			; page RAMn
 			ld		b, 0
-			ld		[bc], a
+;			ld		[bc], a
 			out		(c), a			; back into PAGEn
 			jp		[iy]
 
@@ -204,11 +204,13 @@ incCIX		push	de
 LocalON		push	af
 			ld		a, RAM6
 			out		(MPGSEL2), a
+			ld		[Z.savePage+2], a
 			pop		af
 			ret
 LocalOFF	push	af
 			ld		a, RAM2
 			out		(MPGSEL2), a
+			ld		[Z.savePage+2], a
 			pop		af
 			ret
 

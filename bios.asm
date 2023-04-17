@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.27"		; version number for sign on message
+	define	VERSION	"v0.1.28"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,18 +12,19 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.27"		move to local repository, use version number
+;   	git commit -m "0.1.28"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
 ;     as LD C, (some_address) looks OK and compiles IF LOAD_ADDRESS<256
 ;	  but the () is taken as arithmetic and it is load C with a constant
-;	  LD C, [some_address] is a compile error.
-;	  Don't ask how long it took me to find that one...
+;	  However LD C, [some_address] is a compile error.
+;	  Don't ask how long it took me to work that one out...
 ;
 ;===============================================================================
 
 		DEVICE	NOSLOT64K
+		PAGE	3
 		SLDOPT	COMMENT WPMEM
 
 		include		"zeta2.inc"		; hardware definitions and code options
@@ -253,6 +254,16 @@ rst00h		di						; interrupts off
 			ld		sp, RAM_TOP		; set the stack pointer to the top of page2
 									; now we can do subroutines
 
+; save the pages
+			ld		hl, Z.savePage
+			ld		[hl], RAM0
+			inc		hl
+			ld		[hl], RAM1
+			inc		hl
+			ld		[hl], RAM2
+			inc		hl
+			ld		[hl], ROM0
+
 ;-------------------------------------------------------------------------------
 ; The next thing to do is to read our jumper and see if we are required to
 ; switch the BIOS from ROM0 to RAM3
@@ -277,6 +288,7 @@ rst00h		di						; interrupts off
 ; now remap the memory we are running in live (gulp)
 			ld		a, RAM3			; select RAM3
 			out		(MPGSEL3), a	; into PAGE3
+			ld		[Z.savePage+3], a
 
 ; do the ram test
 .k2			ld		a, 1
@@ -376,7 +388,7 @@ SIZEOF_BUFFER	equ		80
 			or		a
 			jr		z, .j2			; running in ROM
 			call	stdio_str
-			BLUE
+			YELLOW
 			db		"in RAM at ", 0
 			ld		hl, BIOS_START
 			call	stdio_word
@@ -1058,6 +1070,21 @@ cmd_core
 			ld		de, 0
 			ld		bc, size_table
 			ldir
+
+			ld		hl, Z.savePage
+			ld		[hl], RAM0
+			inc		hl
+			ld		[hl], RAM1
+			inc		hl
+			ld		[hl], RAM2
+			inc		hl
+			ld		a, [ram_test]
+			or		a
+			jr		z, .co3
+			ld		a, RAM3
+			jr		.co4
+.co3		ld		a, ROM0
+.co4		ld		[hl], a
 			jp		good_end
 
 ;===============================================================================

@@ -15,13 +15,13 @@ int crash(const char* obit)
 //		<source file>|<src line>|<definition file>|<def line>|<page>|<value>|<type>|<data>
 //=================================================================================================
 
-std::vector<const char*>files{};
+std::vector<FDEF>files{};
 std::vector<SDL> sdl{};
 
-// I don't want to have 1000 copies of "bios1.asm" so I'll index them
-int getFileName(const char* p, int& index)
+// I don't want to have 1000 copies of the text "bios1.asm" so I'll index them
+int getFileName(const char* p, int page, int& index)
 {
-	// first get the file name
+	// first extract the file name
 	char temp[100];
 	int i;
 	for(i=0; i<sizeof(temp)-1 && p[index] && p[index]!='|'; temp[i++] = p[index++]);
@@ -32,10 +32,23 @@ int getFileName(const char* p, int& index)
 
 	// then find it in the vector
 	for(i=0; i<files.size(); ++i)
-		if(_stricmp(temp, files[i])==0)
+		if(_stricmp(temp, files[i].fn)==0 && files[i].page==page)
 			return i;
-	files.push_back(_strdup(temp));
+	// doesn't exist so add it
+	files.push_back({ _strdup(temp), (int)files.size(), page, page!=-1, 0 });
 	return i;
+}
+const char* getFileName(int file)
+{
+	return files[file].fn;
+}
+int gefFileNameUnpaged(int file)
+{
+	const char *fn = files[file].fn;
+	for(int i=0; i<files.size(); ++i)
+		if(files[i].page==-1 && strcmp(files[i].fn, fn)==0)
+			return i;
+	return -1;
 }
 // get an integer and move over a : but not a |
 int getInt(const char* p, int& index)
@@ -54,9 +67,9 @@ int getInt(const char* p, int& index)
 	return neg? -i : i;
 }
 // the line numbers are lineNo[:colStart[:colEnd]]
-void getLine(const char* p, int& index, LINEREF& lref)
+void getLine(const char* p, int& index, LINEREF& lref, int page)
 {
-	lref.file = getFileName(p, index);
+	lref.file = getFileName(p, page, index);
 	lref.line = getInt(p, index);
 	lref.start = getInt(p, index);
 	lref.end = getInt(p, index);
@@ -68,15 +81,36 @@ bool readSDLline(char* p, SDL& s)
 	if(n>1 && p[n-1]=='\n') p[n-1]=0;
 
 	int index = 0;
-	getLine(p, index, s.source);
-	getLine(p, index, s.definition);
+	// we need that page number to sort out the filenames
+	// so skip to that and get it first
+	int px=0;
+	{
+		int i=0, j=0;
+		for(; i<n && j<4; ++i)
+			if(p[i]=='|') ++j;
+		px = getInt(p, i);
+	}
+	getLine(p, index, s.source, px);
+	getLine(p, index, s.definition, px);
+
 	s.page = getInt(p, index);
 	if(p[index]) ++index;
 	s.value = getInt(p, index);
 	if(p[index]) ++index;
 	s.type = p[index];
 	if(p[index]) ++index;
-	s.data = _strdup(p+index);
+
+	// now the data which is a comma separated list
+	for(int i=0; i<_countof(s.data); s.data[i++]=nullptr);
+
+	char* d = p+index;
+	char *next = nullptr;
+	int i=0;
+	char* tok = strtok_s(d, ",", &next);
+	if(tok)
+		do
+			s.data[i++] = _strdup(tok);
+		while(i<_countof(s.data) && (tok=strtok_s(nullptr, ",", &next))!=nullptr);
 	return true;
 }
 int ReadSDL(const char* fname)
@@ -84,7 +118,7 @@ int ReadSDL(const char* fname)
 	FILE* fin;
 	if(fopen_s(&fin, fname, "r")!=0)
 		return crash("failed to open SDL file");
-	files.push_back(_strdup(fname));
+	files.push_back({ _strdup(fname), (int)files.size(), 100, true, 0 });
 
 	char temp[100];
 
@@ -103,4 +137,20 @@ int ReadSDL(const char* fname)
 	}
 	fclose(fin);
 	return (int)sdl.size();
+}
+
+std::tuple<int, int, int>FindTrace(BYTE page, WORD address16)
+{
+	for(SDL s : sdl)
+		if(s.type=='T' && s.page == page && s.value == address16)
+			return { s.source.file, s.source.line, s.page };
+	return { -1,0,0 };
+}
+std::tuple<int, int, int>FindDefinition(const char* item)
+{
+	for(SDL s : sdl)
+		if((s.type=='F' && strcmp(s.data[0], item)==0)
+			|| (s.type=='L' && strcmp(s.data[1], item)==0))
+			return { s.source.file, s.source.line, s.page };
+	return { -1,0,0 };
 }

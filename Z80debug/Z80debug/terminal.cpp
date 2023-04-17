@@ -4,161 +4,211 @@
 #include "framework.h"
 #include "Z80debug.h"
 
-struct TERMINALDATA {
-	std::vector<const char*> lines{};
-	int nLines{};
-	int nScroll{};
-	char currentLine[300]{"\x1b[97m"};
-	int currentColour{97};					// the number in ESC[97m
-	int currentColumn{5};
-	void AddChar(char c);
-	int inputEscMode{};
-	int currentDigit{};
-	int tHeight{20};						// text height
+// The real problem with data input is <backspace>. It wants to delete a character AND its colour
+// implications. Originally I just let the ESC[ sequences transfer into the buffer and tried to
+// unpick the mess when I got a <BS> but with WIDE characters and colour controls it all went to
+// pieces on me.
+struct TERMINALCHAR {
+	WCHAR c{};						// wide char
+	BYTE  fg{}, bg{};				// foreground and background colours
+};
+struct TERMINALDATA {							// stored data for the Terminal device
+	std::vector<TERMINALCHAR*> lines{};			// lines of text
+	int nLines{};								// number of lines in the buffer
+	int nScroll{};								// how far we are scrolled
+	int tHeight{20};							// text height
+	// working details accumulating a new line
+	TERMINALCHAR currentLine[300]{};			// current line being input
+	int currentColumn{};						// column of that line
+	int inputMode{};							// state machine to unpick multi-byte inputs
+	int currentDigits{};						// digits for an escape code
+	int currentFG{37}, currentBG{40};			// current FG/BG colours using ANSI numbers
+
+	void AddChar(char c);						// add a character to the current line
+	~TERMINALDATA(){							// responsible clean up
+		for(auto t : lines)
+			delete[] t;
+	}
 };
 
+// characters come in from the serial line in ones so we need to unpack stuff
 void TERMINALDATA::AddChar(char c)
 {
-	switch(inputEscMode){		// 0=not in use, 1=got ESC, 2=got [
-	case 0:
+	switch(inputMode){		// state machine
+	case 0:					// no special handling from previous
 		break;
-	case 1:
+
+	case 1:					// got <ESC> expecting '['
 		if(c=='['){
-			inputEscMode=2;
-			currentDigit=0;
-			break;
+			inputMode = 2;
+			currentDigits = 0;
+			return;
 		}
+		inputMode = 0;		// not understood so just treat it as a char
 		break;
-	case 2:
+
+	case 2:					// got <ESC>[ expecting digits or char
 		if(isdigit(c)){
-			currentDigit *= 10;
-			currentDigit += c-'0';
-			break;
+			currentDigits *= 10;
+			currentDigits += c-'0';
+			return;
 		}
 		switch(c){
 		case 'm':
-			currentColour = currentDigit;
-			break;
-		case 'H':
-			break;
-		case 'J':
-			break;
+			if((currentDigits>-30 && currentDigits<=37) || (currentDigits>=90 && currentDigits<=97))
+				currentFG = currentDigits;
+			else if((currentDigits>-30 && currentDigits<=37) || (currentDigits>=90 && currentDigits<=97))
+				currentBG = currentDigits;
+			// ignore all else for now
+			inputMode = 0;
+			return;
+		case 'J':			// clear screen
+			// 0=cursor to end of screen, 1=cursor to beginning of screen,
+			// 2=clear screen and home, 3=clear screen and scroll back buffer
+			inputMode = 0;
+			return;
 		}
-		inputEscMode = 0;
+		// not understood so ignore
+		inputMode = 0;
+		return;
+
+	case 3:					// second byte of a three byte Unicode
+		currentLine[currentColumn].c |= (c&0x3f)<<6;
+		inputMode = 4;
+		break;
+
+	case 4:					// third byte of a three byte Unicode or second byte of two
+		currentLine[currentColumn].c |= c&0x3f;
+		inputMode = 0;
+		currentLine[currentColumn].fg = currentFG;
+		currentLine[currentColumn].bg = currentBG;
+		currentColumn++;
+		inputMode = 0;
+		break;
 	}
-	if(c=='\r')
-		currentColumn = 5;
-	else if(c=='\n'){
-		lines.push_back(_strdup(currentLine));
+	// 'standard character handling
+	if(c=='\r'){
+		currentColumn = 0;
+		return;
+	}
+	if(c=='\n'){
+		// count chars
+		int nChars;
+		for(nChars=0; nChars<_countof(currentLine) && currentLine[nChars].c; ++nChars);
+		// copy to a new line array
+		TERMINALCHAR* tc = new TERMINALCHAR[nChars+1];
+		for(int i=0; i<nChars; tc[i]=currentLine[i], ++i);
+		lines.push_back(tc);
+
 		ZeroMemory(currentLine, sizeof currentLine);
-		sprintf(currentLine, "\x1b[%dm", currentColour);
-		currentColumn = (int)strlen(currentLine);
+		currentColumn = 0;								// naughty but helps
+		return;
 	}
-	else if(c=='\x1b'){
-		currentLine[currentColumn++] = c;
-		inputEscMode = 1;
+
+	if(c==0x1b){
+		inputMode = 1;
+		return;
 	}
-	else if(c)
-		currentLine[currentColumn++] = c;
+	if(c==0x08){			// backspace
+		if(currentColumn>0)
+			currentLine[--currentColumn].c = 0;
+		return;
+	}
+	if(c & 0x80){					// Unicode preamble
+		if((c & 0xf0) == 0xe0){			// 3 byte
+			inputMode = 3;
+			currentLine[currentColumn].c = (c&0x0f)<<12;
+			return;
+		}
+		else if((c & 0xe0) == 0xc0){	// 2 bytes
+			inputMode = 4;
+			currentLine[currentColumn].c = (c&0x1f)<<6;
+			return;
+		}
+		return;						// not managed
+	}
+	// finally a 'real' standard character
+	currentLine[currentColumn].c = c;
+	currentLine[currentColumn].fg = currentFG;
+	currentLine[currentColumn++].bg = currentBG;
 }
 
 void pump(const char* str, TERMINALDATA *t)
 {
 	while(*str) t->AddChar(*str++);
 }
-
-std::tuple<COLORREF, bool> AnsiiCode(int n){
+COLORREF AnsiCode(int n){
 	switch(n){
-	case 30:	return std::make_tuple(RGB(0,  0,  0),   true);		// Black
-	case 40:	return std::make_tuple(RGB(0,  0,  0), 	 false);
-	case 31:	return std::make_tuple(RGB(128,0,  0),   true);		// Red
-	case 41:	return std::make_tuple(RGB(128,0,  0),   false);
-	case 32:	return std::make_tuple(RGB(0,  128,0),   true);		// Green
-	case 42:	return std::make_tuple(RGB(0,  128,0),   false);
-	case 33:	return std::make_tuple(RGB(128,128,0),   true);		// Yellow
-	case 43:	return std::make_tuple(RGB(128,128,0),   false);
-	case 34:	return std::make_tuple(RGB(0,  0,  128), true);		// Blue
-	case 44:	return std::make_tuple(RGB(0,  0,  128), false);
-	case 35:	return std::make_tuple(RGB(128,0,  128), true);		// Magenta
-	case 45:	return std::make_tuple(RGB(128,0,  128), false);
-	case 36:	return std::make_tuple(RGB(0,  128,128), true);		// Cyan
-	case 46:	return std::make_tuple(RGB(0,  128,128), false);
-	case 37:	return std::make_tuple(RGB(128,128,128), true);		// White
-	case 47:	return std::make_tuple(RGB(128,128,128), false);
+	case 30:							// Black
+	case 40:	return RGB(0,0,0);
+	case 31:							// Red
+	case 41:	return RGB(128,0,0);
+	case 32:							// Green
+	case 42:	return RGB(0,128,0);
+	case 33:							// Yellow
+	case 43:	return RGB(128,128,0);
+	case 34:							// Blue
+	case 44:	return RGB(0,0,128);
+	case 35:							// Magenta
+	case 45:	return RGB(128,0,128);
+	case 36:							// Cyan
+	case 46:	return RGB(0,128,128);
+	case 37:							// White
+	case 47:	return RGB(128,128,128);
 
-	case 90:	return std::make_tuple(RGB(0,  0,  0),   true);		// 'Bright Black'
-	case 100:	return std::make_tuple(RGB(0,  0,  0),   false);
-	case 91:	return std::make_tuple(RGB(255,0,  0),   true);		// Bright Red
-	case 101:	return std::make_tuple(RGB(255,0,  0),   false);
-	case 92:	return std::make_tuple(RGB(0,  255,0),   true);		// Bright Green
-	case 102:	return std::make_tuple(RGB(0,  255,0),   false);
-	case 93:	return std::make_tuple(RGB(255,255,0),   true);		// Bright Yellow
-	case 103:	return std::make_tuple(RGB(255,255,0),   false);
-	case 94:	return std::make_tuple(RGB(0,  0,  255), true);		// Bright Blue
-	case 104:	return std::make_tuple(RGB(0,  0,  255), false);
-	case 95:	return std::make_tuple(RGB(255,0,  255), true);		// Bright Magenta
-	case 105:	return std::make_tuple(RGB(255,0,  255), false);
-	case 96:	return std::make_tuple(RGB(0,  255,255), true);		// Bright Cyan
-	case 106:	return std::make_tuple(RGB(0,  255,255), false);
-	case 97:	return std::make_tuple(RGB(255,255,255), true);		// Bright White
-	case 107:	return std::make_tuple(RGB(255,255,255), false);
+	case 90:							// 'Bright Black'
+	case 100:	return RGB(0,0,0);
+	case 91:							// Bright Red
+	case 101:	return RGB(255,0,0);
+	case 92:							// Bright Green
+	case 102:	return RGB(0,255,0);
+	case 93:							// Bright Yellow
+	case 103:	return RGB(255,255,0);
+	case 94:							// Bright Blue
+	case 104:	return RGB(80,80,255);
+	case 95:							// Bright Magenta
+	case 105:	return RGB(255,0,255);
+	case 96:							// Bright Cyan
+	case 106:	return RGB(0,255,255);
+	case 97:							// Bright White
+	case 107:	return RGB(255,255,255);
 	}
-	return std::make_tuple(RGB(255,255,255), true);
+	return RGB(255,255,255);
 }
 
 // Now we have to wrap TabTextOut with something to do the colour changes
-void WrapTab(HDC hdc, const char* text, int x, int y, INT* tabs)
+void WrapTab(HDC hdc, TERMINALCHAR* text, int& x, int& y, INT* tabs)
 {
-	// What we will do is accumulate a string until we get an ESC or null.
+	if(text->c==0) return;			// blank lines are easy
+
+	// What we will do is accumulate a string until the colours change.
 	// Then output it on the old colour and then start accumulating another
 	int i=0;			// character index into text[]
 	int bi = 0;			// index into temp[]
-	char temp[200];		// arbitrary sized buffer
+	WCHAR temp[200];	// arbitrary sized buffer
 	int startPoint = x;	// callers start pint
 	// initial text colours
-	COLORREF fg = RGB(255,255,255);
-	COLORREF bg = RGB(0,0,0);
+	int fg = text->fg;
+	int bg = text->bg;
 
 	do{
-		char c = text[i];
-		// do we need to flush the buffer?
-		if((c==0x1b || c==0) && bi!=0){
-			temp[bi] = 0;
-			SetTextColor(hdc, fg);
-			SetBkColor(hdc, bg);
-			WCHAR tempW[200];
-			MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, temp, -1, tempW, _countof(tempW));
-			DWORD ret = TabbedTextOutW(hdc, x, y, tempW, bi, 1, tabs, 0);
-			x += LOWORD(ret);	// width
+		TERMINALCHAR c = text[i];
+		// do we need to flush the buffer? (end of buffer or change of colour)
+		if((c.c==0 || c.fg != fg || c.bg != bg) && bi!=0){
+			temp[bi] = 0;							// terminating null
+			// convert the codes into RGB
+			SetTextColor(hdc, AnsiCode(fg));
+			SetBkColor(hdc, AnsiCode(bg));
+			DWORD ret = TabbedTextOutW(hdc, x, y, temp, bi, 1, tabs, 0);
+			x += LOWORD(ret);			// width
 			bi = 0;
+			fg = c.fg;
+			bg = c.bg;
 		}
 		// if that was a null we've finished
-		if(c==0) break;
-
-		if(c==0x1b && text[i+1]=='['){
-			i+=2;
-			int n=0;
-			while(isdigit(text[i])){ n*=10; n+=text[i++]-'0'; }
-			switch(text[i++]){
-			case 'm':					// foreground colour
-			{
-				auto cx = AnsiiCode(n);
-				if(get<1>(cx))	fg = std::get<0>(cx);
-				else			bg = std::get<0>(cx);
-				break;
-			}
-			case 'H':
-			case 'J':
-			default:
-				break;
-			}
-		}
-		else{
-			temp[bi++] = c;
-			++i;
-		}
+		if(text[i].c==0) break;
+		temp[bi++] = text[i++].c;
 	}while(true);
-	SetCaretPos(x, y);
 }
 
 void tPaint(HWND hWnd, HDC hdc, TERMINALDATA* td)
@@ -171,17 +221,21 @@ void tPaint(HWND hWnd, HDC hdc, TERMINALDATA* td)
 	td->tHeight = tm.tmHeight;
 
 	int start = GetScrollPos(hWnd, SB_VERT);
+	int X = 0;			// start of text
 	RECT r;
 	GetClientRect(hWnd, &r);
 	HBRUSH hb = CreateSolidBrush(RGB(0,0,0));
 	FillRect(hdc, &r, hb);
-	int x=0, y=0;
+	int x=X, y=0;
 	int i = start;
 	for(y=r.top; y<r.bottom && i<td->lines.size(); y += tm.tmHeight){
-		const char* text = td->lines[i++];
+		x = X;
+		TERMINALCHAR* text = td->lines[i++];
 		WrapTab(hdc, text, x, y, tabs);
 	}
+	x = X;
 	WrapTab(hdc, td->currentLine, x, y, tabs);
+	SetCaretPos(x, y);
 
 	DeleteObject(hb);
 	SelectObject(hdc, oldFont);
@@ -208,9 +262,12 @@ LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM
 
 	case WM_TIMER:
 		int c; c=0;
-		while((c=serial->getc())!=-1)
+		bool trig; trig = false;
+		while((c=serial->getc())!=-1){
+			trig = true;
 			td->AddChar(c);
-		if(c){
+		}
+		if(trig){
 			RECT r;
 			GetClientRect(hWnd, &r);
 
