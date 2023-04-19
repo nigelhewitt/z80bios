@@ -131,24 +131,29 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="safequeue.h" />
     <ClInclude Include="serialdrv.h" />
+    <ClInclude Include="trap.h" />
     <ClInclude Include="Z80debug.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="regs.cpp" />
     <ClCompile Include="serialdrv.cpp" />
     <ClCompile Include="source.cpp" />
     <ClCompile Include="process.cpp" />
     <ClCompile Include="terminal.cpp" />
     <ClCompile Include="trap.cpp" />
+    <ClCompile Include="util.cpp" />
     <ClCompile Include="Z80debug.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Z80debug.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="toolbar.bmp" />
     <Image Include="Z80debug.ico" />
     <Image Include="small.ico" />
   </ItemGroup>

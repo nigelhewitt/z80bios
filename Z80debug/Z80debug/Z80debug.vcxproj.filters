@@ -30,6 +30,12 @@
     <ClInclude Include="serialdrv.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="trap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="safequeue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Z80debug.cpp">
@@ -50,6 +56,12 @@
     <ClCompile Include="trap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="regs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Z80debug.rc">
@@ -61,6 +73,9 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="Z80debug.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="toolbar.bmp">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

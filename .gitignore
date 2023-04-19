@@ -1,6 +1,7 @@
 ﻿**/*.lst
 **/*.obj
 **/*.tlog
+**/*.exe
 **/*.ilk
 **/*.ip*
 **/*.pdb
@@ -13,6 +14,5 @@
 **/*.iobj
 **/*.idb
 Z80debug/Debug/*
-Z80debug/x64/Debug/*
 Z80debug/Z80debug/x64/*
-**/*.bak
+**/*.bak*

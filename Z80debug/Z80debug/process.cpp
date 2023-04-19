@@ -139,18 +139,18 @@ int ReadSDL(const char* fname)
 	return (int)sdl.size();
 }
 
-std::tuple<int, int, int>FindTrace(BYTE page, WORD address16)
+std::tuple<int, int, int, int>FindTrace(WORD address16)
 {
 	for(SDL s : sdl)
-		if(s.type=='T' && s.page == page && s.value == address16)
-			return { s.source.file, s.source.line, s.page };
-	return { -1,0,0 };
+		if(s.type=='T' && s.value == address16)
+			return { s.source.file, s.source.line, s.page, s.value };
+	return { -1,0,0,0 };
 }
-std::tuple<int, int, int>FindDefinition(const char* item)
+std::tuple<int, int, int, int>FindDefinition(const char* item)
 {
 	for(SDL s : sdl)
 		if((s.type=='F' && strcmp(s.data[0], item)==0)
 			|| (s.type=='L' && strcmp(s.data[1], item)==0))
-			return { s.source.file, s.source.line, s.page };
-	return { -1,0,0 };
+			return { s.source.file, s.source.line, s.page, s.value };
+	return { -1,0,0,0 };
 }

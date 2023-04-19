@@ -180,10 +180,60 @@ f_debug		ld		hl, .block
 			ldir
 			call	stdio_str
 			RED
-			db		"\r\nDebug module loaded\r\n"
+			db		"\r\nDebug module loaded"
 			WHITE
 			db		0
-			jp		0x0100
+			xor		a
+			out		(LIGHTS), a
+			ld		a, 0x0a
+			ex		af, af'
+			ld		a, 0xa0
+			ex		af, af
+			ld		bc, 0xbcbc
+			ld		de, 0xdede
+			ld		hl, 0x1234
+			exx
+			ld		bc, 0xcbcb
+			ld		de, 0xeded
+			ld		hl, 0x4321
+			exx
+			ld		ix, 0x2345
+			ld		iy, 0x3456
+			SNAP	"pre"
+			nop
+			nop
+			;          IY   IX   HL   DE   BC   A F  PC   A'F' BC'  DE'  HL'
+			; >>r C76E 3456 2345 1234 DEDE BCBC 0A48 C1C2 A000 CBCB EDED 10E1@
+			call	0x0100		; enter control mode
+			nop
+			nop
+			ld		a, 0x55
+			out		(LIGHTS), a
+			SNAP	"dbg"
+			nop
+			nop
+			rst		0x28
+			nop
+			nop
+			xor		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			inc		a
+			jp		good_end
 
 .block
 			incbin	"debug.bin"

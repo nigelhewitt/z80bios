@@ -67,10 +67,10 @@ restoreROM	ld		a, RAM0
 getROMid	xor		a				; map in ROM0/ROM1
 			call	setROM
 
-// send 0xaa -> 0x5555(15b), 0x55 -> 0x2aaa(15b), 0x90 -> 0x5555(15b)
-// read 0x00000(19b)->Manufacturers ID (19b requires BIOS0 selected)
-// read 0x00001(19b)->Device code
-// send 0xf0 -> anywhere
+; send 0xaa -> 0x5555(15b), 0x55 -> 0x2aaa(15b), 0x90 -> 0x5555(15b)
+; read 0x00000(19b)->Manufacturers ID (19b requires BIOS0 selected)
+; read 0x00001(19b)->Device code
+; send 0xf0 -> anywhere
 
 			ld		a, 0xaa			; run the ID sequence
 			ld		[0x555], a

@@ -127,7 +127,7 @@ idDrive					db		0			; the drive character ie: 'A' or 'C'
 hwDrive					db		0			; hardware type 0=SD, 1=FD etc
 iPartition				db		0			; partition number (or 0 if none)
 
-// fat organisation parameters
+; fat organisation parameters
 fat_type				db		0			; FAT type
 partition_begin_sector	dd		0			; first sector of the partition (must be zeroed)
 fat_size				dd		0			; how many sectors in a FAT
@@ -140,7 +140,7 @@ root_dir_entries		dw		0			; number of entries in root directory, zero for FAT32
 cluster_begin_sector	dd		0			; first sector of data area
 count_of_clusters		dd		0			; number of data clusters
 
-// fat management storage
+; fat management storage
 last_fat_sector			dd		0			; FAT sector currently in buffer
 fat_dirty				db		0			; needs to be written
 fat_free_speedup		dd		0			; cluster where we last found free space
@@ -224,23 +224,23 @@ buffer					ds		512			; current work in progress sector
 	ends
 
 ; DIR_Attr bits
-  define attrRO			0			// read only
-  define attrHIDE		1			// hidden
-  define attrSYS		2			// system
-  define attrVOL		3			// volume id
-  define attrDIR		4			// directory
-  define attrARCH		5			// archive
+  define attrRO			0			; read only
+  define attrHIDE		1			; hidden
+  define attrSYS		2			; system
+  define attrVOL		3			; volume id
+  define attrDIR		4			; directory
+  define attrARCH		5			; archive
 ; the other two bits should be zero
 
 ; file open_mode bits
- define	FOM_READ		0x01		// read mode
- define	FOM_WRITE		0x02		// write mode
- define FOM_MUSTEXIST	0x04		// file must exist
- define FOM_CLEAN		0x08		// if exists truncate to zero
- define	FOM_APPEND		0x10		// set file pointer to EOF
+ define	FOM_READ		0x01		; read mode
+ define	FOM_WRITE		0x02		; write mode
+ define FOM_MUSTEXIST	0x04		; file must exist
+ define FOM_CLEAN		0x08		; if exists truncate to zero
+ define	FOM_APPEND		0x10		; set file pointer to EOF
 ; internal flags in open_mode
- define FOM_OPEN		0x20		// file is open
- define FOM_DIRTY		0x40		// sector buffer needs writing
- define FOM_DIRDIRTY	0x80		// directory entry needs writing
+ define FOM_OPEN		0x20		; file is open
+ define FOM_DIRTY		0x40		; sector buffer needs writing
+ define FOM_DIRDIRTY	0x80		; directory entry needs writing
 
  define EOF	0xffff

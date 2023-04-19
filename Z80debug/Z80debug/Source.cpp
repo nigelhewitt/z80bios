@@ -96,6 +96,7 @@ struct POPUP {
 	int file;
 	int line;
 	bool bDone;
+	bool bHighlight;
 };
 BOOL popupWorker(HWND hwnd, LPARAM lParam)
 {
@@ -105,10 +106,10 @@ BOOL popupWorker(HWND hwnd, LPARAM lParam)
 	SendMessage(hwnd, regMessage, 0, lParam);
 	return TRUE;
 }
-void PopUp(int file, int line)
+void PopUp(int file, int line, bool highlight)
 {
 	static POPUP p;
-	p = { file, line, false };
+	p = { file, line, false, highlight };
 	EnumChildWindows(hFrame, &popupWorker, (LPARAM)&p);
 	if(!p.bDone){
 		char temp[200];
@@ -140,7 +141,7 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 		POPUP* p; p = (POPUP*)lParam;
 		if(sd->fdef.fx == p->file){
 			p->bDone = true;
-			sd->lines[p->line-1].hiLight = true;
+			sd->lines[p->line-1].hiLight = p->bHighlight;
 			int n = p->line - sd->nLines/2;
 			if(n<0) n=0;
 			sd->nScroll = n;
@@ -239,11 +240,11 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 		int line; line = y/tm.tmHeight + sd->nScroll;
 		if(x>=0 && x<=22 && sd->lines[line].canTrap){
 			if(sd->lines[line].trap){
-				freeTrap(sd->lines[line].trap);
+				debug.freeTrap(sd->lines[line].trap);
 				sd->lines[line].trap = 0;
 			}
 			else
-				sd->lines[line].trap = getTrap(sd->page, sd->lines[line].address);
+				sd->lines[line].trap = debug.setTrap(sd->page, sd->lines[line].address);
 			InvalidateRect(hWnd, nullptr, TRUE);
 		}
 		else if(x>=23 && x<=LEFT_MG){
@@ -253,6 +254,7 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 		return 0;
 
 	case WM_DESTROY:
+		delete sd;
 		break;		// use default processing
 	}
 	return DefMDIChildProc(hWnd, uMessage, wParam, lParam);

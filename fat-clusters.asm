@@ -353,7 +353,7 @@ get12bitsFAT
 ; To handle the oddities I have a byte fatPrefix extending the fatTable buffer
 ; by one before and fatSuffix extending it behind.
 
-; uint8_t triad = index/1024;				// which triad of sectors?
+; uint8_t triad = index/1024;		; which triad of sectors?
 		ld		d, h				; cluster/256
 		srl		d					; /512
 		srl		d					; /1024	= triad number (0-3)
@@ -362,7 +362,7 @@ get12bitsFAT
 		add		a, d				; triad*3 = FAT sector at start of triad
 		ld		d, a
 
-;	index %=  1024;					// index within that triad
+;	index %=  1024;					; index within that triad
 		ld		b, h
 		ld		a, h
 		and		0xfc
@@ -402,7 +402,7 @@ get12bitsFAT
 		ld		de, ix
 		add		hl, de				; pointer to last byte of the array
 
-; drive->fatPrefix = array[511];	// save the overlap byte in front of the buffer
+; drive->fatPrefix = array[511];	; save the overlap byte in front of the buffer
 		ld		a, [hl]
 		inc		ixh							; shameful frig to get over the
 		inc		ixh

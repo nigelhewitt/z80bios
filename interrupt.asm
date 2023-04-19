@@ -3,28 +3,6 @@
 ;  Interrupt handlers
 ;
 ;===============================================================================
-	if	BIOSROM != 0
-rst00h	jp	reboot					; RST 0 is restart so send it to ROM0
-	endif
-
-; handlers for other RST N opcodes
-rst08h	push	af
-		ld		a, 1
-		ld		[Z.snap_mode], a
-		pop		af
-		push	af
-		call	_snap
-		pop		af
-		ret
-rst10h
-rst18h
-rst20h
-rst28h
-rst30h
-rst38h
-			ret
-nmih
-			retn
 
 ;===============================================================================
 ;

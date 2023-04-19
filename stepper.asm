@@ -22,16 +22,6 @@ stepper_start	equ		$
 
 			db		"STEPPER TABLE",0		; 14 bytes
 
-rst00		jp		rst00h					; 3 bytes each
-rst08		jp		rst08h
-rst10		jp		rst10h
-rst18		jp		rst18h
-rst20		jp		rst20h
-rst28		jp		rst28h
-rst30		jp		rst30h
-rst38		jp		rst38h
-nmi			jp		nmih
-
 gotoRAM3	ld		a, RAM3			; 7T
 			out		(MPGSEL3), a	; 11T
 			jp		transfer		; 10T this instruction executes in RAM3

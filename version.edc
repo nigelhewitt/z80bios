@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.28"		move to local repository, use version number
+   	git commit -m "0.1.30"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -160,3 +160,8 @@ Rationalise the system to report what pages are in the map.
 Mostly a save for the Z80debug C++ stuff and the provisional design for the
 'single step' board. The Z80debug now does files and jumps to labels and sets
 up the breakpoint stuff at the PC end. Also some colour tweaks.
+
+0.1.30
+A lot of Debugger level-up. Most of the Memory window stuff done and the system
+now applies traps and manages the file views. Still waiting for parts on the
+NMI based single step add on.

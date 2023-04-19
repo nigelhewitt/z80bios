@@ -166,13 +166,7 @@ f_dircommand
 			call	LocalON
 			ld		a, [local.current]
 			or		a
-			jr		nz, .fd1
-
-; no current drive so force C:
-			ld		a, 'C'
-			ld		[.test_path], a
-			ld		de, .test_path
-			jr		.fd3
+			jr		z, .fd6
 
 ; we have a current drive so is it legal? (should never fail)
 .fd1		call	get_drive			; get DRIVE* in ix

@@ -16,7 +16,12 @@
 #include <memory.h>
 #include <tchar.h>
 #include <vector>
-#include<tuple>
+#include <tuple>
+#include <thread>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
+#include <commctrl.h>
 #include <cstdio>
 #include <cstdarg>

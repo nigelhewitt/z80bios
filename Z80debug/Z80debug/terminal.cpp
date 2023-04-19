@@ -21,6 +21,7 @@ struct TERMINALDATA {							// stored data for the Terminal device
 	TERMINALCHAR currentLine[300]{};			// current line being input
 	int currentColumn{};						// column of that line
 	int inputMode{};							// state machine to unpick multi-byte inputs
+	int debugMode{};							// diver to debugMode
 	int currentDigits{};						// digits for an escape code
 	int currentFG{37}, currentBG{40};			// current FG/BG colours using ANSI numbers
 
@@ -67,6 +68,10 @@ void TERMINALDATA::AddChar(char c)
 			// 2=clear screen and home, 3=clear screen and scroll back buffer
 			inputMode = 0;
 			return;
+		case '?':
+			debugMode = currentDigits;
+			debug.AddTraffic(debugMode ? "[sign on]":"[sign off]");
+			return;
 		}
 		// not understood so ignore
 		inputMode = 0;
@@ -85,6 +90,14 @@ void TERMINALDATA::AddChar(char c)
 		currentColumn++;
 		inputMode = 0;
 		break;
+	}
+	if(c==0x1b){
+		inputMode = 1;
+		return;
+	}
+	if(debugMode){
+		debug.debugChar(c);				// in trap.asm
+		return;
 	}
 	// 'standard character handling
 	if(c=='\r'){
@@ -105,16 +118,12 @@ void TERMINALDATA::AddChar(char c)
 		return;
 	}
 
-	if(c==0x1b){
-		inputMode = 1;
-		return;
-	}
-	if(c==0x08){			// backspace
+	if(c==0x08){						// backspace
 		if(currentColumn>0)
 			currentLine[--currentColumn].c = 0;
 		return;
 	}
-	if(c & 0x80){					// Unicode preamble
+	if(c & 0x80){						// Unicode preamble
 		if((c & 0xf0) == 0xe0){			// 3 byte
 			inputMode = 3;
 			currentLine[currentColumn].c = (c&0x0f)<<12;
@@ -221,7 +230,7 @@ void tPaint(HWND hWnd, HDC hdc, TERMINALDATA* td)
 	td->tHeight = tm.tmHeight;
 
 	int start = GetScrollPos(hWnd, SB_VERT);
-	int X = 0;			// start of text
+	int X = 5;			// start of text
 	RECT r;
 	GetClientRect(hWnd, &r);
 	HBRUSH hb = CreateSolidBrush(RGB(0,0,0));
@@ -240,6 +249,18 @@ void tPaint(HWND hWnd, HDC hdc, TERMINALDATA* td)
 	DeleteObject(hb);
 	SelectObject(hdc, oldFont);
 }
+void SetScroll(HWND hWnd, TERMINALDATA* td)
+{
+	SCROLLINFO si = { 0 };
+	si.cbSize = sizeof(SCROLLINFO);
+	si.fMask = SIF_POS;
+	si.nPos = td->nScroll;
+	si.nTrackPos = 0;
+	SetScrollInfo(hWnd, SB_VERT, &si, true);
+	GetScrollInfo(hWnd, SB_VERT, &si);
+	td->nScroll = si.nPos;
+	InvalidateRect(hWnd, nullptr, TRUE);
+}
 
 LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
 {
@@ -253,9 +274,6 @@ LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM
 			td = new TERMINALDATA;
 			MDICREATESTRUCT* cv = reinterpret_cast<MDICREATESTRUCT*>((reinterpret_cast<CREATESTRUCT*>(lParam))->lpCreateParams);
 			SetWindowLongPtr(hWnd, 0, (LONG_PTR)td);
-			pump("Hello World\r\n", td);
-			pump("\x1b[92mGreen Two lines != traffic\r\n", td);
-			pump("Third Line \x1b[31mto Red\r\n", td);
 			SetTimer(hWnd, 1, 200, nullptr);
 		}
 		return 0;
@@ -347,7 +365,18 @@ LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM
 	}
 	break;
 
+	case WM_MOUSEWHEEL:
+		int move; move = (short)HIWORD(wParam);
+		if(move>0)
+			--td->nScroll;
+		if(move<0)
+			++td->nScroll;
+		SetScroll(hWnd, td);
+		return 0;
+
+
 	case WM_DESTROY:
+		hTerminal = nullptr;
 		break;		// use default processing
 	}
 	return DefMDIChildProc(hWnd, uMessage, wParam, lParam);

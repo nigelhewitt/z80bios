@@ -328,20 +328,20 @@ ERR_BADFUNCTION			equ		15
 ;-------------------------------------------------------------------------------
 ; ROM functions
 ;-------------------------------------------------------------------------------
-	define ShowLogo1		RAM4,0		// Show "BIOS1 loaded"
-	define ShowLogo2		RAM5,0		// Show "BIOS2 loaded"
-	define ShowError		RAM5,2		// Interpret error code
-	define ShowHelp			RAM5,3		// Show command help
-	define ReadSector		RAM4,1		// read sector BC:HL to DE
-	define DIRcommand		RAM4,2		// DIR command
-	define CDcommand		RAM4,3		// CD command
-	define TYPEcommand		RAM4,4		// TYPE command
-	define LOADcommand		RAM4,5		// LOAD command
-	define ShowStack		RAM5,1		// data on stack text
-	define ROMcommand		RAM5,4		// ROM programming command
-	define HEXcommand		RAM5,5		// HEX command
-	define WAITcommand		RAM5,6		// WAIT command
-	define COPYcommand		RAM5,7		// COPY command
-	define PrintCWD			RAM4,6		// print CWD
-	define SetDrive			RAM4,7		// set drive
-	define DEBGcommand		RAM5,8		// DEBG command
+	define ShowLogo1		RAM4,0		; Show "BIOS1 loaded"
+	define ShowLogo2		RAM5,0		; Show "BIOS2 loaded"
+	define ShowError		RAM5,2		; Interpret error code
+	define ShowHelp			RAM5,3		; Show command help
+	define ReadSector		RAM4,1		; read sector BC:HL to DE
+	define DIRcommand		RAM4,2		; DIR command
+	define CDcommand		RAM4,3		; CD command
+	define TYPEcommand		RAM4,4		; TYPE command
+	define LOADcommand		RAM4,5		; LOAD command
+	define ShowStack		RAM5,1		; data on stack text
+	define ROMcommand		RAM5,4		; ROM programming command
+	define HEXcommand		RAM5,5		; HEX command
+	define WAITcommand		RAM5,6		; WAIT command
+	define COPYcommand		RAM5,7		; COPY command
+	define PrintCWD			RAM4,6		; print CWD
+	define SetDrive			RAM4,7		; set drive
+	define DEBGcommand		RAM5,8		; DEBG command

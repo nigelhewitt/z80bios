@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.28"		; version number for sign on message
+	define	VERSION	"v0.1.30"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.28"		move to local repository, use version number
+;   	git commit -m "0.1.30"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -114,28 +114,28 @@ start_table
 ; 0x05
 			jp		cpm				; if emulating CPM jump to the handler
 ; 0x08
-			jp		rst08
+			db		0xc9,0,0		; RST 0x08
 	.5		db		0
 ; 0x10
-			jp		rst10
+			db		0xc9,0,0		; RST 0x10
 	.5		db		0
 ; 0x18
-			jp		rst18
+			db		0xc9,0,0		; RST 0x18
 	.5		db		0
 ; 0x20
-			jp		rst20
+			db		0xc9,0,0		; RST 0x20
 	.5		db		0
 ; 0x28
-			jp		rst28
+			db		0xc9,0,0		; RST 0x28
 	.5		db		0
 ; 0x30
-			jp		rst30
+			db		0xc9,0,0		; RST 0x30
 	.5		db		0
 ; 0x38
-			jp		rst38
+			db		0xc9,0,0		; RST 0x38
 	.43		db		0
 ; 0x66
-			jp		nmi				; NMI handler
+			db		0xed,0x45,0		; NMI handler
 
 size_table	equ	$ - start_table		; table size for copy
 
@@ -180,7 +180,7 @@ signon		db		"\r"
 ram_test	db		0				; set to 1 if we are running in RAM
 
 ; The system powers up with the PC set to zero where we have a jump chain to here
-rst00h		di						; interrupts off
+rst00		di						; interrupts off
 			xor		a				; ensure the mapper is off
 			out		(MPGEN), a		;		 while we get things restarted
 
@@ -501,7 +501,7 @@ cmd_list	db	"BOOT"
  			dw	cmd_copy
  			db	"CORE"				; clear memory to 0
  			dw	cmd_core
-			db	"DEBG"				; DEBUG system
+			db	"DBG",0				; DEBUG system
 			dw	cmd_debug
 			db	"DIR",0				; SD interface
 			dw	cmd_dir
@@ -1124,8 +1124,8 @@ cmd_time	AUTO	7				; 7 bytes of stack please
 			call	stdio_decimal24
 			ld		a, '.'
 			call	stdio_putc
-			ld		a, [Z.preTick]		// @50Hz
-			add		a					// as hundredths of a second
+			ld		a, [Z.preTick]		; @50Hz
+			add		a					; as hundredths of a second
 			call	stdio_decimalB2
 			call	stdio_str
 			db		" secs",0
