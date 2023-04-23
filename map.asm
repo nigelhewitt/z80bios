@@ -5,23 +5,8 @@
 ;===============================================================================
 map_start		equ	$
 
-; The Zeta2 arrangement with 1Mb total over the RAM and ROM means that the
-; tools need to reflect this. Normally BIOS software just uses 16 bits and that
-; covers it all but I want to be able to address everything.
-; I decided that bios addressing is usually 20 bits so 0xffffff
-; The top bit 0x80000 is the ROM select. This is actually the opposite way
-; round to the board design but it makes far more sense as you think in terms
-; of normally working in the base RAM from zero up and accessing the ROM or the
-; 'switched out' RAM pages is an infrequent event.
-; So if you type in an address the bottom 14 bits ie 0x3fff are just simple
-; addressing. The next 5 bits select the pages and the final 20th bit selects
-; ROM.
-; Hence for most things you are accessing the 'standard fit' of RAM0/1/2 in
-; 0-0xbfff but you can go anywhere.
-; I will do this by making the BIOS memory R/W functions swap the required
-; block into PAGE1 just while they need access the they restore RAM1. I really
-; wish I could read the MPGSEL1 registers and restore them to what they were
-; but I suspect that for 99%+ of the time this will work.
+; see the discussion of address16, address22 and address24 in bios.asm:76
+;
 ;
 ;===============================================================================
 
@@ -32,7 +17,8 @@ map_start		equ	$
 ; b0-13 are just address bus stuff
 ; b14-18 are the 0-31 page
 ; bit 19 is ROM select (actually reversed from PCB design but mentally better)
-; bits 20-23 are an error
+; bits 20 set doesn't map
+; bits 21-23 are ignored
 ; uses AF, returns 16 bit address in IX
 ; fixes IX to point to the correct CPU address16 to access the memory
 
@@ -45,12 +31,15 @@ map_start		equ	$
 ; Then we write wrappers to do the required jobs
 
 ;-------------------------------------------------------------------------------
-; _setPage	a stack free convert from address20 in C:IX to PAGEn n is in A
+; _setPage	a stack free convert from address2 in C:IX
+;			to PAGEn n is in A(bits 0-1)
 ;			returns IX as a 16 bit address into Z80 address space (in PAGEn)
 ;			** Not callable: returns via a JP [IY] **
 ;			uses A HL BC IX IY
 ;-------------------------------------------------------------------------------
-_setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
+_setPage	bit		4, c			; bit 20
+			jr		nz, .sp1		; don't map
+			and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			ld		l, a			; save PAGE number in L
 			ld		a, c			; bits b23-16 of C:IX
 			and		0x0f			; mask to b19-16 just to be safe
@@ -66,10 +55,7 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 									; H = 00rxxxxx  r=ROM xxxxx 0-32 ROM/RAM
 			ld		a, l			; get the PAGE number again
 			add		a, MPGSEL0		; add the base page select register
-			ld		c, a			; we can use C as an output pointer
-			ld		b, 0
-			ld		a, h
-;			ld		[bc], a
+			ld		c, a			; output port address
 			out		(c), h			; swap the page in
 
 			ld		a, ixh			; get address bits b15-8
@@ -82,7 +68,7 @@ _setPage	and		0x03			; PAGE number 0-3 aka b1-0, mask to be safe
 			rr		a				; gives page number b1-0 in bits b7-6 of A
 									; A = ppaaaaaa p=page, xxxxx address b13-8
 			ld		ixh, a			; put IX back together
-			jp		[iy]
+.sp1		jp		[iy]
 
 ;-------------------------------------------------------------------------------
 ; _resPage	stack free restore RAMn to PAGEn where A = page no 0 to 3
@@ -94,8 +80,6 @@ _resPage	and		0x03			; mask
 			ld		c, a			; gives port address
 			ld		a, b
 			add		a, RAM0			; page RAMn
-			ld		b, 0
-;			ld		[bc], a
 			out		(c), a			; back into PAGEn
 			jp		[iy]
 

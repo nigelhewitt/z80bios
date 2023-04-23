@@ -2,36 +2,35 @@
 //
 
 #include "framework.h"
+#include "serial.h"
+#include "process.h"
+#include "terminal.h"
+#include "traffic.h"
+#include "source.h"
+#include "regs.h"
+#include "mem.h"
+#include "util.h"
 #include "Z80debug.h"
-
-// Global Variables:
-HINSTANCE hInstance;				// current instance
-HWND hFrame, hClient, hToolbar;		// the outer frame and its inner client area
-HWND hTerminal;
-HFONT hFont, hFontSmall;
-SERIAL* serial;
-UINT regMessage;
-bool bRegsPlease{}, bPopupPlease{};
 
 #pragma comment(lib, "Comctl32.lib")
 
-//=====================================================================================================
-// handler to unpack Windows error codes into text
-//=====================================================================================================
+//=================================================================================================
+//		IMPORTANT CONCEPT
+//
+// THere are three threads
+//		The windows UI with all it's stops and starts
+//		The serial data IO
+//		The debugger
+//
+//=================================================================================================
 
-void error(DWORD err)
-{
-	char temp[200];
-	int cb = sizeof temp;
-	if(err == 0)
-		err = GetLastError();
-	wsprintf(temp, "%X ", err);
-	DWORD i = (DWORD)strlen(temp);
-	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), &temp[i], cb-i, nullptr);
-	// now remove the \r\n we get on the end
-	for(auto n = strnlen_s(temp, cb); n>3 && (temp[n-1] == '\r' || temp[n-1] == '\n'); temp[n-- - 1] = 0);		// yes it does compile
-	MessageBox(nullptr, temp, "Error", MB_OK);
-}
+// Global Variables:
+HINSTANCE hInstance;				// current instance
+HWND hFrame, hClient;				// the outer frame and its inner client area
+HWND hToolbar, hStatus;				// toolbar and status 'button'
+
+bool bRegsPlease{};					// requests from the debugger to the UI
+
 //=====================================================================================================
 // Message handler for about box.
 //=====================================================================================================
@@ -54,97 +53,25 @@ INT_PTR CALLBACK About(HWND hDlg, UINT uMessage, WPARAM wParam, LPARAM lParam)
 	return (INT_PTR)FALSE;
 }
 //=====================================================================================================
-// add a new source Window
-//=====================================================================================================
-
-HWND AddSource(const char* title, void* data)
-{
-	if(IsIconic(hFrame)){
-		ShowWindow(hFrame, SW_RESTORE);
-		SetForegroundWindow(hFrame);
-		UpdateWindow(hFrame);
-	}
-
-	MDICREATESTRUCT mcs{};					// do not use CreateWindow() for MDI children
-	mcs.szClass	= "Z80source";
-	mcs.szTitle	= title;
-	mcs.hOwner	= hInstance;
-	mcs.x		= CW_USEDEFAULT;
-	mcs.y		= CW_USEDEFAULT;
-	mcs.cx		= CW_USEDEFAULT;
-	mcs.cy		= CW_USEDEFAULT;
-	mcs.style	= WS_HSCROLL | WS_VSCROLL;
-	mcs.lParam	= (LPARAM)data;
-
-	HWND hWnd = (HWND)SendMessage(hClient, WM_MDICREATE, 0, (LPARAM)&mcs);
-	if(hWnd == nullptr){
-		// display some error message
-		error();
-		return nullptr;
-	}
-	SetFocus(hWnd);
-	return hWnd;
-}
-void RemoveSource(HWND hChild)
-{
-	SendMessage(hClient, WM_MDIDESTROY, (WPARAM)hChild, 0);
-}
-LRESULT SendToActiveChild(UINT uMessage, WPARAM wParam, LPARAM lParam)
-{
-	auto hwnd = reinterpret_cast<HWND>(SendMessage(hClient, WM_MDIGETACTIVE, 0, 0));
-	if(hwnd) return SendMessage(hwnd, uMessage, wParam, lParam);
-	return 0;
-}
-void AddTerminal(void* data)
-{
-	if(hTerminal){
-		PostMessage(hTerminal, WM_DESTROY, 0, 0);
-		hTerminal = 0;
-		return;
-	}
-
-	if(IsIconic(hFrame)){
-		ShowWindow(hFrame, SW_RESTORE);
-		SetForegroundWindow(hFrame);
-		UpdateWindow(hFrame);
-	}
-
-	MDICREATESTRUCT mcs{};					// do not use CreateWindow() for MDI children
-	mcs.szClass	= "Z80terminal";
-	mcs.szTitle	= "Terminal";
-	mcs.hOwner	= hInstance;
-	mcs.x		= CW_USEDEFAULT;
-	mcs.y		= CW_USEDEFAULT;
-	mcs.cx		= 800;
-	mcs.cy		= 600;
-	mcs.style	= WS_HSCROLL | WS_VSCROLL;
-	mcs.lParam	= (LPARAM)data;
-
-	hTerminal = (HWND)SendMessage(hClient, WM_MDICREATE, 0, (LPARAM)&mcs);
-	if(hTerminal == nullptr){
-		// display some error message
-		error();
-		return;
-	}
-	SetFocus(hTerminal);
-}
-//=====================================================================================================
 // GetStuff()		generic ask for text dialog
 //=====================================================================================================
-INT_PTR GetStuff(HWND hDlg, UINT wMessage, WPARAM wParam,  LPARAM lParam)
+INT_PTR Search(HWND hDlg, UINT wMessage, WPARAM wParam,  LPARAM lParam)
 {
 	static std::tuple<char*,int> *stuff;
 
 	switch(LOWORD(wMessage)){
 	case WM_INITDIALOG:
-			stuff = (std::tuple<char*,int>*)lParam;
-			SetWindowText(GetDlgItem(hDlg, IDC_STUFF), get<0>(*stuff));
+		stuff = (std::tuple<char*,int>*)lParam;
+		SetWindowText(GetDlgItem(hDlg, IDC_SEARCH), get<0>(*stuff));
+		DropLoad(hDlg, IDC_SEARCH);
 		return TRUE;
 
 	case WM_COMMAND:
 		switch(LOWORD(wParam)){
 		case IDOK:
-			GetWindowText(GetDlgItem(hDlg, IDC_STUFF), get<0>(*stuff), get<1>(*stuff));
+			GetWindowText(GetDlgItem(hDlg, IDC_SEARCH), get<0>(*stuff), get<1>(*stuff));
+			DropSave(IDC_SEARCH, get<0>(*stuff));
+
 		case IDCANCEL:
 			EndDialog(hDlg, LOWORD(wParam));
 			return TRUE;
@@ -171,20 +98,21 @@ bool AddToolbar(HWND hParent)
 	HBITMAP hbm = CreateMappedBitmap(hInstance, IDB_TOOLBAR, 0, &colorMap, 1);
 
 	TBBUTTON tbButtons[] = {
-		{ 0, 0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
-		{ 0, IDM_SEARCH,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Find"},
-		{ 0, 0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
-		{ 1, IDM_TERMINAL,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Term"},
-		{ 2, IDM_REGS,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Regs"},
-		{ 3, IDM_TRAFFIC,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Traffic"},
-		{ 4, IDM_CONFIGURE,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Conf"},
-		{ 0, 0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
-		{ 5, IDM_RUN,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Run"},
-		{ 6, IDM_STEP,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Step"},
-		{ 7, IDM_KILL,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Kill"},
-		{ 8, IDM_BREAK,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Break"},
-		{ 0, 0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
-		{ 9, IDM_MEMORY,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Mem"}
+		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
+		{ 0,	IDM_SEARCH,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Find"},
+		{ 1,	IDM_CONFIGURE,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Conf"},
+		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
+		{ 2,	IDM_TERMINAL,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Term"},
+		{ 3,	IDM_REGS,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Regs"},
+		{ 4,	IDM_MEMORY,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Mem"},
+		{ 5,	IDM_TRAFFIC,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Traffic"},
+		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
+		{ 6,	IDM_RUN,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Run"},
+		{ 7,	IDM_STEP,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Step"},
+		{ 8,	IDM_BREAK,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Break"},
+		{ 9,	IDM_KILL,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Kill"},
+		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
+		{ 100,	IDM_STATUS,		TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, (INT_PTR)"Status"}
 
 	};
 	const int numButtons	= _countof(tbButtons);
@@ -213,11 +141,20 @@ bool AddToolbar(HWND hParent)
 	SendMessage(hToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
 	SendMessage(hToolbar, TB_ADDBUTTONS,	   (WPARAM)numButtons,		 (LPARAM)&tbButtons);
 
+	hStatus = CreateWindowEx(0, "BUTTON", "STOPPED",
+								WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+								390, 3, 200, 37,
+								hToolbar, nullptr, hInstance, nullptr);
+
 	// Resize the toolbar, and then show it.
 	SendMessage(hToolbar, TB_AUTOSIZE, 0, 0);
 	ShowWindow(hToolbar,  TRUE);
 
 	return hToolbar;
+}
+void SetStatus(const char* text)
+{
+	SetWindowText(hStatus, text);
 }
 //=====================================================================================================
 //  WndProc(HWND, UINT, WPARAM, LPARAM)
@@ -244,102 +181,106 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 
 		HMENU hSource = GetSubMenu(GetMenu(hWnd), SOURCEMENU);
 		int i = IDM_SOURCE;
-		for(auto &s : files){
+		for(auto &s : PROCESS::files){
 			char temp[100];
-			if(!s.show)
-				continue;
-			if(s.page==100)			// ie: an SDL file
- 				sprintf_s(temp, sizeof temp, " %s", s.fn);
+			if(s.second.page==100)			// ie: an SDL file
+ 				sprintf_s(temp, sizeof temp, " %s", s.second.fn);
 			else
-				sprintf_s(temp, sizeof temp, "%d %s", s.page, s.fn);
-			s.id = ++i;
-			AppendMenu(hSource, MF_STRING,i, temp);
+				sprintf_s(temp, sizeof temp, "%d %s", s.second.page, s.second.fn);
+			AppendMenu(hSource, MF_STRING, i++, temp);
 		}
 
 		if(!hClient)
 			error();
 		else
 			ShowWindow(hClient, SW_SHOW);
+
+		// create the working subsystems
 		{
 			char* temp = GetProfile("setup", "baud", "9600");
 			int nBaud = strtol(temp, nullptr, 10);
 			temp = GetProfile("setup", "port", "COM8");
-			serial = new SERIAL(temp, nBaud);
-		}
+			serial = new SERIAL;
+			serial->setup(temp, nBaud);
 
-		AddTerminal(nullptr);
-		debug.start();			// in a separate thread
+			terminal = new TERMINAL;
+			debug = new DEBUG;
+			if(GetProfile("setup", "show-traffic", "false")[0]=='t')
+				TRAFFIC::ShowTraffic();
+		}
+		SetStatus("WAITING FOR HOST");
 		SetTimer(hWnd, 1, 200, nullptr);
 		return 0;
 	}
 	case WM_COMMAND:
 		WORD cmd; cmd=LOWORD(wParam);
-		if(cmd>=IDM_SOURCE && cmd<IDM_SOURCE+files.size()){
+		if(cmd>=IDM_SOURCE && cmd<IDM_SOURCE+PROCESS::files.size()){
 			char temp[100];
-			for(FDEF f : files){
-				if(f.id==cmd){
-					sprintf_s(temp, sizeof temp, "Source: %d %s", f.page, f.fn);
-					AddSource(temp, (void*)&f);
-					break;
-				}
+			int id = cmd-IDM_SOURCE;
+			PROCESS::FDEF &f = PROCESS::files[id];
+			if(f.hSource)
+				SetWindowPos(f.hSource, HWND_TOP, 0,0,0,0,SWP_NOMOVE|SWP_NOREPOSITION);
+			else{
+				sprintf_s(temp, sizeof temp, "Source: %d %s", f.page, f.fn);
+				new SOURCE(temp, id, f.page);
 			}
 			return 0;
 		}
 		switch(cmd){
-//		case IDM_FORCHILD:
-//			return SendToActiveChild(uMessage, wParam, lParam);
-
 		case IDM_SEARCH:
 		{
 			std::tuple<char*,int> x;
 			char temp[100]{ "SectorToCluster"};
 			x = { temp, 100 };
-			DialogBoxParam(hInstance, MAKEINTRESOURCE(IDD_GETSTUFF), hWnd, GetStuff, (LPARAM)&x);
+			DialogBoxParam(hInstance, MAKEINTRESOURCE(IDD_SEARCH), hWnd, Search, (LPARAM)&x);
 
-			auto y = FindDefinition(temp);
+			auto y = process->FindDefinition(temp);
 			int file = get<0>(y);
-			int line = get<1>(y);
+			int line = get<2>(y);
 			if(file<0)
 				MessageBox(hWnd, "NOT FOUND", "", MB_OK);
 			else
-				PopUp(file, line);
+				SOURCE::PopUp(file, line);
 			return 0;
 		}
 
 		case IDM_TERMINAL:
-			if(hTerminal==nullptr)
-				AddTerminal(nullptr);
+			if(terminal==nullptr)
+				terminal = new TERMINAL;
+			else
+				terminal->clear();
 			return 0;
 
 		case IDM_CONFIGURE:
+			Configure(hWnd);
 			return 0;
 
 		case IDM_TRAFFIC:
-			debug.ShowTraffic();
+			TRAFFIC::ShowTraffic();
 			return 0;
 
 		case IDM_REGS:
-			ShowRegs();
+			REGS::ShowRegs();
 			return 0;
 
 		case IDM_RUN:
-			debug.run();
+			debug->run();
 			return 0;
 
 		case IDM_STEP:
-			debug.step();
+			debug->step();
 			return 0;
 
 		case IDM_KILL:
-			debug.kill();
+			debug->kill();
 			return 0;
 
 		case IDM_BREAK:
-			debug.pause();
+			debug->pause();
 			return 0;
 
 		case IDM_MEMORY:
-			ShowMemory();
+			new MEM;
 			return 0;
 
 		case IDM_ABOUT:
@@ -347,7 +288,7 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			return 0;
 
 		case IDM_EXIT:
-			debug.die();
+			debug->die();
 			DestroyWindow(hWnd);
 			return 0;
 		}
@@ -356,15 +297,16 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 	case WM_TIMER:
 		// a little inter-thread helpfulness
 		if(bRegsPlease){
+			REGS::ShowRegs();
 			bRegsPlease = false;
-			ShowRegs();
 		}
+#if 0
 		if(bPopupPlease){
 			bPopupPlease = false;
 			static int file=-1, line;
 			if(file>=0)		// remove previous highlight
 				PopUp(file, line, false);
-			auto y = FindTrace(regs.PC);
+			auto y = FindTrace(regs->PC);
 			file = get<0>(y);
 			line = get<1>(y);
 			if(file<0)
@@ -372,6 +314,7 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			else
 				PopUp(file, line);
 		}
+#endif
 		return 0;
 
 	case WM_SIZE:
@@ -419,9 +362,9 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 	w.hIconSm		= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL));
 	RegisterClassEx(&w);
 
-	// Register an MDI child window
+	// Register the source file MDI child window
 	w.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-	w.lpfnWndProc	= SourceWndProc;
+	w.lpfnWndProc	= SOURCE::Proc;
 	w.cbWndExtra	= sizeof LONG_PTR;
 	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_Child));
 	w.hCursor		= LoadCursor(nullptr, IDC_ARROW);
@@ -430,9 +373,9 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 	w.lpszClassName	= "Z80source";
 	RegisterClassEx(&w);
 
-	// Register an MDI child window
+	// Register the terminal MDI child window
 	w.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-	w.lpfnWndProc	= TerminalWndProc;
+	w.lpfnWndProc	= TERMINAL::Proc;
 	w.cbWndExtra	= sizeof LONG_PTR;
 	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_Child));
 	w.hCursor		= LoadCursor(nullptr, IDC_ARROW);
@@ -444,29 +387,12 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 	// Perform application initialization:
 	::hInstance = hInstance;			// Store instance handle in our global variable
 
-	const char* cwd = "D:\\Systems\\Z80\\bios\\";
+	char* cwd = _strdup(GetProfile("setup", "folder", "D:"));
 	SetCurrentDirectory(cwd);
-	getIniFile();
-
-	// Find all the .sdl files in this folder
-	{
-		WIN32_FIND_DATA ffd;
-		char fPath[MAX_PATH];
-		strcpy_s(fPath, sizeof fPath, cwd);
-		strcat_s(fPath, sizeof fPath, "*.sdl");
-		HANDLE hFind = FindFirstFile(fPath, &ffd);
-		if(hFind!=INVALID_HANDLE_VALUE)
-			do
-				ReadSDL(ffd.cFileName);
-			while(FindNextFile(hFind, &ffd) != 0);
-	}
-
-	hFont = CreateFont(20, 0, 0, 0, 0, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, 0, DEFAULT_QUALITY, FIXED_PITCH, "Cascadia Code");
-	hFontSmall = CreateFont(15, 0, 0, 0, 0, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, 0, DEFAULT_QUALITY, FIXED_PITCH, "Cascadia Code");
+	process = new PROCESS(cwd);			// and load the files
 
 	hFrame = CreateWindowEx(0, "Z80frame", "Z80debugger", WS_OVERLAPPEDWINDOW,
 					CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, LoadMenu(hInstance, MAKEINTRESOURCE(IDC_Z80debugger)), hInstance, nullptr);
-	UINT regMessage = RegisterWindowMessage("Z80debug-0");
 	if(!hFrame) return 99;
 
 	ShowWindow(hFrame, nCmdShow);
@@ -477,7 +403,7 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 
 	// Main message loop:
 	while(GetMessage(&msg, nullptr, 0, 0)){
-		if(IsWindow(hRegs) && IsDialogMessage(hRegs, &msg))			// feed the modeless dialog
+		if(regs && IsWindow(regs->hwnd()) && IsDialogMessage(regs->hwnd(), &msg))	// feed the modeless dialog
 			continue;
 		if(!TranslateMDISysAccel(hClient, &msg) && !TranslateAccelerator(hFrame, hAccelTable, &msg)){
 			TranslateMessage(&msg);

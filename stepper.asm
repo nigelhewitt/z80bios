@@ -8,8 +8,8 @@
 
 ; calculate how much filler is required to place this at the top of the image
 
-;							  sig   rst   goto  itab
-gap			equ		0x10000 - (14 + 9*3 + 4*7 + 8 + $)
+;							   goto  itab
+gap			equ		0x10000 - (4*7 + 8 + $)
 			ds		gap
 
  if gap>= 0
@@ -19,8 +19,6 @@ gap			equ		0x10000 - (14 + 9*3 + 4*7 + 8 + $)
  endif
 
 stepper_start	equ		$
-
-			db		"STEPPER TABLE",0		; 14 bytes
 
 gotoRAM3	ld		a, RAM3			; 7T
 			out		(MPGSEL3), a	; 11T

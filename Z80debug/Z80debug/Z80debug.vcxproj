@@ -131,21 +131,33 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="mem.h" />
+    <ClInclude Include="process.h" />
+    <ClInclude Include="regs.h" />
     <ClInclude Include="safequeue.h" />
+    <ClInclude Include="serial.h" />
     <ClInclude Include="serialdrv.h" />
-    <ClInclude Include="trap.h" />
+    <ClInclude Include="source.h" />
+    <ClInclude Include="subclasswin.h" />
+    <ClInclude Include="terminal.h" />
+    <ClInclude Include="debug.h" />
+    <ClInclude Include="traffic.h" />
+    <ClInclude Include="util.h" />
     <ClInclude Include="Z80debug.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="mem.cpp" />
     <ClCompile Include="regs.cpp" />
+    <ClCompile Include="serial.cpp" />
     <ClCompile Include="serialdrv.cpp" />
     <ClCompile Include="source.cpp" />
     <ClCompile Include="process.cpp" />
     <ClCompile Include="terminal.cpp" />
-    <ClCompile Include="trap.cpp" />
+    <ClCompile Include="debug.cpp" />
+    <ClCompile Include="traffic.cpp" />
     <ClCompile Include="util.cpp" />
     <ClCompile Include="Z80debug.cpp" />
   </ItemGroup>

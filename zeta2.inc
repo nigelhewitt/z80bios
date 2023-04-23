@@ -49,7 +49,7 @@ ROM3		equ		3
 ROM4		equ		4
 ROM5		equ		5
 ROM6		equ		6
-ROM7		equ		7	; and on to ROM31
+ROM7		equ		7	; and on to ROM31 at 31
 RAM0		equ		32
 RAM1		equ		33
 RAM2		equ		34
@@ -57,14 +57,17 @@ RAM3		equ		35
 RAM4		equ		36
 RAM5		equ		37
 RAM6		equ		38
-RAM7		equ		39	; and on to RAM31
+RAM7		equ		39	; and on to RAM31 at 63
+
+; if I ever fit the 'additional' ROM/RAM chips
+ROM32		equ		64	; and on to ROM63 at 95
+RAM32		equ		96	; and on to RAM63 at 127
+; bit b21 is decoded but not wired to anything
 
 ; The PIO sub ports are needed in both ROM0 and ROM1 so they go here
 PIO_A		equ		PIO+0		; bits A7-A0
 PIO_B		equ		PIO+1		; bits B7-B0
 PIO_C		equ		PIO+2		; bits C7-C0
 PIO_CON		equ		PIO+3		; control port
-SWITCHES	equ		PIO_A
-LIGHTS		equ		PIO_B
-
-
+SWITCHES	equ		PIO_A		; my front panel switched
+LIGHTS		equ		PIO_B		; my front panel lights

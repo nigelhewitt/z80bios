@@ -16,19 +16,21 @@
 #define IDM_CONFIGURE                   117
 #define IDM_REGS                        118
 #define IDM_TRAFFIC                     119
-#define IDM_RUN							120
-#define IDM_STEP						121
-#define IDM_KILL						122
-#define IDM_MEMORY						123
-#define IDM_BREAK						124
-#define IDD_GETSTUFF                    130
+#define IDM_RUN                         120
+#define IDM_STEP                        121
+#define IDM_KILL                        122
+#define IDM_MEMORY                      123
+#define IDM_BREAK                       124
+#define IDD_SEARCH                      130
 #define IDD_REGS                        131
-#define IDD_DBGTERM                     132
+#define IDD_TRAFFIC                     132
 #define IDB_TOOLBAR                     133
-#define IDD_MEMORY						134
+#define IDD_MEMORY                      134
+#define IDD_CONFIG                      136
+#define IDM_STATUS                      137
 #define IDM_SOURCE                      200
 #define IDM_WINDOWCHILD                 300
-#define IDC_STUFF                       1000
+#define IDC_SEARCH                      1000
 #define IDC_AH                          1002
 #define IDC_AD                          1003
 #define IDC_AHA                         1004
@@ -70,11 +72,17 @@
 #define IDC_FLAG_NA                     1040
 #define IDC_FLAG_CA                     1041
 #define IDC_DEBUGTERM                   1042
-#define IDC_MEMORYADDR					1043
-#define IDC_MEMORYCOUNT					1044
-#define IDC_MEMORYEDIT					1045
-#define IDC_LOH							1046
-#define IDC_LCNT						1047
+#define IDC_MEMORYADDR                  1043
+#define IDC_MEMORYCOUNT                 1044
+#define IDC_MEMORYEDIT                  1045
+#define IDC_LOH                         1046
+#define IDC_LCNT                        1047
+#define IDC_PORT                        1048
+#define IDC_BAUD                        1049
+#define IDC_FOLDER                      1050
+#define IDC_FOLDERBROWSE                1051
+#define IDC_MEMSCROLL                   1052
+#define IDC_ALWAYS                      1053
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
@@ -82,9 +90,9 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NO_MFC                     1
-#define _APS_NEXT_RESOURCE_VALUE        134
+#define _APS_NEXT_RESOURCE_VALUE        138
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1045
+#define _APS_NEXT_CONTROL_VALUE         1054
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

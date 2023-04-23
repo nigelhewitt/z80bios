@@ -2,26 +2,73 @@
 //
 
 #include "framework.h"
+#include "source.h"
+#include "util.h"
 #include "Z80debug.h"
 
-struct SOURCELINE {
-	const char* text{};
-	bool hiLight{};
-	bool canTrap{};
-	int trap{};		// 0=no trap,  1-n
-	int address{-1};
-};
+//=====================================================================================================
+// add a new source Window
+//=====================================================================================================
 
-struct SOURCEDATA {
-	FDEF fdef{};
-	int page{};
-	std::vector<SOURCELINE> lines{};
-	int nLines{};
-	int nScroll{};
-};
+SOURCE::SOURCE(const char* title, int _fileID, int _page)
+{
+	fileID	= _fileID;
+	page	= _page;
+	if(!process->files.contains(fileID)) return;
+
+	PROCESS::FDEF* fdef = &process->files[fileID];
+	fname = _strdup(fdef->fn);
 
 
-void Paint(HWND hWnd, HDC hdc, SOURCEDATA* sd)
+	if(IsIconic(hFrame)){
+		ShowWindow(hFrame, SW_RESTORE);
+		SetForegroundWindow(hFrame);
+		UpdateWindow(hFrame);
+	}
+	// do the static members if we are the first
+	if(hFont==0)
+		hFont = CreateFont(20, 0, 0, 0, 0, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, 0, DEFAULT_QUALITY, FIXED_PITCH, "Cascadia Code");
+	if(hFontSmall==0)
+		hFontSmall = CreateFont(15, 0, 0, 0, 0, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, 0, DEFAULT_QUALITY, FIXED_PITCH, "Cascadia Code");
+	if(regMessage==0)
+		regMessage = RegisterWindowMessage("Z80debug-0");
+
+	MDICREATESTRUCT mcs{};					// do not use CreateWindow() for MDI children
+	mcs.szClass	= "Z80source";
+	mcs.szTitle	= title;
+	mcs.hOwner	= hInstance;
+	mcs.x		= CW_USEDEFAULT;
+	mcs.y		= CW_USEDEFAULT;
+	mcs.cx		= CW_USEDEFAULT;
+	mcs.cy		= CW_USEDEFAULT;
+	mcs.style	= WS_HSCROLL | WS_VSCROLL;
+	mcs.lParam	= (LPARAM)this;
+
+
+	hSource = (HWND)SendMessage(hClient, WM_MDICREATE, 0, (LPARAM)&mcs);
+	if(hSource == nullptr){
+		// display some error message
+		error();
+	}
+	else{
+		SetFocus(hSource);
+		fdef->hSource = hSource;
+	}
+}
+SOURCE::~SOURCE()
+{
+	process->files[fileID].hSource = nullptr;
+	SendMessage(hSource, WM_MDIDESTROY, (WPARAM)hSource, 0);
+	delete[] fname;
+}
+//LRESULT SendToActiveChild(UINT uMessage, WPARAM wParam, LPARAM lParam)
+//{
+//	auto hwnd = reinterpret_cast<HWND>(SendMessage(hClient, WM_MDIGETACTIVE, 0, 0));
+//	if(hwnd) return SendMessage(hwnd, uMessage, wParam, lParam);
+//	return 0;
+//}
+
+void SOURCE::Paint(HWND hWnd, HDC hdc)
 {
 #define LEFT_MG		65
 
@@ -49,11 +96,11 @@ void Paint(HWND hWnd, HDC hdc, SOURCEDATA* sd)
 	int x = leftMargin;
 	int i = start;
 	char temp[20];
-	for(int y=r.top; y<r.bottom && i<sd->lines.size(); y += tm.tmHeight){
+	for(int y=r.top; y<r.bottom && i<lines.size(); y += tm.tmHeight){
 		// do the trap
-		if(sd->lines[i].trap!=0){
+		if(lines[i].trap!=0){
 			Ellipse(hdc, 2, y+2, 22, y+20);
-			sprintf_s(temp, sizeof temp, "%d", sd->lines[i].trap);
+			sprintf_s(temp, sizeof temp, "%d", lines[i].trap);
 			HGDIOBJ oldFont = SelectObject(hdc, hFontSmall);
 			SIZE sz;
 			GetTextExtentPoint32(hdc, temp, (int)strlen(temp), &sz);
@@ -61,110 +108,102 @@ void Paint(HWND hWnd, HDC hdc, SOURCEDATA* sd)
 			SetBkMode(hdc, TRANSPARENT);
 			TextOut(hdc, 12-(int)sz.cx/2, y+10-(int)sz.cy/2, temp, (int)strlen(temp));
 			SelectObject(hdc, oldFont);
+			SetBkMode(hdc, OPAQUE);
 		}
 		// do the value
 		HGDIOBJ oldFont = SelectObject(hdc, hFont);
-		if(sd->lines[i].address>=0){
-			SetTextColor(hdc, RGB(256,256,256));
+		if(lines[i].address>=0){
+			SetTextColor(hdc, RGB(255,255,255));
 			SetBkColor(hdc, RGB(157,120,0));
-			sprintf_s(temp, sizeof temp, "%04X", sd->lines[i].address);
+			sprintf_s(temp, sizeof temp, "%04X", lines[i].address);
 			TextOut(hdc, 23, y, temp, (int)strlen(temp));
 		}
 		// do the line
-		if(sd->lines[i].hiLight){
+		if(lines[i].hiLight==0){
+			SetTextColor(hdc, RGB(0,0,0));
+			SetBkColor(hdc, RGB(255,255,164));
+		}
+		else if(lines[i].hiLight==1){
 			SetTextColor(hdc, RGB(255,255,255));
 			SetBkColor(hdc, RGB(128,128,255));
 		}
 		else{
-			SetTextColor(hdc, RGB(0,0,0));
-			SetBkColor(hdc, RGB(255,255,164));
+			SetTextColor(hdc, RGB(255,255,255));
+			SetBkColor(hdc, RGB(128,0,0));
 		}
-		const char* text = sd->lines[i++].text;
+		const char* text = lines[i++].text;
 		TabbedTextOut(hdc, x, y, text, (int)strlen(text), 1, tabs, leftMargin);
 		SelectObject(hdc, oldFont);
 	}
 	DeleteObject(hb);
-	sd->nLines = (r.bottom-r.top)/(int)tm.tmHeight+1;
-	int nl = (int)sd->lines.size() - sd->nLines+2;
+	nLines = (r.bottom-r.top)/(int)tm.tmHeight+1;
+	int nl = (int)lines.size() - nLines+2;
 	if(nl<0) nl=0;
 	SetScrollRange(hWnd, SB_VERT, 0, nl, TRUE);
 }
 //=================================================================================================
 // pop up the file at the specified line number
 //=================================================================================================
-struct POPUP {
-	int file;
-	int line;
-	bool bDone;
-	bool bHighlight;
-};
-BOOL popupWorker(HWND hwnd, LPARAM lParam)
+void SOURCE::PopUp(int file, int line, int highlight)
 {
-	char temp[100];
-	GetClassName(hwnd, temp, sizeof temp);
-	if(strcmp(temp, "Z80source")!=0) return TRUE;		// continue the enumeration
-	SendMessage(hwnd, regMessage, 0, lParam);
-	return TRUE;
-}
-void PopUp(int file, int line, bool highlight)
-{
-	static POPUP p;
-	p = { file, line, false, highlight };
-	EnumChildWindows(hFrame, &popupWorker, (LPARAM)&p);
-	if(!p.bDone){
+	PROCESS::FDEF &fdef = PROCESS::files[file];
+	if(fdef.hSource==nullptr){
 		char temp[200];
-		sprintf_s(temp, sizeof temp, "Source: %d %s", files[file].page, files[file].fn);
-		HWND hwnd = AddSource(temp, (void*)&files[file]);
-		SendMessage(hwnd, regMessage, 0, (LPARAM)&p);
+		sprintf_s(temp, sizeof temp, "Source: %d %s (%d)", PROCESS::files[file].page, PROCESS::files[file].fn, file);
+		SOURCE *s = new SOURCE(temp, file, PROCESS::files[file].page);
 	}
+	if(fdef.hSource)
+		SendMessage(fdef.hSource, regMessage, 0, (LPARAM)(MAKELONG(line,highlight)));
 }
-void SetScroll(HWND hWnd, SOURCEDATA* sd)
+void SOURCE::SetScroll(HWND hWnd)
 {
 	SCROLLINFO si = { 0 };
 	si.cbSize = sizeof(SCROLLINFO);
 	si.fMask = SIF_POS;
-	si.nPos = sd->nScroll;
+	si.nPos = nScroll;
 	si.nTrackPos = 0;
 	SetScrollInfo(hWnd, SB_VERT, &si, true);
 	GetScrollInfo(hWnd, SB_VERT, &si);
-	sd->nScroll = si.nPos;
+	nScroll = si.nPos;
 	InvalidateRect(hWnd, nullptr, TRUE);
 }
 
-LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK SOURCE::Proc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
 {
-	SOURCEDATA* sd = reinterpret_cast<SOURCEDATA*>(GetWindowLongPtr(hWnd, 0));	// pointer to your data
+	SOURCE* sd = reinterpret_cast<SOURCE*>(GetWindowLongPtr(hWnd, 0));	// pointer to your data
 
 	// Handle the private message
-	if(LOWORD(uMessage)==regMessage){
+	if(sd && LOWORD(uMessage)==sd->regMessage){
 		UpdateWindow(hWnd);
-		POPUP* p; p = (POPUP*)lParam;
-		if(sd->fdef.fx == p->file){
-			p->bDone = true;
-			sd->lines[p->line-1].hiLight = p->bHighlight;
-			int n = p->line - sd->nLines/2;
-			if(n<0) n=0;
-			sd->nScroll = n;
-			SetScroll(hWnd, sd);
-			InvalidateRect(hWnd, nullptr, TRUE);
-			return FALSE;				// stop enumerating
-		}
-		return TRUE;		// continue enumeration
+		int line = LOWORD(lParam);
+		int highlight = HIWORD(lParam);
+
+		for(auto& s : sd->lines)
+			if(s.hiLight==highlight)
+				s.hiLight = 0;
+		sd->lines[line].hiLight = highlight;
+		int n = line - sd->nLines/2;
+		if(n<0) n=0;
+		sd->nScroll = n;
+		sd->SetScroll(hWnd);
+		InvalidateRect(hWnd, nullptr, TRUE);
+		return TRUE;
 	}
 
 	switch(LOWORD(uMessage)){
 	case WM_CREATE:
 		// lParam is a pointer to a CREATESTRUCT
-		// of which .lpCreateParams is a pointer to the MDICREATESTRUCTW
-		sd = new SOURCEDATA;
+		// of which .lpCreateParams is a pointer to the MDICREATESTRUCT
 		MDICREATESTRUCT* cv; cv = reinterpret_cast<MDICREATESTRUCT*>((reinterpret_cast<CREATESTRUCT*>(lParam))->lpCreateParams);
-		sd->fdef = *(FDEF*)cv->lParam;
-		sd->page = sd->fdef.page;
+		sd = reinterpret_cast<SOURCE*>(cv->lParam);
 		SetWindowLongPtr(hWnd, 0, (LONG_PTR)sd);
 
 		FILE *fin;
-		if(fopen_s(&fin, sd->fdef.fn, "r")==0){
-			fgetc(fin); fgetc(fin); fgetc(fin);
+		if(fopen_s(&fin, sd->fname, "r")==0){
+			// just a tweak to get over the UTF8 signature
+			BYTE b1=fgetc(fin), b2=fgetc(fin), b3=fgetc(fin);
+			if(b1!=0xef || b2!=0xbb || b3!=0xbf)
+				fseek(fin, 0, SEEK_SET);
 			char temp[200];
 			while(fgets(temp, sizeof temp, fin)!=nullptr){
 				int i = (int)strlen(temp);
@@ -174,16 +213,21 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 				sl.trap = 0;
 				sl.address = -1;
 				sd->lines.push_back(sl);
+				sl.text = nullptr;			// do not delete as that was a copy
 			}
 			fclose(fin);
 			// get the number of the page -1 version of this file if it exists
-			int xx; xx = gefFileNameUnpaged(sd->fdef.fx);		// -1 if none
+			int xx;
+			xx = PROCESS::getFileNameUnpaged(sd->fileID);		// -1 if none
 
-			for(SDL &s : sdl)
-				if(((s.page==sd->page && s.source.file==sd->fdef.fx) || s.source.file==xx)
-						&& (s.type=='T' || s.type=='D' || s.type=='L')){
-					sd->lines[s.source.line-1].address = s.value;
-					sd->lines[s.source.line-1].canTrap = s.type=='T';
+			// sweep all lines for matching records
+			for(PROCESS::SDL &s : PROCESS::sdl)
+				if(((s.page==sd->page && s.source.file==sd->fileID)
+							|| s.source.file==xx) && (s.type=='T' || s.type=='F' || s.type=='L')){
+					int ix = s.source.line-1;
+					SOURCELINE &r = sd->lines[ix];
+ 					r.address = s.value;
+					if(s.type=='T') r.canTrap = true;
 				}
 		}
 		return 0;
@@ -191,7 +235,7 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 	case WM_PAINT:
 		PAINTSTRUCT ps;
 		HDC hdc; hdc = BeginPaint(hWnd, &ps);
-		Paint(hWnd, hdc, sd);
+		sd->Paint(hWnd, hdc);
 		EndPaint(hWnd, &ps);
 		return 0;
 
@@ -216,7 +260,7 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 			sd->nScroll -= sd->nLines-2;
 			break;
 		}
-		SetScroll(hWnd, sd);
+		sd->SetScroll(hWnd);
 		return 0;
 
 	case WM_MOUSEWHEEL:
@@ -225,7 +269,7 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 			--sd->nScroll;
 		if(move<0)
 			++sd->nScroll;
-		SetScroll(hWnd, sd);
+		sd->SetScroll(hWnd);
 		return 0;
 
 	case WM_LBUTTONDOWN:
@@ -233,22 +277,22 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 		int y; y = (short)HIWORD(lParam);
 		TEXTMETRIC tm;
 		hdc = GetDC(hWnd);
-		HGDIOBJ old; old = SelectObject(hdc, hFont);
+		HGDIOBJ old; old = SelectObject(hdc, sd->hFont);
 		GetTextMetrics(hdc, &tm);
 		SelectObject(hdc, old);
 		ReleaseDC(hWnd, hdc);
 		int line; line = y/tm.tmHeight + sd->nScroll;
 		if(x>=0 && x<=22 && sd->lines[line].canTrap){
 			if(sd->lines[line].trap){
-				debug.freeTrap(sd->lines[line].trap);
+				debug->freeTrap(sd->lines[line].trap);
 				sd->lines[line].trap = 0;
 			}
 			else
-				sd->lines[line].trap = debug.setTrap(sd->page, sd->lines[line].address);
+				sd->lines[line].trap = debug->setTrap(sd->page, sd->lines[line].address);
 			InvalidateRect(hWnd, nullptr, TRUE);
 		}
 		else if(x>=23 && x<=LEFT_MG){
-			sd->lines[line].hiLight = !sd->lines[line].hiLight;
+			sd->lines[line].hiLight ^= 0x02;
 			InvalidateRect(hWnd, nullptr, TRUE);
 		}
 		return 0;
@@ -259,59 +303,3 @@ LRESULT CALLBACK SourceWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM l
 	}
 	return DefMDIChildProc(hWnd, uMessage, wParam, lParam);
 }
-#if 0
-LRESULT CALLBACK MDIDialogProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
-{
-	struct DS {
-		DLGDATA*	dld;
-		HWND		hDlg;
-		int			iWide, iHigh;
-	} *ds;
-
-	switch(LOWORD(uMessage)){
-	case WM_CREATE:
-		ds = new DS;
-		SetWindowLongPtr(hWnd, 0, reinterpret_cast<LONG_PTR>(ds));
-
-		ds->dld  = reinterpret_cast<DLGDATA*>((reinterpret_cast<MDICREATESTRUCT*>((reinterpret_cast<CREATESTRUCT*>(lParam))->lpCreateParams))->lParam);
-
-		ds->hDlg = CreateDialogParam(hInstance, ds->dld->szTemplate, hWnd, ds->dld->proc, ds->dld->lParam);
-		RECT rWnd, rClient, rDlg;
-		GetWindowRect(hWnd, &rWnd);					// total size and position
-		GetWindowRect(ds->hDlg, &rDlg);				// dialog size
-		SetParent(ds->hDlg, hWnd);
-		GetClientRect(hWnd, &rClient);				// current client size
-		ds->iWide = (rDlg.right-rDlg.left) + (rWnd.right-rWnd.left) - (rClient.right-rClient.left);
-		ds->iHigh = (rDlg.bottom-rDlg.top) + (rWnd.bottom-rWnd.top) - (rClient.bottom-rClient.top);
-		SetWindowPos(hWnd, nullptr, 0, 0, ds->iWide, ds->iHigh, SWP_NOMOVE | SWP_NOZORDER);
-		SetWindowPos(ds->hDlg, nullptr, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-		break;
-
-	case WM_GETMINMAXINFO:
-		ds = reinterpret_cast<DS*>(GetWindowLongPtr(hWnd, 0));
-		if(ds){
-			(reinterpret_cast<MINMAXINFO*>(lParam))->ptMinTrackSize.x = ds->iWide;
-			(reinterpret_cast<MINMAXINFO*>(lParam))->ptMinTrackSize.y = ds->iHigh;
-			(reinterpret_cast<MINMAXINFO*>(lParam))->ptMaxTrackSize.x = ds->iWide;
-			(reinterpret_cast<MINMAXINFO*>(lParam))->ptMaxTrackSize.y = ds->iHigh;
-		}
-		break;
-
-	case WM_DESTROY:
-		ds = reinterpret_cast<DS*>(GetWindowLongPtr(hWnd, 0));
-		if(ds){
-			DestroyWindow(ds->hDlg);
-			SetWindowLong(hWnd, 0, 0);
-			delete ds->dld;
-			delete ds;
-		}
-		break;
-	}
-	return DefMDIChildProc(hWnd, uMessage, wParam, lParam);
-}
-void KillMDIDialog(HWND hWnd)
-{
-	SendMessage(hClient, WM_MDIDESTROY, reinterpret_cast<WPARAM>(GetParent(hWnd)), 0L);
-}
-#endif
-

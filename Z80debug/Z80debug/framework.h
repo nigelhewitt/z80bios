@@ -20,8 +20,10 @@
 #include <thread>
 #include <queue>
 #include <mutex>
+#include <map>
 #include <condition_variable>
 
 #include <commctrl.h>
+#include <shlobj.h>
 #include <cstdio>
 #include <cstdarg>

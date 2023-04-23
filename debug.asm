@@ -8,27 +8,27 @@
 
 ; OK so here's the concept:
 ; The assembler has done most of the work putting all the links to attach core
-; addresses to files and line numbers. This measns with a bit of shifty windows
-; MDI work I get the pages of code insynch with the numbers.
+; addresses to files and line numbers. This means that with a bit of shifty
+; windows MDI work I get the pages of code in synch with the numbers.
 ; I also wrote a terminal program.
-; Then I add tis module to do break points via an RST code and knock up some
-; to issue NMIs to ger single stepping.
+; Then I add this module to do break points via an RST code and knock up some
+; hardware to issue NMIs to get single stepping.
 
 	include	"zeta2.inc"		; hardware definitions
-	include	"vt.inc"		; page0 bad 0x069 bytes definitions
+	include	"vt.inc"		; page0 base 0x069 bytes definitions
 
 			org		0x100
 			jp		setup
-			db		" NIGSOFT Z80 DEBUGGER "
 
 ; select the RST to use 0x08, 0x10, 0x18... 0x38
 useRST		equ		0x28
 
-; messages sent to the PC
+; prefixes for messages sent to the PC
+SIGNON_CMD	equ		'*'				; first char of a break
 OK_CMD		equ		'@'				; instruction carried out
 BAD_CMD		equ		'?'				; instruction failed
 
-; convert the RST selection into the OP code
+; convert the RST selection into the appropriate  OP code
 rstCODE		equ		useRST | 0xc7	; the RST instruction
 
 ; where we store our trap information
@@ -39,13 +39,13 @@ code		db		0		; the byte we replaced
 			ends
 
 NTRAPS		equ		10
-VERSION		equ		1		; mark breaking change
+VERSION		equ		1		; mark breaking changes
 traps
 	dup	NTRAPS
 			TRAP
 	edup
 
-; used to restore the RSTxx/NMI jump instruction when we exit
+; used to restore the RSTxx/NMI jump vectors when we exit
 oldRST		db		0,0,0
 oldNMI		db		0,0,0
 
@@ -66,13 +66,13 @@ SPACE		macro
 ; dropHook		restore RSTxx/NMI
 ;				return NC on error
 ;===============================================================================
-setHook		ld		hl, useRST		; the code is the address
+setHook		ld		hl, useRST		; RST vector
 			ld		de, oldRST
 			ld		bc, trapRST
 			call	.hook
 			ret		nc
 
-			ld		hl, 0x66		; the code is the address
+			ld		hl, 0x66		; NMI vector
 			ld		de, oldNMI
 			ld		bc, trapNMI
 
@@ -280,11 +280,14 @@ trapRST		push	af, bc
 			rl		a
 			rl		l					; gives the address of the savePage+n
 			ld		h, 0
-			ld		c, [hl]				; give the page for this address
+			ld		a, [hl]				; get the page for this address
+			xor		0x20				; swap RAM and ROM
+			ld		c, a				; gives page RAMn
 
 ; and the 14 bit version of the address in DE
-			ld		e, [iy+REGS.pc]
-			ld		a, [iy+REGS.pc+1]
+			ld		de, [iy+REGS.pc]
+			dec		de					; the trap was the byte before
+			ld		a, d
 			and		0x3f				; mask to 14 bit address in DE
 			ld		d, a
 
@@ -304,7 +307,7 @@ trapRST		push	af, bc
 			cp		d
 			jr		z, .tr3				; we have a match
 .tr2		ld		hl, TRAP			; size of a TRAP structure
-			ex		hl, de
+			ex		hl, de				; ADD IX, HL
 			add		ix, de
 			ex		hl, de
 			djnz	.tr1
@@ -312,11 +315,13 @@ trapRST		push	af, bc
 			jr		.tr4				; compiled in RST so no reset needed
 
 ; we have found a call so patch the code hack to how it was
-			dec		[iy+REGS.pc]		; back up over the RST
-.tr3		ld		hl, [iy+REGS.pc]	; this is the code
+.tr3		dec		[iy+REGS.pc]		; back up over the RST
+			ld		hl, [iy+REGS.pc]	; this is the code
 			ld		a, [ix+TRAP.code]
 			ld		[hl], a
-.tr4
+
+.tr4		ld		a, NTRAPS
+			sub		b					; -loop counter gives trap number
 			call	debugger
 
 ; return to code
@@ -339,13 +344,15 @@ trapRST		push	af, bc
 			jp		[hl]
 
 ;===============================================================================
-; trapNMI	hopefully an expected Single Step return
+; trapNMI	either an expected Single Step return
+;			or a single step so we can reset the trap that we just released <<<<<<<<<<<<<<<<<<
 ;===============================================================================
 
 trapNMI		push	af, bc
 			call	trapRST.trapW		; use the worker in trapRST
 
 			ld		ix, 0
+			ld		a, -2
 			jr		singleStep.ss1
 
 ;===============================================================================
@@ -355,6 +362,7 @@ setup		push	af, bc
 			call	trapRST.trapW		; use the worker in trapRST
 
 			ld		ix, 0
+			ld		a, -1
 			call	debugger			; no reset to worry about
 
 ; return to code
@@ -433,9 +441,12 @@ commandList	db		'i'				; get information
 			dw		bad_end
 			db		0				; end of list
 
-debugger
-			call	sendSignOn
-
+debugger	push	af				; save slot number
+			call	sendSignOn		; switch terminal to debugger mode
+			ld		a, SIGNON_CMD
+			call	putc
+			pop		af
+			call	packB			; 0 for set up, 1-NTRAPS, NTRAPS for no trap
 ; commands (no command can be hex or we could get in a total mess)
 .db1		CRLF
 			ld		a, OK_CMD
@@ -567,17 +578,33 @@ cmd_setregs
 			jp		bad_end
 
 ;-------------------------------------------------------------------------------
-; g address16 count8 COMMAND: get memory
+; g address20 count8 COMMAND: get memory
 cmd_get
+			call	unpackN			; 4 bits
+			jp		nc, bad_end
+			ld		c, a
 			call	unpackW			; address in HL
 			jp		nc, bad_end
 			call	unpackB			; count is A
 			jp		nc, bad_end
 			ld		b, a			; count
+			SPACE
+
+; now get the RAM page
+			push	hl
+			rl		h				; get the page in C
+			call	getRAM			; RAMn in C, returns HL base of the ram
+			pop		de				; pop the old address16
+			ld		a, d			; convert to address14
+			and		0x3f
+			ld		d, a
+			add		hl, de			; add offset to page
 .cg1		ld		a, [hl]
 			call	packB
 			inc		hl
 			djnz	.cg1
+
+			call	restoreRAM		; put the memory back as was
 			jp		good_end
 
 ;-------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.30"		; version number for sign on message
+	define	VERSION	"v0.1.31"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -12,7 +12,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.30"		move to local repository, use version number
+;   	git commit -m "0.1.31"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -75,27 +75,52 @@ BIOSRAM		equ		RAM3
 ;
 ;	Memory addressing
 ;
-;===============================================================================
-;
 ; The Zeta2 arrangement with 1Mb total over the RAM and ROM means that the
 ; tools need to reflect this. Normally BIOS software just uses 16 bits and that
 ; covers it all but I want to be able to address everything.
-; I decided that bios addressing is usually 20 bits so 0xffffff
+;
+; address16
+; This is Z80 addressing, what it sees with whatever the current state of the
+; mapping system is. For a lot of applications this is all you care about.
+;
+; address20
+; The board is designed with an 8 bit port recoding the top two bits of the
+; address bus. However the A21 bit isn't connected to anything and A20 select
+; the non-existent RAM1 and ROM1 chips (see note below). I decided that for
+; bios addressing terms I would consider this as usually 20 bits so 0xffffff
+;
 ; The top bit 0x80000 is the ROM select. This is actually the opposite way
-; round to the board design but it makes far more sense as you think in terms
-; of normally working in the base RAM from zero up and accessing the ROM or the
-; 'switched out' RAM pages is an infrequent event.
-; So if you type in an address the bottom 14 bits ie 0x3fff are just simple
+; round to the board hardware design but it makes far more sense as you think
+; in terms of normally working in the base RAM from zero up and accessing the
+; ROM or the 'switched out' RAM pages is an infrequent event.
+; Basically it helps my brain run cool.
+;
+; So if you type in an address20 the bottom 14 bits ie 0x3fff are just simple
 ; addressing. The next 5 bits select the pages and the final 20th bit selects
 ; ROM.
 ; Hence for most things you are accessing the 'standard fit' of RAM0/1/2 in
 ; 0-0xbfff but you can go anywhere.
-; I will do this by making the BIOS memory R/W functions swap the required
-; block into PAGE1 just while they need access to them and then they restore
-; RAM1. I really wish I could read the MPGSEL1 registers before writing them
-; and then restore them to what they were before but I suspect that for 99%+ of
-; the time this will just work.
+; I will implement this by making the BIOS memory R/W functions swap the
+; required block into PAGE1 just while they need access to them and then they
+; restore RAM1.
+; I really wish I could read the MPGSEL1 registers before writing them and then
+; restore them 'as was' but I suspect that for 99%+ of the time this will just
+; work.
 ;
+; ACTUALLY address20 isn't 20 bits (0-19). If you set bit20 then I ignore the
+; page selection parts and just give you address 16. This is done so you can
+; type 10nnnn into an address20 handler and get results for nnnn as an unmapped
+; address16
+;
+; Interestingly the board decodes two more addresses so if you wanted to
+; 'piggy back' another 512K of RAM and another 512K or RAM and hook their CS
+; lines to pins 6 and 7 of U11 you could.
+
+; address 24
+; this is a transient state, a 14bit address and an 6 bit 'page number'
+; The page number is the usual 5bits to select the page and bit5 to select ROM.
+; REMEMBER that this is the number in the Page select register ^0x20
+; Here bit6 is the 'do not page' bit.
 ;===============================================================================
 ;
 ;	Z80 org 0x0000 Vector table
@@ -114,28 +139,28 @@ start_table
 ; 0x05
 			jp		cpm				; if emulating CPM jump to the handler
 ; 0x08
-			db		0xc9,0,0		; RST 0x08
+			ret: nop: nop			; RST 0x08 (packed to take a JP addr16)
 	.5		db		0
 ; 0x10
-			db		0xc9,0,0		; RST 0x10
+			ret: nop: nop			; RST 0x10
 	.5		db		0
 ; 0x18
-			db		0xc9,0,0		; RST 0x18
+			ret: nop: nop			; RST 0x18
 	.5		db		0
 ; 0x20
-			db		0xc9,0,0		; RST 0x20
+			ret: nop: nop			; RST 0x20
 	.5		db		0
 ; 0x28
-			db		0xc9,0,0		; RST 0x28
+			ret: nop: nop			; RST 0x28
 	.5		db		0
 ; 0x30
-			db		0xc9,0,0		; RST 0x30
+			ret: nop: nop			; RST 0x30
 	.5		db		0
 ; 0x38
-			db		0xc9,0,0		; RST 0x38
+			ret: nop: nop			; RST 0x38
 	.43		db		0
 ; 0x66
-			db		0xed,0x45,0		; NMI handler
+			retn : nop				; NMI handler
 
 size_table	equ	$ - start_table		; table size for copy
 
@@ -153,7 +178,7 @@ size_table	equ	$ - start_table		; table size for copy
 			ds		ROM_SHIFT-size_table	; filler to move the BIOS up ROM0
 											; ROM_SHIFT defined in "zeta2.inc"
 
-RAM_TOP		equ		PAGE3			; will be top of RAM when we run in ROM
+RAM_TOP		equ		PAGE3			; top of RAM when we run the bios in ROM
 RAM_TOPEX	equ		$				; RAM 'top' when running in RAM
 
 BIOS_START	equ		$				; where we actually start
@@ -166,10 +191,10 @@ BIOS_START	equ		$				; where we actually start
 ;===============================================================================
 
 signon		db		"\r"
-			RED
-			db		"Nigsoft Z80 BIOS Λ "
-			db		VERSION
-			db		" "
+			RED								; optional ANSI colour coded
+			db		"Nigsoft Z80 BIOS Λ "	; note the UTF-8 extended character
+			db		VERSION					; so I can get an instant check on
+			db		" "						; the terminal program
 			db		__DATE__
 			db		" "
 			db		__TIME__
@@ -181,7 +206,7 @@ ram_test	db		0				; set to 1 if we are running in RAM
 
 ; The system powers up with the PC set to zero where we have a jump chain to here
 rst00		di						; interrupts off
-			xor		a				; ensure the mapper is off
+			xor		a				; ensure the memory mapper is off
 			out		(MPGEN), a		;		 while we get things restarted
 
 ; WARNING: Until we have some RAM set up we have no writable memory and no
@@ -547,7 +572,7 @@ cmd_list	db	"BOOT"
 			dw	cmd_y
 			db	"Z",0,0,0			; anything test
 			dw	cmd_z
-			db	"?",0,0,0
+			db	"?",0,0,0			; display command cheat sheet
 			dw	cmd_hlp
 			db	0
 

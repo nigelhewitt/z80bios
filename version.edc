@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.30"		move to local repository, use version number
+   	git commit -m "0.1.31"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -165,3 +165,8 @@ up the breakpoint stuff at the PC end. Also some colour tweaks.
 A lot of Debugger level-up. Most of the Memory window stuff done and the system
 now applies traps and manages the file views. Still waiting for parts on the
 NMI based single step add on.
+
+0.1.31
+Tear down and redesign on the Debugger. As the code view and break points work
+I've finished the PCB for the single stepper (NMI based) and I'll get a board
+made as my poor old eyes and fingers aren't hand wiring that sort of thing.

@@ -2,38 +2,68 @@
 //
 
 #include "framework.h"
+#include "terminal.h"
+#include "util.h"
 #include "Z80debug.h"
+
+TERMINAL* terminal;
+
+TERMINAL::TERMINAL()
+{
+	if(IsIconic(hFrame)){
+		ShowWindow(hFrame, SW_RESTORE);
+		SetForegroundWindow(hFrame);
+		UpdateWindow(hFrame);
+	}
+	hFont = CreateFont(20, 0, 0, 0, 0, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, 0, DEFAULT_QUALITY, FIXED_PITCH, "Cascadia Code");
+
+	MDICREATESTRUCT mcs{};					// do not use CreateWindow() for MDI children
+	mcs.szClass	= "Z80terminal";
+	mcs.szTitle	= "Terminal";
+	mcs.hOwner	= hInstance;
+	mcs.x		= CW_USEDEFAULT;
+	mcs.y		= CW_USEDEFAULT;
+	mcs.cx		= 800;
+	mcs.cy		= 600;
+	mcs.style	= WS_HSCROLL | WS_VSCROLL;
+	mcs.lParam	= (LPARAM)this;
+
+	hTerminal = (HWND)SendMessage(hClient, WM_MDICREATE, 0, (LPARAM)&mcs);
+	if(hTerminal == nullptr){
+		// display some error message
+		error();
+		return;
+	}
+	SetFocus(hTerminal);
+
+	serial->registerReceiver(0, &inbound);
+}
+TERMINAL::~TERMINAL()
+{
+	clear();
+
+	if(hTerminal)
+		PostMessage(hTerminal, WM_DESTROY, 0, 0);
+
+	serial->unregisterReceiver(0);
+}
+
+void TERMINAL::clear()
+{
+	nLines = 0;
+	for(auto& f : lines)
+		delete[] f;
+	lines.clear();
+	InvalidateRect(hTerminal, nullptr, TRUE);
+}
 
 // The real problem with data input is <backspace>. It wants to delete a character AND its colour
 // implications. Originally I just let the ESC[ sequences transfer into the buffer and tried to
 // unpick the mess when I got a <BS> but with WIDE characters and colour controls it all went to
 // pieces on me.
-struct TERMINALCHAR {
-	WCHAR c{};						// wide char
-	BYTE  fg{}, bg{};				// foreground and background colours
-};
-struct TERMINALDATA {							// stored data for the Terminal device
-	std::vector<TERMINALCHAR*> lines{};			// lines of text
-	int nLines{};								// number of lines in the buffer
-	int nScroll{};								// how far we are scrolled
-	int tHeight{20};							// text height
-	// working details accumulating a new line
-	TERMINALCHAR currentLine[300]{};			// current line being input
-	int currentColumn{};						// column of that line
-	int inputMode{};							// state machine to unpick multi-byte inputs
-	int debugMode{};							// diver to debugMode
-	int currentDigits{};						// digits for an escape code
-	int currentFG{37}, currentBG{40};			// current FG/BG colours using ANSI numbers
-
-	void AddChar(char c);						// add a character to the current line
-	~TERMINALDATA(){							// responsible clean up
-		for(auto t : lines)
-			delete[] t;
-	}
-};
 
 // characters come in from the serial line in ones so we need to unpack stuff
-void TERMINALDATA::AddChar(char c)
+void TERMINAL::AddChar(char c)
 {
 	switch(inputMode){		// state machine
 	case 0:					// no special handling from previous
@@ -68,10 +98,6 @@ void TERMINALDATA::AddChar(char c)
 			// 2=clear screen and home, 3=clear screen and scroll back buffer
 			inputMode = 0;
 			return;
-		case '?':
-			debugMode = currentDigits;
-			debug.AddTraffic(debugMode ? "[sign on]":"[sign off]");
-			return;
 		}
 		// not understood so ignore
 		inputMode = 0;
@@ -93,10 +119,6 @@ void TERMINALDATA::AddChar(char c)
 	}
 	if(c==0x1b){
 		inputMode = 1;
-		return;
-	}
-	if(debugMode){
-		debug.debugChar(c);				// in trap.asm
 		return;
 	}
 	// 'standard character handling
@@ -142,11 +164,7 @@ void TERMINALDATA::AddChar(char c)
 	currentLine[currentColumn++].bg = currentBG;
 }
 
-void pump(const char* str, TERMINALDATA *t)
-{
-	while(*str) t->AddChar(*str++);
-}
-COLORREF AnsiCode(int n){
+COLORREF TERMINAL::AnsiCode(int n){
 	switch(n){
 	case 30:							// Black
 	case 40:	return RGB(0,0,0);
@@ -186,7 +204,7 @@ COLORREF AnsiCode(int n){
 }
 
 // Now we have to wrap TabTextOut with something to do the colour changes
-void WrapTab(HDC hdc, TERMINALCHAR* text, int& x, int& y, INT* tabs)
+void TERMINAL::WrapTab(HDC hdc, TERMINALCHAR* text, int& x, int y, INT* tabs)
 {
 	if(text->c==0) return;			// blank lines are easy
 
@@ -220,14 +238,14 @@ void WrapTab(HDC hdc, TERMINALCHAR* text, int& x, int& y, INT* tabs)
 	}while(true);
 }
 
-void tPaint(HWND hWnd, HDC hdc, TERMINALDATA* td)
+void TERMINAL::tPaint(HWND hWnd, HDC hdc)
 {
 	HGDIOBJ oldFont = SelectObject(hdc, hFont);
 	TEXTMETRIC tm;
 	GetTextMetrics(hdc, &tm);
 	INT tabs[]={ 20 };
 	tabs[0] = 4 * tm.tmAveCharWidth;
-	td->tHeight = tm.tmHeight;
+	tHeight = tm.tmHeight;
 
 	int start = GetScrollPos(hWnd, SB_VERT);
 	int X = 5;			// start of text
@@ -237,55 +255,52 @@ void tPaint(HWND hWnd, HDC hdc, TERMINALDATA* td)
 	FillRect(hdc, &r, hb);
 	int x=X, y=0;
 	int i = start;
-	for(y=r.top; y<r.bottom && i<td->lines.size(); y += tm.tmHeight){
+	for(y=r.top; y<r.bottom && i<lines.size(); y += tm.tmHeight){
 		x = X;
-		TERMINALCHAR* text = td->lines[i++];
+		TERMINALCHAR* text = lines[i++];
 		WrapTab(hdc, text, x, y, tabs);
 	}
 	x = X;
-	WrapTab(hdc, td->currentLine, x, y, tabs);
-	SetCaretPos(x, y);
+	WrapTab(hdc, currentLine, x, y, tabs);
+	SetCaretPos(caretX=x, caretY=y);
 
 	DeleteObject(hb);
 	SelectObject(hdc, oldFont);
 }
-void SetScroll(HWND hWnd, TERMINALDATA* td)
+void TERMINAL::SetScroll(HWND hWnd)
 {
 	SCROLLINFO si = { 0 };
 	si.cbSize = sizeof(SCROLLINFO);
 	si.fMask = SIF_POS;
-	si.nPos = td->nScroll;
+	si.nPos = nScroll;
 	si.nTrackPos = 0;
 	SetScrollInfo(hWnd, SB_VERT, &si, true);
 	GetScrollInfo(hWnd, SB_VERT, &si);
-	td->nScroll = si.nPos;
+	nScroll = si.nPos;
 	InvalidateRect(hWnd, nullptr, TRUE);
 }
 
-LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK TERMINAL::Proc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
 {
-	TERMINALDATA* td = reinterpret_cast<TERMINALDATA*>(GetWindowLongPtr(hWnd, 0));	// pointer to your data
+	TERMINAL* td = reinterpret_cast<TERMINAL*>(GetWindowLongPtr(hWnd, 0));	// pointer to TERMINAL
 
 	switch(LOWORD(uMessage)){
 	case WM_CREATE:
 		// lParam is a pointer to a CREATESTRUCT
 		// of which .lpCreateParams is a pointer to the MDICREATESTRUCTW
 		{
-			td = new TERMINALDATA;
 			MDICREATESTRUCT* cv = reinterpret_cast<MDICREATESTRUCT*>((reinterpret_cast<CREATESTRUCT*>(lParam))->lpCreateParams);
+			td = reinterpret_cast<TERMINAL*>(cv->lParam);
 			SetWindowLongPtr(hWnd, 0, (LONG_PTR)td);
 			SetTimer(hWnd, 1, 200, nullptr);
 		}
 		return 0;
 
 	case WM_TIMER:
-		int c; c=0;
-		bool trig; trig = false;
-		while((c=serial->getc())!=-1){
-			trig = true;
-			td->AddChar(c);
-		}
-		if(trig){
+		if(!td->inbound.empty()){
+			while(!td->inbound.empty())
+				td->AddChar(td->inbound.dequeue());
+
 			RECT r;
 			GetClientRect(hWnd, &r);
 
@@ -308,29 +323,24 @@ LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM
 		return 0;
 
 	case WM_CHAR:
-		serial->send((char)wParam);
+		serial->putc((char)wParam);
 		return 0;
-
 
 	case WM_SETFOCUS:
 		CreateCaret(hWnd, nullptr, 3, td->tHeight);
 		ShowCaret(hWnd);
+		SetCaretPos(td->caretX, td->caretY);
 		break;
 
 	case WM_KILLFOCUS:
 		DestroyCaret();
 		break;
 
-	case WM_COMMAND:
-//		switch(LOWORD(wParam)){
-//		}
-		break;
-
 	case WM_PAINT:
 	{
 		PAINTSTRUCT ps;
 		HDC hdc = BeginPaint(hWnd, &ps);
-		tPaint(hWnd, hdc, td);
+		td->tPaint(hWnd, hdc);
 		EndPaint(hWnd, &ps);
 		return 0;
 	}
@@ -371,12 +381,14 @@ LRESULT CALLBACK TerminalWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM
 			--td->nScroll;
 		if(move<0)
 			++td->nScroll;
-		SetScroll(hWnd, td);
+		td->SetScroll(hWnd);
 		return 0;
 
 
 	case WM_DESTROY:
-		hTerminal = nullptr;
+		td->hTerminal = nullptr;
+		delete terminal;
+		terminal = nullptr;
 		break;		// use default processing
 	}
 	return DefMDIChildProc(hWnd, uMessage, wParam, lParam);

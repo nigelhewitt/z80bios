@@ -199,17 +199,15 @@ f_debug		ld		hl, .block
 			exx
 			ld		ix, 0x2345
 			ld		iy, 0x3456
-			SNAP	"pre"
 			nop
 			nop
 			;          IY   IX   HL   DE   BC   A F  PC   A'F' BC'  DE'  HL'
 			; >>r C76E 3456 2345 1234 DEDE BCBC 0A48 C1C2 A000 CBCB EDED 10E1@
-			call	0x0100		; enter control mode
+			call	0x0100		; enter debug control mode
 			nop
 			nop
 			ld		a, 0x55
 			out		(LIGHTS), a
-			SNAP	"dbg"
 			nop
 			nop
 			rst		0x28
@@ -220,6 +218,9 @@ f_debug		ld		hl, .block
 			inc		a
 			inc		a
 			inc		a
+			ld		ix, 1234	; 4 byte instruction
+			inc		a
+.back		inc		a
 			inc		a
 			inc		a
 			inc		a
@@ -230,14 +231,15 @@ f_debug		ld		hl, .block
 			inc		a
 			inc		a
 			inc		a
-			inc		a
-			inc		a
-			inc		a
+			in		a, (SWITCHES)
+			and		0x80
+			jr		nz, .back
 			jp		good_end
 
 .block
 			incbin	"debug.bin"
 .length		equ	$ - .block
+	 	DISPLAY "debug.bin size: ", /D, .length
 
  if SHOW_MODULE
 	 	DISPLAY "bios2 size: ", /D, $-logo
