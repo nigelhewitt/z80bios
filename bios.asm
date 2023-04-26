@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.31"		; version number for sign on message
+	define	VERSION	"v0.1.32"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -84,10 +84,10 @@ BIOSRAM		equ		RAM3
 ; mapping system is. For a lot of applications this is all you care about.
 ;
 ; address20
-; The board is designed with an 8 bit port recoding the top two bits of the
-; address bus. However the A21 bit isn't connected to anything and A20 select
+; The board is designed with an 8 bit port remapping the top two bits of the
+; address bus. However the A21 bit isn't connected to anything and A20 selects
 ; the non-existent RAM1 and ROM1 chips (see note below). I decided that for
-; bios addressing terms I would consider this as usually 20 bits so 0xffffff
+; bios addressing terms I would consider this as usually 20 bits so 0xfffff
 ;
 ; The top bit 0x80000 is the ROM select. This is actually the opposite way
 ; round to the board hardware design but it makes far more sense as you think
@@ -103,24 +103,24 @@ BIOSRAM		equ		RAM3
 ; I will implement this by making the BIOS memory R/W functions swap the
 ; required block into PAGE1 just while they need access to them and then they
 ; restore RAM1.
-; I really wish I could read the MPGSEL1 registers before writing them and then
-; restore them 'as was' but I suspect that for 99%+ of the time this will just
+; I really wish I could read the MPGSELn registers before writing them and then
+; restore them 'as was' but I suspect that for 99+% of the time this will just
 ; work.
 ;
-; ACTUALLY address20 isn't 20 bits (0-19). If you set bit20 then I ignore the
-; page selection parts and just give you address 16. This is done so you can
-; type 10nnnn into an address20 handler and get results for nnnn as an unmapped
-; address16
+; address21
+; like address20 but if you set bit20 then I ignore the page selection parts
+; and just give you address 16. This is done so you can type 10nnnn into an
+; address20 handler and get results for nnnn as an unmapped address16
 ;
 ; Interestingly the board decodes two more addresses so if you wanted to
 ; 'piggy back' another 512K of RAM and another 512K or RAM and hook their CS
-; lines to pins 6 and 7 of U11 you could.
+; lines to pins 6 and 7 of U11 you could. However the address20 would become
+; address22 and the bit for address23 would need to be rearranged.
 
-; address 24
-; this is a transient state, a 14bit address and an 6 bit 'page number'
+; address24
+; this is a transient state, a 6 bit 'page number' and a 14bit address
 ; The page number is the usual 5bits to select the page and bit5 to select ROM.
-; REMEMBER that this is the number in the Page select register ^0x20
-; Here bit6 is the 'do not page' bit.
+; REMEMBER that this is not the number in the Page select register ^0x20
 ;===============================================================================
 ;
 ;	Z80 org 0x0000 Vector table
@@ -151,7 +151,7 @@ start_table
 			ret: nop: nop			; RST 0x20
 	.5		db		0
 ; 0x28
-			ret: nop: nop			; RST 0x28
+			jp		gotoRST			; debug handler
 	.5		db		0
 ; 0x30
 			ret: nop: nop			; RST 0x30
@@ -160,7 +160,7 @@ start_table
 			ret: nop: nop			; RST 0x38
 	.43		db		0
 ; 0x66
-			retn : nop				; NMI handler
+			jp		gotoNMI			; debug NMI handler
 
 size_table	equ	$ - start_table		; table size for copy
 
@@ -742,7 +742,7 @@ cmd_read	ld		ix, [Z.def_address]		; default value
 			call	stdio_24bit				; C:HL requested address
 			ld		a, ' '
 			call	stdio_putc
-			call	getPageByte				; aka ld a, (C:IX)
+			call	XgetPageByte				; aka ld a, (C:IX)
 			call	stdio_byte
 			jp		good_end
 
@@ -769,7 +769,7 @@ cmd_w		ld		ix, [Z.def_address]		; default value
 
 			ld		c, b					; recover address B:IY->C:IX
 			ld		ix, iy
-			call	putPageByte				; ld (C:IX),a
+			call	XputPageByte				; ld (C:IX),a
 
 			push	de						; B:IY++
 			ld		de, 1
@@ -816,7 +816,7 @@ cmd_fill	ld		ix, [Z.def_address]		; default value
 			ld		a, b
 
 .cf1		ld		a, b
-			call	putPageByte				; A->C:IX
+			call	XputPageByte				; A->C:IX
 			ld		de, 1					; C:IX++
 			add		ix, de
 			ld		a, c
@@ -957,116 +957,6 @@ cmd_dump	call	skip					; start by handling the + option
 			ld		de, ix					; count in DE
 			call	stdio_dump
 			jp		good_end
-
-;===============================================================================
-; B block command    B address20|count8|count*data8|checksum
-;		The idea is we send a solid block of data to keep the bytes down
-;			  AAAAANNDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDCS
-;			B 1280010c39de80000c316f6c39de80000c316f6xx where xx is a checksum
-;		and it writes 16 bytes to RAM4:2800 et al. and responds with "\r\r"
-;		hence we can upload blocks to any where in memory and as nobody sends a
-;		\n they all just flash past on the display
-;		NB count >=1 and <=0x10
-;		send a block, ignore the echoes and after the second \r send another
-;		if anything is wrong it the response is space or escape
-;		The program doing this can respond with text when it finishes.
-;===============================================================================
-; short subs to handle packed data
-; get nibble, return NC on error or CY with 0-0xf in A
-	if 0
-gn			call	getc			; get the next character from the buffer
-			ret		nc				; end of buffer is bad
-			call	ishex
-			ret		nc				; not hex
-			call	tohex			; return 0-0xf in A
-			scf						; good end
-			ret
-; get byte in A uses C, return CY on good
-gb			call	gn				; high nibble
-			ret		nc
-			sla		a				; slide 4 bits left
-			sla		a
-			sla		a
-			sla		a
-			ld		c, a			; save in C
-			call	gn				; low nibble
-			ret		nc
-			or		c				; add the high bits
-			scf						; set carry for OK
-			ret
-
-cmd_b		call	skip			; skip spaces
-			jp		z, err_runout	; end of buffer so nothing to do
-			dec		e				; unget
-			AUTO	25				; get some variable space
-; definition of 'auto' memory pointed to by IY
-; 0: address in three bytes
-; 3: count in one byte
-; 4: used to save checksum
-; 5: up to 16 bytes of data
-; BEWARE getc is using HL DE
-									; the address is 5 hex 'digits'
-			call	gb				; only a nibble of the address high byte
-			jp		nc, .cb3
-			ld		[iy+2], a		; save it
-			and		0xf8			; check for a RAM address (b0-b18)
-			jp		nz, .cb3		; not 0x3ffff or below
-			call	gb				; address middle byte
-			jr		nc, .cb3
-			ld		[iy+1], a
-			call	gb				; address low byte
-			jr		nc, .cb3
-			ld		[iy], a
-
-			call	gb				; count byte
-			jr		nc, .cb3
-			ld		[iy+3], a
-			or		a				; count must not be zero
-			jr		z, .cb3
-			cp		17				; or >=17
-			jr		nc, .cb3
-
-			push	hl, de
-			ld		hl, iy
-			ld		de, 5
-			add		hl, de			; start of data
-			ld		ix, hl
-			pop		de, hl
-			ld		b, [iy+3]		; count
-			ld		[iy+4], 0		; checksum
-.cb1		call	gb
-			jr		nc, .cb3		; bad data
-			ld		[ix], a
-			inc		ix
-			add		a, [iy+4]
-			ld		[iy+4], a
-			djnz	.cb1
-
-			call	gb				; get checksum
-			jr		nc, .cb3
-			cp		[iy+4]
-			jr		nz, .cb3		; failed checksum
-			call	skip			; must be end of line
-			jr		nz, .cb3		; more stuff is bad
-; output the data
-			ld		l, [iy]			; destination in C:IX
-			ld		h, [iy+1]
-			ld		ix, hl
-			ld		c, [iy+2]
-			ld		b, [iy+3]		; count in B
-			ld		hl, iy
-			ld		de, 5
-			add		hl, de			; start of data
-.cb2		ld		a, [hl]
-			call	putPageByte		; put A on (C:IX)
-			inc		hl
-			call	incCIX
-			djnz	.cb2
-			RELEASE	20				; RELEASE does NOT preserve flags
-			jp		good_end
-.cb3		RELEASE	20
-			jp		err_badblock
-	endif
 
 ;===============================================================================
 ; CORE	clear memory

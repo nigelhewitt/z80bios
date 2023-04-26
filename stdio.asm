@@ -660,7 +660,7 @@ stdio_dump			; C:HL = pointer, DE = count, uses HL and DE
 			push	bc						; save for count and C for address
 			push	ix						; save pointer
 ; do the hex version
-.sd4		call	getPageByte				; get the byte from C:IX
+.sd4		call	XgetPageByte			; get the byte from C:IX
 			call	stdio_byte
 			ld		a, h					; blank counter
 			cp		9
@@ -685,7 +685,7 @@ stdio_dump			; C:HL = pointer, DE = count, uses HL and DE
 			pop		bc						; line count and C of address
 			pop		de						; counter
 			ld		l, b					; save actual count for this line
-.sd8		call	getPageByte				; get the byte
+.sd8		call	XgetPageByte			; get the byte
 			cp		0x20					; blank out 0-0x1f
 			jr		c, .sd9					; CY if a<0x20
 			cp		0x7f					; CY if a<0x7f

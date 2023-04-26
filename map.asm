@@ -5,33 +5,479 @@
 ;===============================================================================
 map_start		equ	$
 
-; see the discussion of address16, address22 and address24 in bios.asm:76
-;
-;
+; see the discussion of address16, address20 and address24 in bios.asm:76
+
 ;===============================================================================
 
 ;===============================================================================
-; Memory page addressing
+; Memory page addressing translations
 ;===============================================================================
-; Called with a 20 bit address in C:IX and the required page number in A (0-3)
-; b0-13 are just address bus stuff
-; b14-18 are the 0-31 page
-; bit 19 is ROM select (actually reversed from PCB design but mentally better)
-; bits 20 set doesn't map
-; bits 21-23 are ignored
-; uses AF, returns 16 bit address in IX
-; fixes IX to point to the correct CPU address16 to access the memory
 
-; all nice and straightforward until you ask
+; Do the easy ones first
+
+; c20to24		convert a address20 into an address24
+;				(page8 and address14)
+;				call with addr20 in C:HL and get the results in C:HL
+;				uses nothing
+c20to24		rl		h
+			rl		c
+			rl		h
+			rl		c
+			srl		h
+			srl		h
+			ret
+
+; c24to20		convert a page8:address14 into an address20
+;				in/out via C:HL
+;				uses nothing
+c24to20		rl		h
+			rl		h
+			srl		c
+			rr		h
+			srl		c
+			rr		h
+			ret
+
+; c16to24		convert an address16 into an address20 using a mapping table
+;				call with address16 in HL and DE as address16 pointing to
+;				mapping table (normally DE = Z.savePage)
+;				results in C:HL
+;				uses A
+c16to24		push	de
+			xor		a			; get b14-15 of HL in A b0-1
+			rl		h
+			rla
+			rl		h
+			rla
+			srl		h			; put HL back straight clearing b14-15
+			srl		h
+			add		e			; add A to DE
+			ld		e, a
+			ld		a, d
+			adc		0
+			ld		d, a
+			ld		a, [de]		; get page
+			xor		0x20		; toggle the RAM/ROM bit
+			ld		c, a
+			pop		de
+			ret
+
+; composites using the previous code
+
+; convert c21toc20 (resolve bit 20)
+;			needs DE as map table
+c21to20		bit		4,c
+			ret		z			; easy
+			; from this point we ignore C so it devolves to c16to20
+			; fall through
+
+; if you want c16to20 on C:HL
+;			needs DE as map table
+c16to20		call	c16to24
+			jr		c24to20
+
+;===============================================================================
+; Now the hard one. Convert an address24 to an address16 that will work in [HL]
+;
+; It's all nice and straightforward until you ask
 ;		"WHERE ARE WE EXECUTING AND WHERE IS THE STACK?"
-; OK so this code is compiled to go in PAGE3 but that might be ROM or RAM
+; OK so this code is compiled to go in PAGE3
+;
+;					******  HUGE WARNING  ******
+; If you want N bytes and you convert the first address to 24 you get
+; a 14 bit HL back. Add N to HL and if it overflows 14 bits you need to do your
+; transfer in two parts before and after the page switch
+; consider using the extended LDIR below
+;-------------------------------------------------------------------------------
 
-; What I need are routines that are stack free that I can build from.
-; Macros would be too big so return via JP [IY]
-; Then we write wrappers to do the required jobs
+; 'stackfree' call and return
+; I use _ as a prefix for stackfree calls just to remind me they are different
+; and then I use macros to make them feel normal
+
+CALLF		macro		target
+			ld			iy, .ret
+			jp			target
+.ret
+			endm
+RETF		macro
+			jp			(iy)
+			endm
 
 ;-------------------------------------------------------------------------------
-; _setPage	a stack free convert from address2 in C:IX
+; First a worker: Try to map an address24 to the current pages
+; It needs to be stack free as _c24to16 calls can be nested (eg: bank_ldir)
+; call with requested addr24 in C:HL, pagemap[] in DE
+; returns CY on success with HL as addr16
+; uses A, B and DE
+;-------------------------------------------------------------------------------
+
+_c24to16W	ld		a, c				; requested page
+			xor		0x20				; swap ROM/RAM bit to hardware mode
+			ex		de, hl				; table in HL, addr in DE
+
+			ld		b, 4				; test all 4 slots
+.c1			cp		a, [hl]
+			jr		z, .c2
+			inc		hl
+			djnz	.c1
+
+; not found
+			ex		de, hl				; retore addr in DL
+			or		a					; clear carry
+			RETF
+
+; found it so no need to map anything
+; it is in PAGE(4-B)
+.c2			ld		a, 4
+			sub		b					; page
+			ex		de, hl				; get addr14 back
+			rl		h
+			rl		h
+			rr		a
+			rr		h
+			rr		a
+			rr		h
+			ld		bc, 0				; nothing to do to fix
+			scf
+			RETF
+
+;-------------------------------------------------------------------------------
+; _c24to16	C:HL is address24, DE = current mappings
+;			A as page to map to if we map (0-3 but we're executing in 3 so 0-2)
+;			returns HL as address16
+;					BC data to reset this mapping (see _c24to16fix)
+;			uses A and IY for the return
+;-------------------------------------------------------------------------------
+_c24to16	; first look up the page in map [DE] to see if we already have it
+
+			and		3					; mask page request to be safe
+			ld		[.page], a			; suggested page
+			ld		[.map], de
+
+			ld		[.IY], iy
+			CALLF	_c24to16W			; try for a local page, uses A, B and DE
+			ld		iy, [.IY]
+			jr		nc, .c1				; not found
+			RETF
+
+; not found so we have to map it
+; get the previous value for the restore
+.c1			ld		de, [.map]
+			ld		a, [.page]
+			add		e
+			ld		e, a
+			ld		a, d
+			adc		0
+			ld		d, a
+			ld		a, [de]				; get previous page in hardware mode
+			ld		b, a				; save for the restore
+
+			ld		a, c				; required page
+			xor		0x20				; make hardware mode
+			ld		d, a				; save page
+
+			ld		a, [.page]
+			add		a, MPGSEL			; gives page select port
+			ld		c, a
+
+			ld		a, d				; page to switch too
+			out		(c), a				; C = mapping port
+
+			rl		h
+			rl		h
+			ld		a, [.page]
+			rra
+			rr		h
+			rra
+			rr		h
+			ld		de, [.map]
+			RETF
+
+.page		db		0
+.map		dw		0
+.IY			dw		0
+
+; unmap the change made by c24to16
+;			call with BC the data returned by c24to16
+_c24to16fix	ld		a, c				; port is zero for nothing to do
+			or		a
+			jr		z, .c3
+			ld		a, b
+			out		(c), a
+.c3			RETF
+
+;-------------------------------------------------------------------------------
+; getPageByte	get the byte from address21 C:HL in A
+;				It works the stack free trick so it can get from anywhere
+;-------------------------------------------------------------------------------
+getPageByte	push	bc, de, hl, iy
+			ld		de, Z.savePage
+			call	c21to20				; resolve addr21 to addr20
+			call	c20to24				; break out the page number
+			CALLF	_c24to16
+			ld		a, [hl]
+			ld		[.save], a
+			CALLF	_c24to16fix
+			ld		a, [.save]
+			pop		iy, hl, de, bc
+			ret
+.save		db		0
+
+;-------------------------------------------------------------------------------
+; putPageByte	set a byte in address21 C:HL with A.
+;				Again it works the stack free trick
+;-------------------------------------------------------------------------------
+putPageByte	push	bc, de, hl, iy
+			ld		[.save], a
+			ld		de, Z.savePage
+			call	c21to20				; resolve addr21 to addr20
+			call	c20to24				; break out the page number
+			CALLF	_c24to16
+			ld		a, [.save]
+			ld		[hl], a
+			CALLF	_c24to16fix
+			ld		a, [.save]
+			pop		iy, hl, de, bc
+			ret
+.save		db		0
+
+;-------------------------------------------------------------------------------
+; incCHL20	increment address20 in C:HL
+;			uses nothing
+;-------------------------------------------------------------------------------
+
+incCHL20	inc		l			; does not set CY
+			ret		nz			; INC HL sets nothing!
+			inc		h
+			ret		nz
+			inc		c
+			ret
+
+;-------------------------------------------------------------------------------
+; addCHLDE	add DE to C:HL
+;			uses A
+;-------------------------------------------------------------------------------
+addCHLDE	add		hl, de
+			ld		a, c
+			adc		0
+			ld		c, a
+			ret
+
+;===============================================================================
+;
+;	Local memory	To allow things like the SD and FAT systems plenty of room
+;					to play in I use RAM6 in PAGE2 as it's internal memory.
+;					The routines to handle this are virtually trivial but do
+;					need to 'play nicely' interface with the normal 'return
+;					to base' code
+;
+;  NB: The absolute address20 for items in Local memory is
+;		(RAM6^0x20)<<14 + (offset & 0x3fff)
+;===============================================================================
+
+; here is the pre-'play nicely' code
+LocalON		push	af
+			ld		a, RAM6
+			out		(MPGSEL2), a
+			ld		[Z.savePage+2], a
+			pop		af
+			ret
+LocalOFF	push	af
+			ld		a, RAM2
+			out		(MPGSEL2), a
+			ld		[Z.savePage+2], a
+			pop		af
+			ret
+
+;===============================================================================
+; banked memory LDIR	copy from addr21 C:HL to addr21 B:DE for IX counts
+;						destination must be RAM, IX==0 results in 64K copy
+;						works the 'stack free' trick
+;						return CY = good
+;						uses  A, BC, DE, HL
+;
+; You are free to read from and write to any memory address although if you
+; overwrite your own executable code that's your problem. Here I only protect
+; you from the stack getting switched in and out.
+; You end up with memory restored to PAGE1=RAM1 and PAGE2=RAM2
+; I will Disable Interrupts, if you want to EI after it returns BMG
+;===============================================================================
+
+; In theory a 16bit counter allows a 64K copy (IX==0) so there can be multiple
+; discontinuities in both source and destination 16K pages. However it has to
+; be done with sequential LDIR commands or it will take a week if we page map
+; for each byte.
+; Hence I write a piece of code to do 'the next contiguous slice' and then
+; restarts itself to do the next slice until the count runs out
+; As we use PAGE1 for the source and PAGE2 for the destination and we may be
+; running in ROM1 there is a problem for variables so this ought to run in
+; CPU registers
+
+
+bank_ldir	di						; no interrupts while the stack is volatile
+			push	iy
+
+; convert C:HL addr21 to addr20 and save as .source20
+			push	de
+			ld		de, Z.savePage
+			call	c21to20
+			put24	.source20, c, hl
+			pop		de
+
+; convert B:DE addr21 to addr20 and save as .dest20
+			ld		c, b
+			ld		hl, de
+			ld		de, Z.savePage
+			call	c21to20
+			put24	.dest20, c, hl
+
+; save ix as .count16
+			ld		[.count16], ix
+
+; if source + count overflows 1024K return error (beyond actual memory)
+			get24	.source20, c, hl
+			ld		de, ix				; count
+			call	addCHLDE			; C:HL += DE
+			ld		a, c
+			and		0xf0				; >=1024K top of memory
+			jr		nz, .bl1			; bad end
+
+; if dest + count overflows 512K return error (beyond RAM)
+			get24	.dest20, c, hl		; dest in C:HL
+			call	addCHLDE			; C:HL += DE
+			ld		a, c
+			and		0xf8				; >=512K top of RAM
+			jr		z, .bl2
+
+; do a bad exit
+.bl1		pop		iy
+			or		a					; clear carry = bad end
+			ret
+
+; start of loop
+.bl2
+
+; convert source20 to address24
+			get24	.source20, c, hl	; source
+			call	c20to24				; separate out the page in C
+			put24	.source24, c, hl
+
+; nS = 0x4000 - (source & 0x3fff); aka number of bytes left in source page
+			ld		a, h				; mask to 14 bits
+			and		0x3f
+			ld		d, a				; into DE
+			ld		e, l
+			ld		hl, 0x4000
+			sub		hl, de
+			push	hl					; save nS
+
+; convert dest to adress24
+			get24	.dest20, c, hl		; dest
+			call	c20to24				; separate out the page in C
+			put24	.dest24, c, hl
+
+; nD = 0x4000 - (dest & 0x3fff)
+			ld		a, h				; mask to 14 bits
+			and		0x3f
+			ld		d, a				; into DE
+			ld		e, l
+			ld		hl, 0x4000
+			sub		hl, de				; nD in HL
+			ld		de, hl				; and DE
+
+; n = min(nS and nD)
+			pop		bc					; recover nS
+			sub		hl, bc				; nD - nS
+			jr		nc, .bl3			; jump if HL<=BC aka nS<nD
+			ld		bc, de				; nS>nD so use nD in BC
+.bl3
+; n = min(n and count)
+			ld		hl, [.count16]		; HL and DE are both count
+			ld		de, hl
+			sub		hl, bc
+			jr		nc, .bl4			; jump if HL>BC aka count>n
+			ld		bc, de				; count<n so use count
+.bl4		ld		[.n], bc
+
+; map destination as PAGE2
+			get24	.dest24, c, hl		; get .dest24
+			ld		a, 2				; page 2
+			ld		de, Z.savePage
+			CALLF	_c24to16			;
+			ld		[.sBC], bc			; map recovery data
+			ld		[.dest16], hl		; addr16 for the copy
+
+; map source to PAGE1
+			get24	.source24, c, hl	; get .source24
+			ld		a, 1				; page 1
+			ld		de, Z.savePage
+			CALLF	_c24to16
+			ld		[.dBC], bc			; map recovery data
+
+; copy PAGE1 to PAGE2 for n
+			ld		de, [.dest16]
+			ld		bc, [.n]
+			ldir
+
+; unmap PAGE1 and PAGE2
+			ld		bc, [.dBC]
+			CALLF	_c24to16fix
+			ld		bc, [.sBC]
+			CALLF	_c24to16fix
+
+; count -= n
+			ld		bc, [.n]
+			ld		hl, [.count16]
+			sub		hl, bc
+			ld		[.count16], hl
+
+; if count==0 finish
+			ld		a, h
+			or		l
+			jr		z, .bl5				; done, so clean up
+
+; source += n
+			get24	.source20, c, hl
+			ld		de, [.n]
+			call	addCHLDE			; C:HL += DE
+			put24	.source20, c, hl
+
+; dest += n;
+			get24	.dest20, c, hl
+			call	addCHLDE			; C:HL += DE
+			put24	.dest20, c, hl
+
+; jump to start of loop
+			jp		.bl2
+
+; return good
+.bl5		pop		iy
+			scf
+			ret
+
+; local variables
+.source20		d24		0
+.dest20			d24		0
+.source24		d24		0
+.dest24			d24		0
+.sBC			dw		0
+.dBC			dw		0
+.dest16			dw		0
+.count16		dw		0
+.n				dw		0
+
+
+;======================================================================================
+;======================================================================================
+;======================================================================================
+;					OLD STUFF BEING PHASED OUT
+;======================================================================================
+;======================================================================================
+;======================================================================================
+
+
+;-------------------------------------------------------------------------------
+; _setPage	a stack free convert from address20 in C:IX
 ;			to PAGEn n is in A(bits 0-1)
 ;			returns IX as a 16 bit address into Z80 address space (in PAGEn)
 ;			** Not callable: returns via a JP [IY] **
@@ -83,35 +529,15 @@ _resPage	and		0x03			; mask
 			out		(c), a			; back into PAGEn
 			jp		[iy]
 
-;-------------------------------------------------------------------------------
-; setPage	here is a wrapper that assumes the stack is somewhere safe
-;			call with required address in C:IX and page in A
-;			sets the page and returns an address16 in IX
-;			uses A and IX
-;-------------------------------------------------------------------------------
-setPage		push	iy, hl, de, bc
-			ld		iy, .sp1		; return address
-			jr		_setPage
-.sp1		pop		bc, de, hl, iy
-			ret
+;;<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 ;-------------------------------------------------------------------------------
-; resPage	wrapper to restore RAMn to PAGEn, passed in n in A
-;			uses AF
-;-------------------------------------------------------------------------------
-resPage		push	bc, de, iy
-			ld		iy, .rp2
-			jr		_resPage
-.rp2		pop		iy, de, bc
-			ret
-
-;-------------------------------------------------------------------------------
-; getPageByte	get a byte from C:IX in A leaving everything unchanged.
+; XgetPageByte	get a byte from address20 C:IX in A leaving everything unchanged.
 ;				It works the stack free trick so it can get from anywhere
 ;
 ;				If C==0xff use [IX] local memory
 ;-------------------------------------------------------------------------------
-getPageByte	ld		a, c
+XgetPageByte	ld		a, c
 			cp		0xff
 			jr		nz, .gb1
 			ld		a, [ix]
@@ -128,13 +554,12 @@ getPageByte	ld		a, c
 .gb3		ld		a, h			; result in A
 			pop		ix, iy, bc, hl
 			ret
-
 ;-------------------------------------------------------------------------------
-; putPageByte	set a byte in C:IX from A.
+; XputPageByte	set a byte in C:IX from A.
 ;				Again it works the stack free trick
 ;				if C==0xff use [IX] local memory
 ;-------------------------------------------------------------------------------
-putPageByte	push	de
+XputPageByte	push	de
 			ld		d, a			; save the byte
 			ld		a, c			; local page?
 			cp		0xff
@@ -157,8 +582,8 @@ putPageByte	push	de
 			ret
 
 ;-------------------------------------------------------------------------------
-; incCIX	increment C:IX safely if there is a danger of crossing a page so
-;			just incrementing IX isn't safe
+; incCIX	increment address20 in C:IX safely if there is a danger of crossing
+;			a page so just incrementing IX isn't safe
 ;			uses nothing
 ;-------------------------------------------------------------------------------
 incCIX		push	de
@@ -171,200 +596,6 @@ incCIX		push	de
 			ld		a, d
 			pop		de
 			ret
-
-;===============================================================================
-;
-;	Local memory	To allow things like the SD and FAT systems plenty of room
-;					to play in I use RAM6 in PAGE2 as it's internal memory.
-;					The routines to handle this are virtually trivial but do
-;					need to 'play nicely' interface with the normal 'return
-;					to base' code
-;
-;  NB: The absolute address20 for items in Local memory is
-;		(RAM6^0x20)<<14 + (offset & 0x3fff)
-;===============================================================================
-
-; here is the pre-'play nicely' code
-LocalON		push	af
-			ld		a, RAM6
-			out		(MPGSEL2), a
-			ld		[Z.savePage+2], a
-			pop		af
-			ret
-LocalOFF	push	af
-			ld		a, RAM2
-			out		(MPGSEL2), a
-			ld		[Z.savePage+2], a
-			pop		af
-			ret
-
-;===============================================================================
-; banked memory LDIR	copy from C:HL to B:DE for IX counts
-;						destination must be RAM, IX==0 results in 64K copy
-;						works the 'stack free' trick
-;						return CY = good
-;						uses  A, BC, DE, HL, IX, IY
-;
-; You are free to read from and write to any memory address although if you
-; overwrite your own executable code that's your problem. Here I only protect
-; you from the stack getting switched in and out.
-; You end up with memory restored to PAGE1=RAM1 and PAGE2=RAM2
-; I will Disable Interrupts, if you want to EI after it returns BMG
-;===============================================================================
-
-; In theory a 16bit counter allows a 64K copy (IX==0) so there can be multiple
-; discontinuities in both source and destination 16K pages. However it has to
-; be done with sequential LDIR commands or it will take a week if we page map
-; for each byte.
-; Hence I write a piece of code to do 'the next contiguous slice' and then
-; restarts itself to do the next slice until the count runs out
-; As we use PAGE1 for the source and PAGE2 for the destination and we may be
-; running in ROM1 there is a problem for variables so this ought to run in
-; CPU registers
-
-put24		macro	name, r, rr		; save a 24 bit item
-			ld		[name], rr
-			ld		a, r
-			ld		[name+2], a
-			endm
-get24		macro	name, r, rr		; retrieve a 24 bit item
-			ld		rr, [name]
-			ld		a, [name+2]
-			ld		r, a
-			endm
-
-bank_ldir	di						; no interrupts while the stack is volatile
-
-; save C:HL as .source
-; save B:DE as .dest
-; save ix as .count
-			put24	.source, c, hl
-			put24	.dest,   b, de
-			ld		[.count], ix
-
-; if source + count overflows 1024K return error (beyond actual memory)
-			ld		a, c				; source in A:HL
-			ld		bc, ix				; count into something we can add
-			add		hl, bc				; A:HL += count
-			adc		0
-			and		0xf0				; NZ >=1024K
-			jr		nz, .bl1			; bad end
-
-; if dest + count overflows 512K return error (beyond RAM)
-			get24	.dest, a, hl		; dest in A:HL
-			add		hl, bc				; += count
-			adc		0
-			and		0xf8				; NZ >= 512K
-			jr		z, .bl3				; OK, go run the loop
-
-; do a bad exit
-.bl1		or		a					; clear carry = bad end
-			ret
-
-; start of loop
-.bl3
-
-; map source in PAGE1 as source
-			get24	.source, c, ix
-			ld		iy, .bl4
-			ld		a, 1				; A=page, map C:IX
-			jp		_setPage			; uses A HL BC IX IY
-.bl4		ld		[.localsource], ix
-
-; nS = 0x4000 - (localsource & 0x3fff); aka number of bytes left in source page
-			ld		e, ixl				; ix = localsource
-			ld		a, ixh
-			and		0x3f
-			ld		d, a				; DE = localsource & 0x3fff
-			ld		hl, 0x4000
-			sub		hl, de
-			ld		bc, hl				; nS in BC
-
-; map destination as PAGE2
-			get24	.dest, c, ix
-			ld		iy, .bl5
-			ld		a, 2				; A=page, map C:IX
-			jp		_setPage			; uses A HL BC IX IY
-.bl5		ld		[.localdest], ix
-
-; nD = 0x4000 - (dest & 0x3fff)
-			ld		e, ixl
-			ld		a, ixh
-			and		0x3f
-			ld		d, a				; DE = localdest & 0x3fff
-			ld		hl, 0x4000
-			sub		hl, de
-			ld		de, hl				; copy nD into DE
-
-; n = min(nS and nD)
-			sub		hl, bc				; nD - nS
-			jr		nc, .bl6			; jump if HL<=BC aka nS<nD
-			ld		bc, de				; nS>nD so use nD
-.bl6									; BC is min value
-
-; n = min(n and count)
-			ld		hl, [.count]		; HL and DE are count
-			ld		de, hl
-			sub		hl, bc
-			jr		nc, .bl7				; jump if HL>BC aka count>n
-			ld		bc, de				; count<n so use count
-.bl7		ld		[.n], bc
-
-; copy PAGE1 to PAGE2 for n
-			ld		hl, [.localsource]
-			ld		de, [.localdest]
-			ldir
-
-; count -= n
-			ld		bc, [.n]
-			ld		hl, [.count]
-			sub		hl, bc
-			ld		[.count], hl
-
-; if count==0 finish
-			ld		a, h
-			or		l
-			jr		z, .bl8				; done, so clean up
-
-; source += n
-			get24	.source, a, hl
-			ld		de, [.count]
-			add		hl, de				; A:HL += DE
-			adc		0
-			put24	.source, a, hl
-
-; dest += n;
-			get24	.dest, a, hl
-			add		hl, de
-			adc		0
-			put24	.dest, a, hl
-
-; jump to start of loop
-			jp		.bl3
-
-; unmap PAGE1
-.bl8		ld		a, 1
-			ld		iy, .bl9
-			jp		_resPage
-.bl9
-
-; unmap PAGE2
-			ld		a, 2
-			ld		iy, .bl10
-			jp		_resPage
-.bl10
-
-; return good
-			scf
-			ret
-
-; local variables
-.source			d24		0
-.dest			d24		0
-.count			dw		0
-.localsource	dw		0
-.localdest		dw		0
-.n				dw		0
 
  if SHOW_MODULE
 	 	DISPLAY "map size: ", /D, $-map_start

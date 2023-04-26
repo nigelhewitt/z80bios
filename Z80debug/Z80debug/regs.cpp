@@ -43,44 +43,46 @@ INT_PTR REGS::Proc(HWND hDlg, UINT wMessage, WPARAM wParam,  LPARAM lParam)
 		return TRUE;
 
 	case WM_USER:
-		doReg(hDlg, IDC_AH,   "x%02X", regs->A);
-		doReg(hDlg, IDC_AD,   "%d",    regs->A);
-		doReg(hDlg, IDC_BCH,  "x%04X", regs->BC);
-		doReg(hDlg, IDC_BCD,  "%d",	   regs->BC);
-		doReg(hDlg, IDC_DEH,  "x%04X", regs->DE);
-		doReg(hDlg, IDC_DED,  "%d",    regs->DE);
-		doReg(hDlg, IDC_HLH,  "x%04X", regs->HL);
-		doReg(hDlg, IDC_HLD,  "%d",    regs->HL);
-		doReg(hDlg, IDC_AHA,  "x%02X", regs->AA);
-		doReg(hDlg, IDC_ADA,  "%d",    regs->AA);
-		doReg(hDlg, IDC_BCHA, "x%04X", regs->BCA);
-		doReg(hDlg, IDC_BCDA, "%d",    regs->BCA);
-		doReg(hDlg, IDC_DEHA, "x%04X", regs->DEA);
-		doReg(hDlg, IDC_DEDA, "%d",    regs->DEA);
-		doReg(hDlg, IDC_HLHA, "x%04X", regs->HLA);
-		doReg(hDlg, IDC_HLDA, "%d",    regs->HLA);
-		doReg(hDlg, IDC_IXH,  "x%04X", regs->IX);
-		doReg(hDlg, IDC_IXD,  "%d",    regs->IX);
-		doReg(hDlg, IDC_IYH,  "x%04X", regs->IY);
-		doReg(hDlg, IDC_IYD,  "%d",    regs->IY);
-		doReg(hDlg, IDC_PC,   "x%04X", regs->PC);
-		doReg(hDlg, IDC_SP,   "x%04X", regs->SP);
+		doReg(hDlg, IDC_AH,   "x%02X", regs->r1.r2.A);
+		doReg(hDlg, IDC_AD,   "%d",    regs->r1.r2.A);
+		doReg(hDlg, IDC_BCH,  "x%04X", regs->r1.r2.BC);
+		doReg(hDlg, IDC_BCD,  "%d",	   regs->r1.r2.BC);
+		doReg(hDlg, IDC_DEH,  "x%04X", regs->r1.r2.DE);
+		doReg(hDlg, IDC_DED,  "%d",    regs->r1.r2.DE);
+		doReg(hDlg, IDC_HLH,  "x%04X", regs->r1.r2.HL);
+		doReg(hDlg, IDC_HLD,  "%d",    regs->r1.r2.HL);
+		doReg(hDlg, IDC_AHA,  "x%02X", regs->r1.r2.AD);
+		doReg(hDlg, IDC_ADA,  "%d",    regs->r1.r2.AD);
+		doReg(hDlg, IDC_BCHA, "x%04X", regs->r1.r2.BCD);
+		doReg(hDlg, IDC_BCDA, "%d",    regs->r1.r2.BCD);
+		doReg(hDlg, IDC_DEHA, "x%04X", regs->r1.r2.DED);
+		doReg(hDlg, IDC_DEDA, "%d",    regs->r1.r2.DED);
+		doReg(hDlg, IDC_HLHA, "x%04X", regs->r1.r2.HLD);
+		doReg(hDlg, IDC_HLDA, "%d",    regs->r1.r2.HLD);
+		doReg(hDlg, IDC_IXH,  "x%04X", regs->r1.r2.IX);
+		doReg(hDlg, IDC_IXD,  "%d",    regs->r1.r2.IX);
+		doReg(hDlg, IDC_IYH,  "x%04X", regs->r1.r2.IY);
+		doReg(hDlg, IDC_IYD,  "%d",    regs->r1.r2.IY);
+		doReg(hDlg, IDC_PC20, "x%06X", get3(regs->r1.r2.PC20));
+		doReg(hDlg, IDC_SP20, "x%06X", get3(regs->r1.r2.SP20));
+		doReg(hDlg, IDC_PC16, "x%04X", regs->r1.r2.PC16);
+		doReg(hDlg, IDC_SP16, "x%04X", regs->r1.r2.SP16);
 
-		doFlag(hDlg, IDC_FLAG_S,  regs->F  & 0x80);
-		doFlag(hDlg, IDC_FLAG_Z,  regs->F  & 0x40);
-		doFlag(hDlg, IDC_FLAG_H,  regs->F  & 0x10);
-		doFlag(hDlg, IDC_FLAG_P,  regs->F  & 0x04);
-		doFlag(hDlg, IDC_FLAG_N,  regs->F  & 0x02);
-		doFlag(hDlg, IDC_FLAG_C,  regs->F  & 0x01);
-		doFlag(hDlg, IDC_FLAG_SA, regs->FA & 0x80);
-		doFlag(hDlg, IDC_FLAG_ZA, regs->FA & 0x40);
-		doFlag(hDlg, IDC_FLAG_HA, regs->FA & 0x10);
-		doFlag(hDlg, IDC_FLAG_PA, regs->FA & 0x04);
-		doFlag(hDlg, IDC_FLAG_NA, regs->FA & 0x02);
-		doFlag(hDlg, IDC_FLAG_CA, regs->FA & 0x01);
+		doFlag(hDlg, IDC_FLAG_S,  regs->r1.r2.F  & 0x80);
+		doFlag(hDlg, IDC_FLAG_Z,  regs->r1.r2.F  & 0x40);
+		doFlag(hDlg, IDC_FLAG_H,  regs->r1.r2.F  & 0x10);
+		doFlag(hDlg, IDC_FLAG_P,  regs->r1.r2.F  & 0x04);
+		doFlag(hDlg, IDC_FLAG_N,  regs->r1.r2.F  & 0x02);
+		doFlag(hDlg, IDC_FLAG_C,  regs->r1.r2.F  & 0x01);
+		doFlag(hDlg, IDC_FLAG_SA, regs->r1.r2.FD & 0x80);
+		doFlag(hDlg, IDC_FLAG_ZA, regs->r1.r2.FD & 0x40);
+		doFlag(hDlg, IDC_FLAG_HA, regs->r1.r2.FD & 0x10);
+		doFlag(hDlg, IDC_FLAG_PA, regs->r1.r2.FD & 0x04);
+		doFlag(hDlg, IDC_FLAG_NA, regs->r1.r2.FD & 0x02);
+		doFlag(hDlg, IDC_FLAG_CA, regs->r1.r2.FD & 0x01);
 
 		for(int i=0; i<4; ++i)
-			SendDlgItemMessage(hDlg, IDC_PAGE1+i, CB_SETCURSEL, regs->PAGE[i], 0);
+			SendDlgItemMessage(hDlg, IDC_PAGE1+i, CB_SETCURSEL, regs->r1.r2.PAGE[i], 0);
 		return TRUE;
 
 	case WM_COMMAND:
@@ -101,27 +103,8 @@ void REGS::unpackRegs(const char* text)
 {
 	// sp af bc de hl ix iy pc af' bc' de' hl'
 	int index = 0;
-	SP  = unpackWORD(text, index);
-	IY  = unpackWORD(text, index);
-	IX  = unpackWORD(text, index);
-	HL  = unpackWORD(text, index);
-	DE  = unpackWORD(text, index);
-	BC  = unpackWORD(text, index);
-	A   = unpackBYTE(text, index);
-	F   = unpackBYTE(text, index);
-	PC  = unpackWORD(text, index);
-	AA  = unpackBYTE(text, index);
-	FA  = unpackBYTE(text, index);
-	BCA = unpackWORD(text, index);
-	DEA = unpackWORD(text, index);
-	HLA = unpackWORD(text, index);
-	SendMessage(hRegs, WM_USER, 0, 0);	// update
-}
-void REGS::unpackMAP(const char* text)
-{
-	// page0 page1 page2 page3
-	int index = 0;
-	for(int i=0; i<4; PAGE[i++]  = unpackBYTE(text, index));
+	for(int i=0; i<18; ++i)
+		r1.W[i] = unpackWORD(text, index);
 	SendMessage(hRegs, WM_USER, 0, 0);	// update
 }
 void REGS::ShowRegs()

@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.31"		move to local repository, use version number
+   	git commit -m "0.1.32"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -170,3 +170,8 @@ NMI based single step add on.
 Tear down and redesign on the Debugger. As the code view and break points work
 I've finished the PCB for the single stepper (NMI based) and I'll get a board
 made as my poor old eyes and fingers aren't hand wiring that sort of thing.
+
+0.1.32
+Debugger rewrite progresses. Debugger now executing in RAM5 with RST and NMI
+calls remapped to it. Finally got it starting up and displaying the registers
+in the DBG command setup.

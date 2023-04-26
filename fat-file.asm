@@ -109,7 +109,7 @@ FileOpen
 			ld		[ix+FILE.first_sector_in_cluster+2], hl
 
 			pop		hl, de, bc, iy
-			call	_FileSeek
+			call	xFileSeek
 			ret
 
 ; error exits
@@ -180,7 +180,7 @@ FileOpen
 ;
 ; call with IX=FILE* and it bases it's seek on
 ;-------------------------------------------------------------------------------
-_FileSeek	GET32i	ix, FILE.filePointer	; entry without value to seek too
+xFileSeek	GET32i	ix, FILE.filePointer	; entry without value to seek too
 			jr		FileSeek.sf1
 
 FileSeek	PUT32i	ix, FILE.filePointer
@@ -381,7 +381,7 @@ FileRead
 ; return a character in A with CY, or NC on EOF
 ;-------------------------------------------------------------------------------
 FileGetc	push 	bc, de, hl
-			call	_FileSeek				; make sure we have the sector
+			call	xFileSeek				; make sure we have the sector
 			GET32i	ix, FILE.filePointer
 			CP32i	ix, FILE.dirn+DIRN.DIR_FileSize
 			jr		nc, .rb1			; jump on pointer >= size

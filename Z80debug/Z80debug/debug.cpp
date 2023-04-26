@@ -166,7 +166,7 @@ void DEBUG::showStatus(byte type)
 			bool RAM = (page & 0x20)!=0;
 			char buffer[100];
 			sprintf_s(buffer, sizeof buffer, "TRAP %d at %s%d:%04X", type,
-							RAM?"ROM":"RAM", page&0x1f, regs->PC);
+							RAM?"ROM":"RAM", page&0x1f, regs->r1.r2.PC16);
 			SetStatus(buffer);
 		}
 		else
@@ -205,14 +205,7 @@ void DEBUG::setupMode()
 	else
 		AddTraffic(" INFO PROBLEM ");
 
-	// set the hooks
-	sendCommand("h");
-	if(!getBuffer(buffer, sizeof buffer)){
-		state = S_IDLE;
-		SetStatus("PROBLEM STARTING");
-	}
-	else
-		state = S_ENTERIDLE;
+	state = S_ENTERIDLE;
 }
 //=================================================================================================
 // enteridleMODE		the Z80 has just entered the debugger and need the details
@@ -227,17 +220,14 @@ void DEBUG::enteridleMode()
 	char buffer[100];
 	getBuffer(buffer, sizeof buffer);
 	regs->unpackRegs(buffer);
-	// request the memory of the page mapping
-	sendCommand("g %05X %02X", 0x34, 4);
-	getBuffer(buffer, sizeof buffer);
-	regs->unpackMAP(buffer);
 #if 1
 	sendCommand("g %05X %02X", 0x103, 40);
 	getBuffer(buffer, sizeof buffer);
 #endif
 
-	auto t = process->FindTrace(regs->PC);
-	SOURCE::PopUp(get<0>(t), get<2>(t), 1);
+	auto t = process->FindTrace(regs->r1.r2.PC16);
+	if(get<0>(t)>=0)
+		SOURCE::PopUp(get<0>(t), get<2>(t), 1);
 
 	if(!MEM::memList.empty())
 		for(auto& m : MEM::memList){

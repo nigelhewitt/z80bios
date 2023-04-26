@@ -27,6 +27,14 @@ SNAP		macro	id
 			pop		af
 			endm
 
+SNAPD		macro id
+			call	stdio_str
+			db		' ', 0x1b, "[0?", 0
+			SNAP	id
+			call	stdio_str
+			db		0x1b, "[1? ", 0
+			endm
+
 ; Pause until a key is pressed
 PAUSE		macro	text
 			push	af
@@ -302,6 +310,17 @@ INC32		macro
 			ld		a, d
 			adc		0
 			ld		d, a
+			endm
+
+put24		macro	name, r, rr		; save a 24 bit item
+			ld		[name], rr
+			ld		a, r
+			ld		[name+2], a
+			endm
+get24		macro	name, r, rr		; retrieve a 24 bit item
+			ld		rr, [name]
+			ld		a, [name+2]
+			ld		r, a
 			endm
 
 ;-------------------------------------------------------------------------------

@@ -55,9 +55,9 @@
 #define IDC_PAGE2                       1023
 #define IDC_PAGE3                       1024
 #define IDC_PAGE4                       1025
-#define IDC_PC                          1026
+#define IDC_PC20                        1026
 #define IDC_SHOWPC                      1027
-#define IDC_SP                          1028
+#define IDC_SP20                        1028
 #define IDC_SHOWSTACK                   1029
 #define IDC_FLAG_S                      1030
 #define IDC_FLAG_Z                      1031
@@ -83,6 +83,8 @@
 #define IDC_FOLDERBROWSE                1051
 #define IDC_MEMSCROLL                   1052
 #define IDC_ALWAYS                      1053
+#define IDC_PC16                        1054
+#define IDC_SP16                        1055
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
@@ -92,7 +94,7 @@
 #define _APS_NO_MFC                     1
 #define _APS_NEXT_RESOURCE_VALUE        138
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1054
+#define _APS_NEXT_CONTROL_VALUE         1056
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

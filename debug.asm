@@ -14,11 +14,330 @@
 ; Then I add this module to do break points via an RST code and knock up some
 ; hardware to issue NMIs to get single stepping.
 
-	include	"zeta2.inc"		; hardware definitions
-	include	"vt.inc"		; page0 base 0x069 bytes definitions
+;===============================================================================
+;
+; Problem number one: how to divert from my program under test to the debugger.
+;
+; I will have three ways in.
+; 1) a callable function to set things up and test it with the DBG command
+; 2) RST 0x28 executable code either compiled in or set as a 'trap'
+;	 The trap version must save the code it replaces and reinsert it after the
+;	 trap fires and back up the PC by one so 'continue' actually continues.
+; 3) The NMI trap. See discussion of timing later but this allows single step
+;	 execution.
+;
+;===============================================================================
+;
+; Problem number two: the RST/NMI code wants to break to the debug code.
+;
+; So firstly the redirection vectors in PAGE0 can point to fixed addresses so
+; I need a fixed location handler to vector to PAGE3/RAM5 where the code lives.
+; This can go in stepper.asm. See the macro MAKET below.
+;
+;===============================================================================
 
-			org		0x100
-			jp		setup
+startDebug	equ	$
+
+;===============================================================================
+;
+; This file is compiled into all 'ROM's so they can all redirect the RST
+; and the NMI vectors through to the works in RAM5
+;
+; code for a system that must switch PAGE3 to RAM5 to execute the debugger
+;===============================================================================
+
+; There are two versions of the macro MAKET and the go in the same place in the
+; address16 map so the PAGE0 vectors always point to a handler. In RAM5 it goes
+; straight to the code while in all others it does a page switch and then goes
+; to the code passing on its return information. To make things compact I make
+; both switch directions happen at the same point so the execution path in just
+; runs through a point as if a routine was called.
+
+; The macros are defined here to keep the code logical but used in switcher.asm
+
+  if BIOSRAM != RAM5		; RAM5 is the server, all others are clients
+
+;-------------------------------------------------------------------------------
+; client macro to be used by switcher.asm
+;
+; There will be two of these, one for the RST and the other for the NMI
+; The PAGE0 vector points to the start of the macro so we have the return
+; address on the stack. Then we push HL, AF and BC.
+; Then load B with the return RAMn value
+; The macro then switches to RAM5 so they must be aligned exactly.
+; RAM5 does the debugger functions and then switches back to the caller here
+; at exactly the same address so the code continues where it left off and
+; executes POP BC,AF,HL RET/RETN
+;
+; Because of all the alignment issues there is a lot of checking that flags up
+; errors if something goes wrong.
+;-------------------------------------------------------------------------------
+
+ 	macro	MAKET	isNMI
+.p1			call	debugLoad
+			out		(MPGSEL3), a
+		if ($-.p1) != 5
+		 	DISPLAY "MAKET access address: 5 expected but got: ", /D, $-.p1
+			problem with 5
+		endif
+  			pop		bc, af, hl
+  		if isNMI
+  			retn			; a two byte code
+  		else
+  			ret				; a one byte code
+  			nop				; so padded to make the macro the same size
+  		endif
+		if ($-.p1) != 10
+		 	DISPLAY "MAKET size: 10 expected but got: ", /D, $-.p1
+			problem with 10
+		endif
+  	endm
+
+debugLoad	ex		(sp), hl		; put HL on stack and return address in HL
+			push	af, bc			; gives HL,AF,BC on stack
+			ld		a, RAM5			; target PAGE3 RAM in HW format
+			ld		b, BIOSRAM		; client PAGE3 RAM
+			jp		(hl)			; 'return'
+
+;===============================================================================
+; code for a system that is in RAM5 already
+;===============================================================================
+ else
+
+; server macro to be used by stepper.asm
+
+; funcLocal		is the local version of the handler with no page switching
+; funcRemote	is the handler for a page switched call
+; funcExit		is a way to return to a different address (execute from...)
+
+ 	macro	MAKET	funcLocal, funcRemote, funcExit
+.p1			jp		funcLocal
+funcExit	out		(MPGSEL3), a
+		if ($-.p1) != 5
+		 	DISPLAY "MAKET access address: 5 expected but got: ", /D, $-.p1
+			error message
+		endif
+  			jp		funcRemote
+  			nop : nop
+		if ($-.p1) != 10
+		 	DISPLAY "MAKET size: 10 expected but got: ", /D, $-.p1
+			error message
+		endif
+			endm
+
+; We face two 'register on stack' situations
+;
+; Local where the SP can be trusted because we didn't change any pages but
+; all that is on the stack is the return address for the RST/NMI
+;
+; Remote where it can't be used as it probably will be in RAM3 and it
+; contains the return address of the RST/NMI, HL, AF and BC
+
+nmiLocal	push	hl, af, bc			; match the stack of the remote
+
+; unset NMI trap hardware
+			ld		a, 1
+			out		(MPGEN), a
+
+; record the return details
+			ld		b, BIOSRAM			; not mapped
+			ld		c, 1				; NMI style
+			jr		debugger
+
+rstLocal	push	hl, af, bc
+			ld		b, BIOSRAM			; not mapped
+			ld		c, 2				; RST style
+			jr		debugger
+
+; these are via the mapper and have HL, AF and BC enstacked
+nmiRemote
+
+; unset NMI trap hardware
+			ld		a, 1
+			out		(MPGEN), a
+
+; record the return details
+			ld		c, 1				; NMI style
+			jr		debugger
+
+rstRemote	ld		c, 2				; RST style
+			jr		debugger
+
+; this is the direct call for the DBG command
+debugSetup	push	hl, af, bc
+			ld		b, BIOSRAM
+			ld		c, 0
+			jr		debugger
+
+;===============================================================================
+; debugger:	the service
+; The big problem here is the stack. This could well be in PAGE3 and have been
+; swapped out so we need to use our local stack before we call anything but we
+; need to save the SP.
+; NOTICE: at this point I have not updated the savePage[] array so it still
+; points to the old PAGE3 although this is passed in B
+;===============================================================================
+
+	struct REGSAVE
+HL			dw		0	; the first 4 are in the same order as the client stack
+BC			dw		0	;
+AF			dw		0	;
+PC16		dw		0	;
+SP16		dw		0
+DE			dw		0
+AFd			dw		0
+BCd			dw		0
+DEd			dw		0
+HLd			dw		0
+IX			dw		0
+IY			dw		0
+PAGES		dd		0
+RET			db		0
+MODE		db		0
+PC20		d24		0
+SP20		d24		0
+	ends
+regs		REGSAVE
+
+; the system pushed PC, HL, AF, BC before remapping
+; so start by saving the context
+
+debugger	ld		a, b					; return RAM page
+			ld		[regs.RET], a			; RET (RAMn)
+			ld		a, c					; 0=setup, 1=NMI, 2=RST
+			ld		[regs.MODE], a			; MODE (setup, 1=NMI, 2=RST)
+			ld		[regs.SP16], sp			; SP (save addr16)
+
+; localise the stack
+			ld		sp, DebuggerStack		; get a usable stack
+			SNAPD	"in"
+
+; we need the savePages array to interpret the addr16 values
+			ld		hl, [Z.savePage]
+			ld		[regs.PAGES], hl		; PAGES
+			ld		hl, [Z.savePage+2]
+			ld		[regs.PAGES+2], hl
+
+; now do the simple registers
+			ld		[regs.DE], de			; DE
+			ld		[regs.IX], ix			; IX
+			ld		[regs.IY], iy			; IY
+			exx
+			ld		[regs.BCd], bc			; BCd
+			ld		[regs.DEd], de			; DEd
+			ld		[regs.HLd], hl			; HLd
+			exx
+			ex		af, af'
+			push	af
+			ex		af, af'
+			pop		hl
+			ld		[regs.AFd], hl			; AFd
+
+; PC16, AF, BC and HL are on the old stack which may be mapped out
+; use the bank_ldir routine in map.asm
+			SNAPD	"in2"
+			ld		hl, regs.HL & 0x3fff	; destination for copy
+			ld		c, BIOSRAM ^ 0x20		; addr24 in C:HL
+			call	c24to20
+			push	hl
+			ld		b, c					; into B:(pushed)
+			SNAPD	"in3"
+
+			ld		hl, [regs.SP16]			; addr16
+			ld		de, regs.PAGES
+			call	c16to20					; to addr20
+			put24	regs.SP20, c, hl		; save source in C:HL
+
+			pop		de						; gives destination in B:DE
+			ld		ix, 8					; count is 4 dwords
+			SNAPD	"ldir"
+			call	bank_ldir				; copy addr21 C:HL to addr21 B:DE
+											; for IX counts
+
+; update the addr20 values for PC
+			ld		hl, [regs.PC16]
+			ld		de, regs.PAGES
+			call	c16to20
+			put24	regs.PC20, c, hl
+
+			jp		debuggerUI				; now go and run the UI
+
+;===============================================================================
+; When the debugger is sent back to the code we need to restore the registers
+; which were open to editing then either jump or exit via the page switch
+;===============================================================================
+
+debuggerExit
+; convert PC and SP back to addr16 in case they were edited
+; return on not in map
+			get24	regs.SP20, c, hl
+			call	c20to24
+			push	iy
+			CALLF	_c24to16
+			pop		iy
+			ret		nc
+			ld		[regs.SP16], hl
+
+			get24	regs.PC20, c, hl
+			call	c20to24
+			push	iy
+			CALLF	_c24to16
+			pop		iy
+			ret		nc
+			ld		[regs.PC16], hl
+
+; restore the straight forward items
+			ld		de, [regs.DE]			; DE
+			ld		ix, [regs.IX]			; IX
+			ld		iy, [regs.IY]			; IY
+			exx
+			ld		bc, [regs.BCd]			; BCd
+			ld		de, [regs.DEd]			; DEd
+			ld		hl, [regs.HLd]			; HLd
+			exx
+			ld		hl, [regs.AFd]			; AFd
+			push	hl
+			ex		af, af'
+			pop		af
+			ex		af, af'
+
+; that leaves HL, BC, AF, PC and SP
+			ld		hl, regs.HL & 0x3fff	; source for copy
+			ld		c, BIOSRAM ^ 0x20
+			call	c24to20
+
+			get24	regs.SP20, b, de		; destination is B:DE
+			ld		ix, 8					; count is ix
+			call	bank_ldir				; copy addr21 C:HL to addr21 B:DE
+											; for IX counts
+
+			ld		sp, [regs.SP16]
+			ld		a, [regs.RET]
+			cp		BIOSRAM
+			jr		nz, .de2
+
+; local return
+			ld		a, [regs.MODE]
+			cp		1
+			jr		z, .de1
+			pop		bc, af, hl
+			ret
+.de1		pop		bc, af, hl
+			retn
+
+; Remote return
+.de2		ld		a, [regs.MODE]
+			cp		1
+			jr		z, .de3
+			ld		a, [regs.RET]
+			jp		rstExit			; page switch, POP BC AF HL RET
+
+.de3		ld		a, [regs.RET]
+			jp		nmiExit			; page switch, POP BC AF HL RETN
+
+;===============================================================================
+; debugger tools and utilities
+;===============================================================================
 
 ; select the RST to use 0x08, 0x10, 0x18... 0x38
 useRST		equ		0x28
@@ -52,70 +371,14 @@ oldNMI		db		0,0,0
 ; man readable stuff that can be easily turned on and off
 CRLF		macro
   if MAN_READABLE
-			call	_CRLF
+			call	sCRLF
   endif
 			endm
 SPACE		macro
   if MAN_READABLE
-			call	_SPACE
+			call	sSPACE
   endif
 			endm
-
-;===============================================================================
-; setHook		take over RSTxx/NMI
-; dropHook		restore RSTxx/NMI
-;				return NC on error
-;===============================================================================
-setHook		ld		hl, useRST		; RST vector
-			ld		de, oldRST
-			ld		bc, trapRST
-			call	.hook
-			ret		nc
-
-			ld		hl, 0x66		; NMI vector
-			ld		de, oldNMI
-			ld		bc, trapNMI
-
-.hook		ld		a, [de]
-			or		a
-			ret		nz				; return NC
-
-			ld		a, [hl]
-			ld		[de], a
-			ld		[hl], 0xc3		; JP address16
-			inc		hl
-			inc		de
-			ld		a, [hl]
-			ld		[de], a
-			ld		[hl], c
-			inc		hl
-			inc		de
-			ld		a, [hl]
-			ld		[de], a
-			ld		[hl], b
-			scf
-			ret
-
-dropHook	ld		de, useRST
-			ld		hl, oldRST
-			call	.drop
-			ret		nc
-
-			ld		de, 0x66
-			ld		hl, oldNMI
-
-.drop		ld		a, [hl]
-			or		a
-			ret		z					; return NC
-			ld		b, 3
-.dh1		ld		a, [hl]
-			ld		[de], a
-			ld		[hl], 0
-			inc		hl
-			inc		de
-			djnz	.dh1
-			scf
-			ret
 
 ;===============================================================================
 ; getSlot	called with A = slot number, returns IX set to that slot
@@ -250,125 +513,6 @@ freeTrap	push	de, hl
 			ret
 
 ;===============================================================================
-;	Trap	the hook has caught one
-;			the PC is on the stack
-; the RAM must be mapped for it to execute so the system is simpler
-;===============================================================================
-
-	struct REGS
-sp		dw		0
-iy		dw		0
-ix		dw		0
-hl		dw		0
-de		dw		0
-bc		dw		0
-af		dw		0
-pc		dw		0
-	ends
-
-trapRST		push	af, bc
-			call	.trapW		; put regs et all on the stack and set IY
-
-; now we need to reset the trap by putting the replaced character back
-; so we can 'continue' or step
-
-; get the page for the PC in C
-			ld		a, [iy+REGS.pc+1]	; MSbyte of PC
-			ld		l, Z.savePage>>2	; on dd boundary so nothing lost
-			rl		a					; slide A into L  <<2
-			rl		l
-			rl		a
-			rl		l					; gives the address of the savePage+n
-			ld		h, 0
-			ld		a, [hl]				; get the page for this address
-			xor		0x20				; swap RAM and ROM
-			ld		c, a				; gives page RAMn
-
-; and the 14 bit version of the address in DE
-			ld		de, [iy+REGS.pc]
-			dec		de					; the trap was the byte before
-			ld		a, d
-			and		0x3f				; mask to 14 bit address in DE
-			ld		d, a
-
-; set up for a loop of the TRAPS
-			ld		ix, traps
-			ld		b, NTRAPS
-
-; get the page for the PC
-.tr1		ld		a, [ix+TRAP.page]	; test the page
-			cp		c
-			jr		nz, .tr2			; nope
-			ld		a, [ix+TRAP.pc]		; test LSbyte of PC
-			cp		e
-			jr		nz, .tr2
-			ld		a, [ix+TRAP.pc+1]	; MS byte of PC
-			and		0x3f				; but that's a 14 bit address
-			cp		d
-			jr		z, .tr3				; we have a match
-.tr2		ld		hl, TRAP			; size of a TRAP structure
-			ex		hl, de				; ADD IX, HL
-			add		ix, de
-			ex		hl, de
-			djnz	.tr1
-			ld		ix, 0				; signals we have no context
-			jr		.tr4				; compiled in RST so no reset needed
-
-; we have found a call so patch the code hack to how it was
-.tr3		dec		[iy+REGS.pc]		; back up over the RST
-			ld		hl, [iy+REGS.pc]	; this is the code
-			ld		a, [ix+TRAP.code]
-			ld		[hl], a
-
-.tr4		ld		a, NTRAPS
-			sub		b					; -loop counter gives trap number
-			call	debugger
-
-; return to code
-.tr5		pop		hl					; discard the copy of the SP
-			pop		iy, ix, hl, de, bc, af
-			ret
-
-; worker to put the registers et al on the stack
-.trapW		pop		bc					; return address
-			push	de, hl, ix, iy		; now six on stack (12 bytes)
-			; the alt registers can be directly accessed as they won't change
-			ld		iy, 14
-			add		iy, sp				; gives SP when the RST was executed
-			push	iy
-
-			ld		iy, 0
-			add		iy, sp				; points to REGS on the stack
-										; so [iy+REGS.de] is the DE value etc.
-			ld		hl, bc				; now 'return'
-			jp		[hl]
-
-;===============================================================================
-; trapNMI	either an expected Single Step return
-;			or a single step so we can reset the trap that we just released <<<<<<<<<<<<<<<<<<
-;===============================================================================
-
-trapNMI		push	af, bc
-			call	trapRST.trapW		; use the worker in trapRST
-
-			ld		ix, 0
-			ld		a, -2
-			jr		singleStep.ss1
-
-;===============================================================================
-; setup		called by the installer
-;===============================================================================
-setup		push	af, bc
-			call	trapRST.trapW		; use the worker in trapRST
-
-			ld		ix, 0
-			ld		a, -1
-			call	debugger			; no reset to worry about
-
-; return to code
-			jr		trapRST.tr5			; same code so why not?
-
-;===============================================================================
 ; singleStep	step on to the next instruction
 ;				This might be used to do a 'proper' debugging step or
 ;				it might just be used to get the current instruction done so we
@@ -413,10 +557,6 @@ singleStep	pop		hl					; our return address
 
 commandList	db		'i'				; get information
 			dw		cmd_info
-			db		'h'				; set hooks
-			dw		cmd_hook
-			db		'u'				; clear hooks
-			dw		cmd_unhook
 			db		'+'				; set a trap
 			dw		cmd_trap
 			db		'-'				; clear a trap
@@ -438,21 +578,22 @@ commandList	db		'i'				; get information
 			db		'z'				; close down
 			dw		cmd_close
 			db		'q'				; used as a dummy
-			dw		bad_end
+			dw		db_bad_end
 			db		0				; end of list
 
-debugger	push	af				; save slot number
+debuggerUI	push	af				; save slot number
 			call	sendSignOn		; switch terminal to debugger mode
 			ld		a, SIGNON_CMD
-			call	putc
+			call	db_putc
 			pop		af
 			call	packB			; 0 for set up, 1-NTRAPS, NTRAPS for no trap
+
 ; commands (no command can be hex or we could get in a total mess)
 .db1		CRLF
 			ld		a, OK_CMD
-			call	putc
+			call	db_putc
 
-.db1a		call	getc			; getc ignores white space but does do echo
+.db1a		call	db_getc			; db_getc ignores white space but does do echo
 			call	ishex			; ignore hex if data is streaming
 			jr		c, .db1a
 
@@ -467,7 +608,7 @@ debugger	push	af				; save slot number
 			ld		a, [hl]
 			or		a
 			jr		nz, .db2
-			jr		bad_end
+			jr		db_bad_end
 
 ; found
 .db3		inc		hl				; step over the command char
@@ -478,18 +619,18 @@ debugger	push	af				; save slot number
 			jp		[hl]
 
 ; and the two usual returns
-good_end	ld		a, OK_CMD
-.ge1		call	putc
-			jr		debugger.db1
+db_good_end	ld		a, OK_CMD
+.ge1		call	db_putc
+			jr		debuggerUI.db1
 
-some_end	jr		c, good_end
-bad_end		ld		a, BAD_CMD
-			jr		good_end.ge1
+db_some_end	jr		c, db_good_end
+db_bad_end	ld		a, BAD_CMD
+			jr		db_good_end.ge1
 
 ;===============================================================================
 ;	command handlers
-;	either end by jumping to good_end or bad_end
-;	or if they are CY/NC for bad/good some_end
+;	either end by jumping to db_good_end or db_bad_end
+;	or if they are CY/NC for bad/good db_some_end
 ;===============================================================================
 
 ;-------------------------------------------------------------------------------
@@ -499,94 +640,67 @@ cmd_info
 			call	packB
 			ld		a, NTRAPS
 			call	packB
-			jr		good_end
-
-;-------------------------------------------------------------------------------
-; 'h' COMMAND: set Hook
-cmd_hook
-			call	setHook			; adopt RST and NMI
-			jr		some_end		; report errors
-
-;-------------------------------------------------------------------------------
-; 'u' COMMAND: release hook
-cmd_unhook
-			call	dropHook		; restore RST and NMI
-			jr		some_end		; report errors
+			jr		db_good_end
 
 ;-------------------------------------------------------------------------------
 ; '+s slot page address' COMMAND: set a trap
 cmd_trap
 			call	unpackB			; slot in A
-			jr		nc, bad_end		; not hex
+			jr		nc, db_bad_end		; not hex
 			call	getSlot			; point IX to the slot
-			jr		nc, bad_end		; no such slot
+			jr		nc, db_bad_end		; no such slot
 
 			call	unpackB			; get the page in A
-			jr		nc, bad_end
+			jr		nc, db_bad_end
 			ld		c, a
 			call	unpackW			; address in HL
-			jr		nc, bad_end
+			jr		nc, db_bad_end
 
 			call	setTrap			; needs IX=slot, C=page, HL=address
-			jr		some_end		; report errors
+			jr		db_some_end		; report errors
 
 ;-------------------------------------------------------------------------------
 ; '-s slot' COMMAND: remove a trap and free the slot
 cmd_untrap
 			call	unpackB
-			jr		nc, bad_end
+			jr		nc, db_bad_end
 			call	getSlot
-			jr		nc, bad_end
+			jr		nc, db_bad_end
 
 			call	freeTrap		; requires IX
-			jr		good_end		; does not report
+			jr		db_good_end		; does not report
 
 ;-------------------------------------------------------------------------------
 ; 'r' COMMAND: send registers
-; the stack is ret SP AF BC DE HL IX IY ret_from_debugger
 cmd_getregs
-; ret sp, iy, ix, hl, de, bc, af, pc
-			ld		hl, iy				; point to regs on stack
-			ld		b, 8
-.cr1		ld		e, [hl]
+			ld		hl, regs		; point to REGSAVE regs
+			ld		b, REGSAVE/2	; size in WORDS
+.cr1		SPACE
+			ld		e, [hl]
 			inc		hl
 			ld		d, [hl]
 			inc		hl
 			ex		de, hl
-			SPACE
 			call	packW
 			ex		de, hl
 			djnz	.cr1
-
-; af' bc' de' hl'
-			exx
-			push	hl, de, bc
-			exx
-			ex		af, af'
-			push	af
-			ex		af, af'
-			ld		b, 4
-.cr2		pop		hl
-			SPACE
-			call	packW
-			djnz	.cr2
-			jp		good_end
+			jp		db_good_end
 
 ;-------------------------------------------------------------------------------
 ; 't' COMMAND set registers
 cmd_setregs
-			jp		bad_end
+			jp		db_bad_end
 
 ;-------------------------------------------------------------------------------
 ; g address20 count8 COMMAND: get memory
 cmd_get
 			call	unpackN			; 4 bits
-			jp		nc, bad_end
+			jp		nc, db_bad_end
 			ld		c, a
 			call	unpackW			; address in HL
-			jp		nc, bad_end
+			jp		nc, db_bad_end
 			call	unpackB			; count is A
-			jp		nc, bad_end
+			jp		nc, db_bad_end
 			ld		b, a			; count
 			SPACE
 
@@ -605,63 +719,63 @@ cmd_get
 			djnz	.cg1
 
 			call	restoreRAM		; put the memory back as was
-			jp		good_end
+			jp		db_good_end
 
 ;-------------------------------------------------------------------------------
 ; p address count dddd.. COMMAND: put memory
 cmd_put
-			jp		bad_end
+			jp		db_bad_end
 
 ;-------------------------------------------------------------------------------
 ; k COMMAND continue
 cmd_continue
 			ld		a, OK_CMD
-			call	putc
+			call	db_putc
 			call	sendSignOff
-			ret
+			jp		debuggerExit
 
 ;-------------------------------------------------------------------------------
 ; 'x address' execute from an address
 cmd_exec
 			call	unpackW
-			jp		nc, bad_end
-			ld		[iy+REGS.pc], hl
+			jp		nc, db_bad_end
+;			ld		[iy+REGS.PC], hl
 			jr		cmd_continue
 
 ;-------------------------------------------------------------------------------
 ; 's' single step command
 cms_step
 			call	singleStep
-			jp		good_end
+			jp		db_good_end
 
 ;-------------------------------------------------------------------------------
 ; 'z' close down command
 cmd_close
 ;			call	sendSignOff
-			jp		bad_end
+			jp		db_bad_end
 
 ;===============================================================================
 ; utilities
 ;===============================================================================
 
-_CRLF		push	af
+sCRLF		push	af
 			ld		a, 0x0d
-			call	serial_putc
+			call	db_putc
 			ld		a, 0x0a
-			call	serial_putc
+			call	db_putc
 			pop		af
 			ret
 
-_SPACE		push	af
+sSPACE		push	af
 			ld		a, 0x20
-			call	serial_putc
+			call	db_putc
 			pop		af
 			ret
 
 text		ld		a, [hl]
 			or		a
 			ret		z
-			call	putc
+			call	db_putc
 			inc		hl
 			jr		text
 
@@ -674,38 +788,21 @@ sendSignOff	ld		hl, .signoff
 			jr		text
 .signoff	db		0x1b, "[0?\r\n", 0
 
-ishex		cp		'0'
-			jr		c, .ih1			; jr LT so bad
-			cp		'9'+1
-			ret		c				; LT so 0-9
-			cp		'A'
-			jr		c, .ih1
-			cp		'F'+1
-			ret		c
-			cp		'a'
-			jr		c, .ih1
-			cp		'f'+1
-			ret
-.ih1		or		a				; clear carry
-			ret
-
-; getc with skip white
-getc		call	serial_getc
+; db_getc with skip white
+db_getc		call	serial_read
 			cp		' '
-			jr		z, getc
+			jr		z, db_getc
 			cp		0x0d
-			jr		z, getc
+			jr		z, db_getc
 			cp		0x0a
-			jr		z, getc
+			jr		z, db_getc
 			ret
-
-; putc as an alias to serial_putc
-putc		jr		serial_putc
+db_putc		jp		serial_sendW	; send with wait on full
 
 ; HEX HANDLERS : Man readable so MS first !!!!!!!!!!!!!!!!!!!!!!
 
 ; unpack nibble return CY on OK
-unpackN		call	getc
+unpackN		call	db_getc
 ; try a-f
 			cp		'f'+1
 			ret		nc			; >='f'+1 so bad
@@ -778,32 +875,14 @@ packN		push	af
 			daa						; if a nibble is >0x9 add 6
 			adc		0x40
 			daa
-			call	putc
+			call	db_putc
 			pop		af
 			ret
+; the local stack in PAGE3
+			ds		200
+DebuggerStack
 
-;===============================================================================
-; code lifted from serial.asm
-;===============================================================================
-
-RBR		equ		UART+0		; Receive Buffer Register (read only)
-THR		equ		UART+0		; Transmit Holding Register (write only)
-LSR		equ		UART+5		; Line Status Register (rw)
-DAV		equ		0x01		;	Data Ready
-THRE	equ		0x20		;	Transmit Holding Register Empty
-
-serial_getc						; read data
-		in		a, (LSR)
-		and		DAV				; data available?
-		jr		z, serial_getc	; no
-		in		a, (RBR)		; read data
-		ret
-
-serial_putc						; uses nothing
-		push	af				; save the character to send
-.ss1	in		a, (LSR)
-		and		THRE
-		jr		z, .ss1			; loop if !CTS || !THRE
-		pop		af
-		out		(THR), a
-		ret
+ endif
+ if SHOW_MODULE
+	 	DISPLAY "debug size: ", /D, $-startDebug
+ endif

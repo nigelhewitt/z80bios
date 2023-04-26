@@ -8,8 +8,8 @@
 
 ; calculate how much filler is required to place this at the top of the image
 
-;							   goto  itab
-gap			equ		0x10000 - (4*7 + 8 + $)
+;							   debug  goto  itab
+gap			equ		0x10000 - (2*10 + 4*7 + 8 + $)
 			ds		gap
 
  if gap>= 0
@@ -20,6 +20,17 @@ gap			equ		0x10000 - (4*7 + 8 + $)
 
 stepper_start	equ		$
 
+; debugger RAM switches (see debug.asm for discussion)
+
+ if BIOSRAM != RAM5			; client
+gotoRST		MAKET	0
+gotoNMI		MAKET	1
+ else						; server
+gotoRST		MAKET	rstLocal, rstRemote, rstExit
+gotoNMI		MAKET	nmiLocal, nmiRemote, nmiExit
+ endif
+
+; function RAM switches
 gotoRAM3	ld		a, RAM3			; 7T
 			out		(MPGSEL3), a	; 11T
 			jp		transfer		; 10T this instruction executes in RAM3

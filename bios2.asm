@@ -174,37 +174,35 @@ err_badaddress
 ;-------------------------------------------------------------------------------
 ;  DEBG command
 ;-------------------------------------------------------------------------------
-f_debug		ld		hl, .block
-			ld		de, 0x0100
-			ld		bc, .length
-			ldir
-			call	stdio_str
+f_debug		call	stdio_str
 			RED
 			db		"\r\nDebug module loaded"
 			WHITE
 			db		0
+
 			xor		a
 			out		(LIGHTS), a
-			ld		a, 0x0a
-			ex		af, af'
+
 			ld		a, 0xa0
+			ex		af, af'
+			ld		a, 0xaf
 			ex		af, af
-			ld		bc, 0xbcbc
-			ld		de, 0xdede
+			ld		bc, 0xbcb0
+			ld		de, 0xded0
 			ld		hl, 0x1234
 			exx
-			ld		bc, 0xcbcb
-			ld		de, 0xeded
+			ld		bc, 0xcbcf
+			ld		de, 0xedef
 			ld		hl, 0x4321
 			exx
 			ld		ix, 0x2345
 			ld		iy, 0x3456
 			nop
+			SNAP	"out"
 			nop
-			;          IY   IX   HL   DE   BC   A F  PC   A'F' BC'  DE'  HL'
-			; >>r C76E 3456 2345 1234 DEDE BCBC 0A48 C1C2 A000 CBCB EDED 10E1@
-			call	0x0100		; enter debug control mode
+			call	debugSetup		; enter debug control mode
 			nop
+			SNAP	"back"
 			nop
 			ld		a, 0x55
 			out		(LIGHTS), a
@@ -235,11 +233,6 @@ f_debug		ld		hl, .block
 			and		0x80
 			jr		nz, .back
 			jp		good_end
-
-.block
-			incbin	"debug.bin"
-.length		equ	$ - .block
-	 	DISPLAY "debug.bin size: ", /D, .length
 
  if SHOW_MODULE
 	 	DISPLAY "bios2 size: ", /D, $-logo
