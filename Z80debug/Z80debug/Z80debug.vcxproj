@@ -135,6 +135,7 @@
     <ClInclude Include="process.h" />
     <ClInclude Include="regs.h" />
     <ClInclude Include="safequeue.h" />
+    <ClInclude Include="safevector.h" />
     <ClInclude Include="serial.h" />
     <ClInclude Include="serialdrv.h" />
     <ClInclude Include="source.h" />

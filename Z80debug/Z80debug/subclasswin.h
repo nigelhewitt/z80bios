@@ -29,10 +29,10 @@ private:
 			SendMessage(me->hTarget, msg, wParam, lParam);
 			return 0;
 		}
-//		else if(msg==WM_CHAR && wParam==VK_RETURN){
-//			SendMessage(me->hTarget, msg, wParam, lParam);
-//			return 0;
-//		}
+		else if(msg==WM_CHAR && wParam==VK_RETURN){
+			SendMessage(me->hTarget, msg, wParam, lParam);
+			return 0;
+		}
 		return (*me->oldProc)(hwnd, msg, wParam, lParam);
 	}
 };

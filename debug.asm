@@ -142,14 +142,18 @@ nmiLocal	push	hl, af, bc			; match the stack of the remote
 ; record the return details
 			ld		b, BIOSRAM			; not mapped
 			ld		c, 1				; NMI style
-			jr		debugger
+
+; unset the NMI internal states and jp debugger
+			ld		hl, debugger
+			push	hl
+			retn
 
 rstLocal	push	hl, af, bc
 			ld		b, BIOSRAM			; not mapped
 			ld		c, 2				; RST style
 			jr		debugger
 
-; these are via the mapper and have HL, AF and BC enstacked
+; these are via the mapper and already have PC, HL, AF and BC on the stack
 nmiRemote
 
 ; unset NMI trap hardware
@@ -158,12 +162,16 @@ nmiRemote
 
 ; record the return details
 			ld		c, 1				; NMI style
-			jr		debugger
+
+; unwind the NMI internal states and jp debugger
+			ld		hl, debugger
+			push	hl
+			retn
 
 rstRemote	ld		c, 2				; RST style
 			jr		debugger
 
-; this is the direct call for the DBG command
+; this is the direct call from the DBG command
 debugSetup	push	hl, af, bc
 			ld		b, BIOSRAM
 			ld		c, 0
@@ -210,7 +218,6 @@ debugger	ld		a, b					; return RAM page
 
 ; localise the stack
 			ld		sp, DebuggerStack		; get a usable stack
-			SNAPD	"in"
 
 ; we need the savePages array to interpret the addr16 values
 			ld		hl, [Z.savePage]
@@ -235,13 +242,11 @@ debugger	ld		a, b					; return RAM page
 
 ; PC16, AF, BC and HL are on the old stack which may be mapped out
 ; use the bank_ldir routine in map.asm
-			SNAPD	"in2"
 			ld		hl, regs.HL & 0x3fff	; destination for copy
 			ld		c, BIOSRAM ^ 0x20		; addr24 in C:HL
 			call	c24to20
 			push	hl
 			ld		b, c					; into B:(pushed)
-			SNAPD	"in3"
 
 			ld		hl, [regs.SP16]			; addr16
 			ld		de, regs.PAGES
@@ -250,7 +255,6 @@ debugger	ld		a, b					; return RAM page
 
 			pop		de						; gives destination in B:DE
 			ld		ix, 8					; count is 4 dwords
-			SNAPD	"ldir"
 			call	bank_ldir				; copy addr21 C:HL to addr21 B:DE
 											; for IX counts
 
@@ -270,7 +274,8 @@ debugger	ld		a, b					; return RAM page
 debuggerExit
 ; convert PC and SP back to addr16 in case they were edited
 ; return on not in map
-			get24	regs.SP20, c, hl
+ if 0
+get24	regs.SP20, c, hl
 			call	c20to24
 			push	iy
 			CALLF	_c24to16
@@ -285,6 +290,18 @@ debuggerExit
 			pop		iy
 			ret		nc
 			ld		[regs.PC16], hl
+ endif
+
+; that leaves HL, BC, AF, PC and SP
+; copy HL,BC,AF, PC to the old stack
+			ld		hl, regs.HL & 0x3fff	; source for copy
+			ld		c, BIOSRAM ^ 0x20
+			call	c24to20
+
+			get24	regs.SP20, b, de		; destination is B:DE
+			ld		ix, 8					; count is ix
+			call	bank_ldir				; copy addr21 C:HL to addr21 B:DE
+											; for IX counts
 
 ; restore the straight forward items
 			ld		de, [regs.DE]			; DE
@@ -300,40 +317,19 @@ debuggerExit
 			ex		af, af'
 			pop		af
 			ex		af, af'
-
-; that leaves HL, BC, AF, PC and SP
-			ld		hl, regs.HL & 0x3fff	; source for copy
-			ld		c, BIOSRAM ^ 0x20
-			call	c24to20
-
-			get24	regs.SP20, b, de		; destination is B:DE
-			ld		ix, 8					; count is ix
-			call	bank_ldir				; copy addr21 C:HL to addr21 B:DE
-											; for IX counts
-
 			ld		sp, [regs.SP16]
+
 			ld		a, [regs.RET]
 			cp		BIOSRAM
 			jr		nz, .de2
 
 ; local return
-			ld		a, [regs.MODE]
-			cp		1
-			jr		z, .de1
 			pop		bc, af, hl
 			ret
-.de1		pop		bc, af, hl
-			retn
 
 ; Remote return
-.de2		ld		a, [regs.MODE]
-			cp		1
-			jr		z, .de3
-			ld		a, [regs.RET]
+.de2		ld		a, [regs.RET]
 			jp		rstExit			; page switch, POP BC AF HL RET
-
-.de3		ld		a, [regs.RET]
-			jp		nmiExit			; page switch, POP BC AF HL RETN
 
 ;===============================================================================
 ; debugger tools and utilities
@@ -410,12 +406,11 @@ getSlot		cp		NTRAPS
 ;===============================================================================
 getRAM		push	bc, de
 			ld		hl, Z.savePage		; where we save the page assignments
-			ld		b, 4
-			ld		a, c
-			ld		d, 0
-.st1		ld		a, c				; get RAMn
+			ld		b, 4				; test 4 slots
+			ld		d, 0				; count if found
+			ld		a, c				; get requested RAMn
 			xor		0x20				; toggle ROM/RAM to hardware style
-			cp		[hl]				; what is in what page?
+.st1		cp		[hl]				; what is in what page?
 			jr		z, .st2				; we have a match
 			inc		hl
 			inc		d
@@ -423,8 +418,9 @@ getRAM		push	bc, de
 
 ; if we get here the RAM we want is not mapped in so we put it in PAGE1
 			ld		a, [Z.savePage+1]
-			ld		[.saveRAM], a		; page we need to restore
+			ld		[.saveRAM], a		; page we need to restore (hardware mode)
 			ld		a, c
+			xor		0x20				; to hardware mode
 			out		(MPGSEL+1), a		; map the required page
 			ld		hl, PAGE1
 			pop		de, bc
@@ -454,6 +450,11 @@ restoreRAM	ld		a, [getRAM.saveRAM]
 ;						C RAMn to set the trap in (0-31)
 ;						HL address14 to trap (we will mask it)
 ;				returns CY if OK (NC = slot already used)
+;
+;  unsetTrap	put back the user code soi we can continue
+;  resetTrap	reset an existing trap
+;  freeTrap		clear the trap so the slot is free
+;				call with IX to trap structure
 ;===============================================================================
 
 ; first check if it is already used
@@ -482,34 +483,37 @@ setTrap		ld		a, [ix+TRAP.page]	; check used (aka PC set)
 			scf
 			ret
 
+unsetTrap	push	de, hl
+			ld		c, [ix+TRAP.page]
+			call	getRAM				; returns HL as pointer to base of page
+			ld		l, [ix+TRAP.pc]		; HL only has top two bits set
+			ld		a, [ix+TRAP.pc+1]
+			and		0x3f
+			or		h
+			ld		h, a				; gives us a mapped HL
+			ld		a, [ix+TRAP.code]	; get users code
+			ld		[hl], a				; replace so we can continue
+			call	restoreRAM
+			pop		hl, de
+			ret
+
 resetTrap	push	de, hl
 			ld		c, [ix+TRAP.page]
 			call	getRAM
-			pop		de					; was HL
 			ld		l, [ix+TRAP.pc]
 			ld		a, [ix+TRAP.pc+1]
 			and		0x3f
-			or		d
+			or		h
 			ld		h, a				; gives us a mapped HL
 			ld		[hl], rstCODE
 			call	restoreRAM
 			pop		hl, de
 			ret
 
-freeTrap	push	de, hl
-			ld		c, [ix+TRAP.page]
-			call	getRAM
-			pop		de					; was HL
-			ld		l, [ix+TRAP.pc]
-			ld		a, [ix+TRAP.pc+1]
-			and		0x3f
-			or		d
-			ld		h, a				; gives us a mapped HL
-
-			ld		a, [ix+TRAP.code]
-			ld		[hl], a
-			call	restoreRAM
-			pop		hl, de
+freeTrap	call	unsetTrap
+			xor		a
+			ld		[ix+TRAP.page], a	; mark the slot as free
+			ld		[ix+TRAP.pc+1], a
 			ret
 
 ;===============================================================================
@@ -581,13 +585,63 @@ commandList	db		'i'				; get information
 			dw		db_bad_end
 			db		0				; end of list
 
-debuggerUI	push	af				; save slot number
-			call	sendSignOn		; switch terminal to debugger mode
+debuggerUI
+			ld		a, [regs.MODE]
+			or		a				; 0 = setup
+			jr		z, .db0b		; so skip the trap check
+			cp		1
+			jr		z, .db0b		; 1 = NMI
+
+; firstly inspect the PC to see if it was a trap
+; The debugger passed us the addr16 and the PAGEn
+; so get the PAGEn from the PC20
+			get24	regs.PC20, c, hl
+			call	c20to24			; gives us RAMn in C
+			ld		hl, [regs.PC16]	; and addr16 in HL
+			dec		hl				; back to trap address
+			ld		ix, traps
+			ld		b, NTRAPS
+			ld		de, TRAP
+.db0		ld		a, [ix+TRAP.page]
+			cp		c
+			jr		nz, .db0c
+			ld		a, [ix+TRAP.pc]
+			cp		l
+			jr		nz, .db0c
+			ld		a, [ix+TRAP.pc+1]
+			cp		h
+			jr		z, .db0a
+.db0c		add		ix, de
+			djnz	.db0
+
+; no match so it isn't a trap just an RST
+			ld		a, 2			; compiled in RST
+			push	af
+			jr		.db0b
+
+; found  a trap
+.db0a		ld		a, NTRAPS+3
+			sub		b				; gives trap number + 3
+			push	af				; save slot number
+
+; remove the trap and back up the PC for the continue
+			call	unsetTrap
+			ld		hl, [regs.PC16]
+			dec		hl
+			ld		[regs.PC16], hl
+			ld		de, regs.PAGES	; update PC20
+			call	c16to20
+			put24	regs.PC20, c, hl
+
+
+.db0b		call	sendSignOn		; switch terminal to debugger mode
 			ld		a, SIGNON_CMD
 			call	db_putc
 			pop		af
-			call	packB			; 0 for set up, 1-NTRAPS, NTRAPS for no trap
+			call	packB			; 0 for set up, 1=NMI, 2=compiled in RST
+									; 3-NTRAPS+2 a trap
 
+; Start of command loop:
 ; commands (no command can be hex or we could get in a total mess)
 .db1		CRLF
 			ld		a, OK_CMD
@@ -668,7 +722,7 @@ cmd_untrap
 			jr		nc, db_bad_end
 
 			call	freeTrap		; requires IX
-			jr		db_good_end		; does not report
+			jr		db_good_end
 
 ;-------------------------------------------------------------------------------
 ; 'r' COMMAND: send registers
@@ -707,6 +761,9 @@ cmd_get
 ; now get the RAM page
 			push	hl
 			rl		h				; get the page in C
+			rl		c
+			rl		h
+			rl		c				; C is page (not hardware mode)
 			call	getRAM			; RAMn in C, returns HL base of the ram
 			pop		de				; pop the old address16
 			ld		a, d			; convert to address14
@@ -722,7 +779,7 @@ cmd_get
 			jp		db_good_end
 
 ;-------------------------------------------------------------------------------
-; p address count dddd.. COMMAND: put memory
+; p address20 count8 dddd.. COMMAND: put memory
 cmd_put
 			jp		db_bad_end
 
@@ -751,8 +808,8 @@ cms_step
 ;-------------------------------------------------------------------------------
 ; 'z' close down command
 cmd_close
-;			call	sendSignOff
-			jp		db_bad_end
+			call	sendSignOff
+			jp		good_end
 
 ;===============================================================================
 ; utilities

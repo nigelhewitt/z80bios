@@ -13,31 +13,25 @@ class MEM;
 class DEBUG {
 public:
 	DEBUG(){
-		waitObjects[0] = CreateEvent(nullptr, FALSE, FALSE, "Debugger Data Ready");
-		waitObjects[1] = CreateEvent(nullptr, FALSE, FALSE, "Debugger Terminate");
 		serial->registerReceiver(1, &bytesIn);
-		start();
+		runOK = true;
+		deb = new std::thread([this](){ try{ debugger(); } catch(...){} });
 	}
-	~DEBUG(){}
+	~DEBUG(){
+		runOK = false;
+		deb->join();		// wait for it...
+	}
 	int setTrap(int page, int address);
-	void freeTrap(int n){ traps[n-1].used = false; }
+	void freeTrap(int n);
 
 	enum STATE { S_NEW, S_ENTERIDLE, S_IDLE, S_RUN, S_TRAP, S_ERROR };
 	STATE DebugState(){ return state; }
-
-	// routines called by main thread routines in the Windows UI
-	void pleaseFetch(MEM* md){}
-	void pleaseStop(MEM* md){}
-	bool pleasePoll(MEM* md){ return false; }
-	void pleaseLock(){}
-	void pleaseUnlock(){}
 
 	// UI inputs
 	void run();
 	void step();
 	void kill();
 	void pause();
-	void die(){ SetEvent(waitObjects[1]); }
 
 private:
 	// Traps
@@ -48,10 +42,11 @@ private:
 	int nTraps=0;
 
 	int nPleaseSetTrap{};
+	int nPleaseFreeTrap{};
 
 	// debugger process thread
 	void debugger();					// the thread routine
-	void showStatus(byte type);
+	void showStatus(byte type, bool force=false);
 	void setupMode();
 	void enteridleMode();
 	void idleMode();
@@ -59,11 +54,8 @@ private:
 	void trapMode();
 
 
-	HANDLE waitObjects[2]{};
 	std::thread *deb{};
-	void start(){
-		deb = new std::thread([this](){ try{ debugger(); } catch(...){} });
-	}
+	bool runOK{true};
 
 	// character stream into/out of the debugger
 	SafeQueue<char> bytesIn;
@@ -71,7 +63,6 @@ private:
 	// base thread routine to pass stuff to the debugger
 	void debugChar(char c){
 		bytesIn.enqueue(c);
-		SetEvent(waitObjects[0]);
 	}
 	// routines called by the debugger to access inbound data
 	bool poll(){ return !bytesIn.empty(); }

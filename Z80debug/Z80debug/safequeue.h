@@ -34,6 +34,6 @@ template <class T>
 		}
 		// count
 		int count() const {
-			return (int)q.size();						// queue.count is const
+			return (int)q.size();					// queue.count is const
 		}
 	};

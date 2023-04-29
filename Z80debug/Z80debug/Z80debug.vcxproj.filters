@@ -63,6 +63,9 @@
     <ClInclude Include="subclasswin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="safevector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Z80debug.cpp">

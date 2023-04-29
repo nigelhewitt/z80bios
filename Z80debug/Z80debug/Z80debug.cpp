@@ -206,7 +206,7 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			terminal = new TERMINAL;
 			debug = new DEBUG;
 			if(GetProfile("setup", "show-traffic", "false")[0]=='t')
-				TRAFFIC::ShowTraffic();
+				TRAFFIC::ShowTraffic(hWnd);
 		}
 		SetStatus("WAITING FOR HOST");
 		SetTimer(hWnd, 1, 200, nullptr);
@@ -256,7 +256,7 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			return 0;
 
 		case IDM_TRAFFIC:
-			TRAFFIC::ShowTraffic();
+			TRAFFIC::ShowTraffic(hWnd);
 			return 0;
 
 		case IDM_REGS:
@@ -288,7 +288,6 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			return 0;
 
 		case IDM_EXIT:
-			debug->die();
 			DestroyWindow(hWnd);
 			return 0;
 		}
@@ -332,6 +331,10 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 	}
 
 	case WM_DESTROY:
+		delete debug;
+		debug = nullptr;
+//		delete terminal;
+//		delete serial;
 		PostQuitMessage(0);
 		return 0;
 	}

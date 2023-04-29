@@ -20,3 +20,11 @@ int tohex(char c);
 BYTE unpackBYTE(const char* text, int &index);
 WORD unpackWORD(const char* text, int& index);
 char tohexC(WORD b);
+
+// std::vector delete item by value
+// use as: remove_by_value<MEM*>(&memList, this);
+template<class T>
+void remove_by_value(std::vector<T>*v, T value){
+	auto i=std::find(v->begin(), v->end(), value);
+	if(i!=v->end()) v->erase(i);
+}

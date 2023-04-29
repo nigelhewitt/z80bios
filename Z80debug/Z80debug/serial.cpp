@@ -1,10 +1,11 @@
-//=================================================================================================
+﻿//=================================================================================================
 //
 //		serial.cpp	SERIAL is a class to wrap my old SERIALDRV tool for the debugger
 //
 //=================================================================================================
 
 #include "framework.h"
+#include "traffic.h"
 #include "serial.h"
 
 SERIAL* serial{};
@@ -59,7 +60,7 @@ bool SERIAL::send(char c)
 bool SERIAL::post(char c)
 {
 	// we switch receiver using the ESC[n? code
-	// the system is over complicated but open ended for adding file transfer et al later
+	// the system is over complicated for just two receivers but open ended for adding file transfer et al later
 	switch(inputState){
 	case 0:					// normal
 		if(c==0x1b){		// <ESC>
@@ -87,7 +88,15 @@ bool SERIAL::post(char c)
 
 	case 3:
 		if(c=='?'){				// a non-ANSI code (I hope)
+			if(currentReceiver==1 && traffic){
+				while(!receivers[1]->empty())		// don't queue jump
+					Sleep(20);
+				traffic->putc(']');
+			}
 			currentReceiver = digit-'0';
+			if(currentReceiver==1 && traffic)
+				traffic->putc('[');
+			inputState = 0;
 			return true;
 		}
 		else{

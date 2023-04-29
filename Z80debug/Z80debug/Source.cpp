@@ -39,7 +39,7 @@ SOURCE::SOURCE(const char* title, int _fileID, int _page)
 	mcs.hOwner	= hInstance;
 	mcs.x		= CW_USEDEFAULT;
 	mcs.y		= CW_USEDEFAULT;
-	mcs.cx		= CW_USEDEFAULT;
+	mcs.cx		= 900;
 	mcs.cy		= CW_USEDEFAULT;
 	mcs.style	= WS_HSCROLL | WS_VSCROLL;
 	mcs.lParam	= (LPARAM)this;
@@ -61,12 +61,6 @@ SOURCE::~SOURCE()
 	SendMessage(hSource, WM_MDIDESTROY, (WPARAM)hSource, 0);
 	delete[] fname;
 }
-//LRESULT SendToActiveChild(UINT uMessage, WPARAM wParam, LPARAM lParam)
-//{
-//	auto hwnd = reinterpret_cast<HWND>(SendMessage(hClient, WM_MDIGETACTIVE, 0, 0));
-//	if(hwnd) return SendMessage(hwnd, uMessage, wParam, lParam);
-//	return 0;
-//}
 
 void SOURCE::Paint(HWND hWnd, HDC hdc)
 {

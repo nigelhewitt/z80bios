@@ -311,13 +311,12 @@ LRESULT CALLBACK TERMINAL::Proc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM 
 			td->nLines = (r.bottom-r.top)/td->tHeight + 1;
 
 			// how many 'off screen lines do we have?
-			int nl; nl = (int)td->lines.size() - td->nLines+2;
+			int nl = (int)td->lines.size() - td->nLines+2;
 			if(nl<0) nl=0;
-			si.nMax = nl;					// set scroll range
-
-			si.nPos = si.nMax;				// scroll to the bottom
+			si.nMax	 = nl+td->nLines;				// set scroll range
+			si.nPage = td->nLines;
+			si.nPos  = si.nMax - si.nPage;			// scroll to the bottom
 			SetScrollInfo(hWnd, SB_VERT, &si, true);
-
 			InvalidateRect(hWnd, nullptr, TRUE);	// repaint
 		}
 		return 0;
@@ -354,11 +353,17 @@ LRESULT CALLBACK TERMINAL::Proc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM 
 		case SB_THUMBTRACK:
 			td->nScroll = HIWORD(wParam);
 			break;
-		case SB_LINEDOWN:
+		case SB_PAGEDOWN:
 			td->nScroll += 30;
 			break;
-		case SB_LINEUP:
+		case SB_PAGEUP:
 			td->nScroll -= 30;
+			break;
+		case SB_LINEDOWN:
+			++td->nScroll;
+			break;
+		case SB_LINEUP:
+			--td->nScroll;
 			break;
 		}
 		SCROLLINFO si = { 0 };

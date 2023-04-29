@@ -15,16 +15,14 @@ MAKE20		macro	RAMn, offset16
 			endm
 
 ; Diagnostic register dump to serial port (all pushed)
-SNAP		macro	id
-			push	af
-			xor		a
-			ld		[Z.snap_mode], a
-			pop		af
-			push	af					; get a pristine AF
+SNAP		macro
+			rst		0x20
+			endm
+
+SNAPT		macro	id
 			call	_snap
 			call	stdio_str
 			db		id,0
-			pop		af
 			endm
 
 SNAPD		macro id
@@ -88,7 +86,7 @@ DUMP0		macro	offset16, count
 
 ; Crash And Burn
 CAB			macro	obituary
-			SNAP	obituary
+			SNAPT	obituary
 			jp		good_end			; reset stack
 			endm
 

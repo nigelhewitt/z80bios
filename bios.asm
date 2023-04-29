@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.32"		; version number for sign on message
+	define	VERSION	"v0.1.33"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;	compile with
@@ -148,7 +148,7 @@ start_table
 			ret: nop: nop			; RST 0x18
 	.5		db		0
 ; 0x20
-			ret: nop: nop			; RST 0x20
+			jp		rst20			; RST 0x20
 	.5		db		0
 ; 0x28
 			jp		gotoRST			; debug handler

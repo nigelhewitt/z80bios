@@ -8,14 +8,13 @@
 
 TRAFFIC* traffic{};
 
-void TRAFFIC::ShowTraffic()
+void TRAFFIC::ShowTraffic(HWND hParent)
 {
 	if(traffic==nullptr)
 		traffic = new TRAFFIC;
 	if(traffic->hTraffic==nullptr)
-		traffic->hTraffic = CreateDialog(hInstance, MAKEINTRESOURCE(IDD_TRAFFIC), hFrame, Proc);
+		traffic->hTraffic = CreateDialog(hInstance, MAKEINTRESOURCE(IDD_TRAFFIC), hParent, Proc);
 	ShowWindow(traffic->hTraffic, SW_SHOW);
-	SendMessage(traffic->hTraffic, WM_USER, 0, 0);	// update
 }
 //=================================================================================================
 // Traffic dialog box
@@ -33,17 +32,17 @@ INT_PTR TRAFFIC::Proc(HWND hDlg, UINT wMessage, WPARAM wParam,  LPARAM lParam)
 
 	case WM_TIMER:
 		if(traffic && traffic->inbound.count()){
-			char text[200];
+			char temp[200];
 			int i=0;
-			while(i<(int)sizeof text-1 && traffic->inbound.count())
-				text[i++] = traffic->inbound.dequeue();
-			text[i] = 0;
+			while(i<(int)sizeof temp-1 && traffic->inbound.count())
+				temp[i++] = traffic->inbound.dequeue();
+			temp[i] = 0;
 
 			int n = GetWindowTextLength(GetDlgItem(hDlg, IDC_DEBUGTERM));
 			n += i + 10;
 			char *buffer = new char[n];
 			GetDlgItemText(hDlg, IDC_DEBUGTERM, buffer, n);
-			strcat_s(buffer, n, text);
+			strcat_s(buffer, n, temp);
 			SetDlgItemText(hDlg, IDC_DEBUGTERM, buffer);
 			delete[] buffer;
 		}

@@ -1236,6 +1236,11 @@ strrchr16	push	bc, ix
 ;===============================================================================
 ; dump the registers
 ;===============================================================================
+
+; called from RST 0x20
+snapHandler				; jp _snap seems a little redundant
+
+; the subroutine that does the work
 _snap		push	af
 			push	bc
 			push	hl
@@ -1266,36 +1271,17 @@ _snap		push	af
 			call	stdio_word
 			call	stdio_str
 			db		" SP:", 0
-			; we now need two different versions of the constants
-			;							snap_mode==0	snap_mode=1
-			; stack depth since last call	12				14
-			; return address				8				12
-			; back to start of snap			-19				-1
-			ld		a, [Z.snap_mode]
-			or		a
-			ld		hl, 12			; stack depth since call (14)
-			jr		z, .sn1
-			ld		hl, 14
-.sn1		add		hl, sp
+			ld		hl, 8			; stack depth since call
+			add		hl, sp
 			call	stdio_word
 			call	stdio_str
 			db		" PC:", 0
-			ld		a, [Z.snap_mode]
-			or		a
-			ld		hl, 8			; return address (12)
-			jr		z, .sn2
-			ld		hl, 12
-.sn2		add		hl, sp
+			ld		hl, 8			; return address
+			add		hl, sp
 			ld		a, [hl]
 			inc		hl
 			ld		h, [hl]
 			ld		l, a			; return address of _snap
-			ld		a, [Z.snap_mode]
-			or		a
-			ld		bc, -19			; back to the start of SNAP (-1)
-			jr		z, .sn3
-			ld		bc, -1
-.sn3		add		hl, bc
 			call	stdio_word
 			ld		a, ' '
 			call	stdio_putc

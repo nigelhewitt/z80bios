@@ -27,6 +27,11 @@ int DEBUG::setTrap(int page, int address)
 		}
 	return 0;
 }
+void DEBUG::freeTrap(int n)
+{
+	nPleaseFreeTrap = n;
+	traps[n-1].used = false;
+}
 //=================================================================================================
 // the debugger thread
 //=================================================================================================
@@ -69,20 +74,16 @@ bool DEBUG::getBuffer(char *buffer, int cb, int timeout)
 			}
 		}
 		Sleep(50);
+		if(!runOK) throw 1;
 	}
 	buffer[i] = 0;
 	return false;
 }
 int DEBUG::getc(int timeout)
 {
-	if(timeout==0){
-		while(true){
-			char c = bytesIn.dequeue();
-			if(traffic) traffic->putc(c);
-			if(!iswhite(c))
-				return c & 0xff;
-		}
-	}
+	if(timeout==0)
+		timeout = 86400000L;	// one day
+
 	uint64_t time = GetTickCount64()+timeout;	// mSecs
 	while(time>GetTickCount64()){
 		if(!bytesIn.empty()){
@@ -91,6 +92,7 @@ int DEBUG::getc(int timeout)
 		if(!iswhite(c))
 			return c & 0xff;
 		}
+		if(!runOK) throw 1;
 		Sleep(50);
 	}
 	return -1;
@@ -149,23 +151,24 @@ void DEBUG::step() { uiFlag = F_STEP; }
 void DEBUG::kill() { uiFlag = F_KILL;}
 void DEBUG::pause(){ uiFlag = F_BREAK; }
 
-void DEBUG::showStatus(byte type)
+void DEBUG::showStatus(byte type, bool force)
 {
 	static byte oldType{0xaa};
-	if(type!=oldType){
+	if(type!=oldType || force){
 		oldType = type;
 
-		if(type==0xff)
+		if(type==0)
 			SetStatus("READY");
-		else if(type==0xfe)
+		else if(type==1)
 			SetStatus("NMI BREAK");
-		else if(type==nTraps)
+		else if(type==2)
 			SetStatus("TRAP RST");
-		else if(type>=0 && type<nTraps){
-			int page = traps[type].page;
+		else if(type>=3 && type<=nTraps+2){
+			int page = traps[type-3].page;
 			bool RAM = (page & 0x20)!=0;
 			char buffer[100];
-			sprintf_s(buffer, sizeof buffer, "TRAP %d at %s%d:%04X", type,
+			// we talk about traps 1 to 10 but index then 0-9
+			sprintf_s(buffer, sizeof buffer, "TRAP %d at %s%d:%04X", type-2,
 							RAM?"ROM":"RAM", page&0x1f, regs->r1.r2.PC16);
 			SetStatus(buffer);
 		}
@@ -220,32 +223,18 @@ void DEBUG::enteridleMode()
 	char buffer[100];
 	getBuffer(buffer, sizeof buffer);
 	regs->unpackRegs(buffer);
-#if 1
-	sendCommand("g %05X %02X", 0x103, 40);
-	getBuffer(buffer, sizeof buffer);
-#endif
 
 	auto t = process->FindTrace(regs->r1.r2.PC16);
 	if(get<0>(t)>=0)
 		SOURCE::PopUp(get<0>(t), get<2>(t), 1);
 
+	// set all MEMs to request mode
 	if(!MEM::memList.empty())
-		for(auto& m : MEM::memList){
-			for(int i=0; i<m->count; i+=100){
-				char temp[250];
-				int n = 100;
-				if(m->count-i<n) n = m->count-i;
-				sendCommand("g %05X %02X", m->address+i, n);
-				getBuffer(temp, sizeof temp);
-				int index = 0;
-				for(int j=0; j<n; ++j)
-					m->array[i+j] = unpackBYTE(temp, index);
-			}
-			m->updated = true;
-		}
+		for(auto& m : MEM::memList)
+			m->updated = false;
 
 	state = S_IDLE;
-	showStatus(type);
+	showStatus(type, true);
 }
 //=================================================================================================
 // idleMODE		the Z80 is in the debugger and waiting for instructions
@@ -280,6 +269,7 @@ void DEBUG::idleMode()
 	}
 	uiFlag = 0;
 
+	// check for a trap request
 	if(debug->nPleaseSetTrap){
 		int i=debug->nPleaseSetTrap - 1;
 		debug->nPleaseSetTrap = 0;
@@ -288,6 +278,38 @@ void DEBUG::idleMode()
 		if(getBuffer(buffer, sizeof buffer))
 			SetStatus("IDLE");
 	}
+	// and the converse
+	if(debug->nPleaseFreeTrap){
+		int i=debug->nPleaseFreeTrap - 1;
+		debug->nPleaseFreeTrap = 0;
+		sendCommand("- %02X", i);
+		char buffer[100];
+		if(getBuffer(buffer, sizeof buffer))
+			SetStatus("IDLE");
+	}
+
+	// check for a memory request
+	{
+		const std::lock_guard<std::mutex> lock(MEM::memListMutex);
+		if(!MEM::memList.empty())
+			for(auto& m : MEM::memList){
+				const std::lock_guard<std::mutex> lock(m->transfer);
+				if(!m->updated && m->count && m->array){
+					for(int i=0; i<m->count; i+=100){
+						char temp[250];
+						int n = 100;
+						if(m->count-i<n) n = m->count-i;
+						sendCommand("g %05X %02X", m->address+i, n);
+						getBuffer(temp, sizeof temp);
+						int index = 0;
+						for(int j=0; j<n; ++j)
+							m->array[i+j] = unpackBYTE(temp, index);
+					}
+					m->updated = true;
+				}
+			}
+	}
+
 }
 //=================================================================================================
 // runMODE		the Z80 is running
@@ -315,26 +337,29 @@ void DEBUG::trapMode()
 
 void DEBUG::debugger()
 {
-	while(true)
-		switch(state){
-		case S_NEW:
-			setupMode();
-			break;
+	try{
+		while(runOK)
+			switch(state){
+			case S_NEW:
+				setupMode();
+				break;
 
-		case S_ENTERIDLE:		// get status
-			enteridleMode();
-			break;
+			case S_ENTERIDLE:		// get status
+				enteridleMode();
+				break;
 
-		case S_IDLE:			// waiting for the UI
-			idleMode();
-			break;
+			case S_IDLE:			// waiting for the UI
+				idleMode();
+				break;
 
-		case S_RUN:				// waiting for UI and trap
-			runMode();
-			break;
+			case S_RUN:				// waiting for UI and trap
+				runMode();
+				break;
 
-		case S_TRAP:
-			trapMode();
-			break;
+			case S_TRAP:
+				trapMode();
+				break;
 		}
+	}
+	catch(...){}
 }

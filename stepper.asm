@@ -8,8 +8,8 @@
 
 ; calculate how much filler is required to place this at the top of the image
 
-;							   debug  goto  itab
-gap			equ		0x10000 - (2*10 + 4*7 + 8 + $)
+;							   jmp   debug  goto  itab
+gap			equ		0x10000 - (1*3 + 2*10 + 4*7 + 8 + $)
 			ds		gap
 
  if gap>= 0
@@ -19,6 +19,9 @@ gap			equ		0x10000 - (2*10 + 4*7 + 8 + $)
  endif
 
 stepper_start	equ		$
+
+; local jumps
+rst20		jp		snapHandler
 
 ; debugger RAM switches (see debug.asm for discussion)
 

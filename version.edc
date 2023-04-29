@@ -2,7 +2,7 @@
 
   update to git repository
 	git add -u					move updates to staging area
-   	git commit -m "0.1.32"		move to local repository, use version number
+   	git commit -m "0.1.33"		move to local repository, use version number
    	git push -u origin main		move to github
 
 0.1.6
@@ -175,3 +175,9 @@ made as my poor old eyes and fingers aren't hand wiring that sort of thing.
 Debugger rewrite progresses. Debugger now executing in RAM5 with RST and NMI
 calls remapped to it. Finally got it starting up and displaying the registers
 in the DBG command setup.
+
+0.1.33
+More debugger work. Traps now set and clear however I'm waiting on the
+NME/single step PCB to make them auto-rearm after use.
+The memory window uses name look up and offers hex-align as an option and a lot
+of visual work done on the debugger PC screens.
