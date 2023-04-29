@@ -30,8 +30,8 @@ However the ANSI stuff can be switched off in **zeta2.inc**
 The commands are low level being up to four character letters followed by some
 arguments.
 
-I've been using **putty** as a terminal as I have it anyway for SSH. Set it up
-with  
+I started by using **putty** as a terminal as I have it anyway for SSH. Set it
+up with  
 &nbsp;&nbsp;&nbsp;&nbsp;Keys: Control-H Standard ESC[n~ Normal Normal  
 &nbsp;&nbsp;&nbsp;&nbsp;Translation: UTF-8  
 &nbsp;&nbsp;&nbsp;&nbsp;Colours: Allow terminal to specify ANSI colours  
@@ -52,12 +52,12 @@ FDC in FAT12 that I'm growing at the moment.
 
 I have documented things as if somebody was actually going to use it but if you
 do you are rather missing the point. This is just my safety backup as I work
-and to others I just expect it to be a pile of source code to loot to write
+and to others I just expect it to be a pile of source code to be mined to write
 their own systems. That's what real open source is for isn't it?
 
 Have fun.
 
-Most of what you might need to know is in the code.  
+Most of what you might need to know is in the code comments.  
 I've gone for the ELI5 comment style because at 73 I forget stuff.  
 Start from **bios.asm** and go from there.  
 The **make.ps1** compiles the separate biosN.bin and merge.exe glues them
@@ -67,14 +67,17 @@ address map for RAM.
 The RTC clock, SD and the FDC low level systems are based on reading code from
 other GitHub denizens. Credits are in the files.
 
-If you use any of it and run into problems drop me an email. I'm hardly hard to
-find on the web.
+If you try to use any of it and run into problems drop me an email. I'm hardly
+hard to find on the web.
 
-I even built it a box...
+I even built it a box as wires sprawling all over my desk got irritating...
 
 ![Box](/box.jpg)
 
-Darn it I built it a debugger with a built in terminal in good old C++ and the
-classic WIN32 interface. The source is naturally included....  
+Darn it I built it a debugger with a built in terminal using good old C++ and
+the classic WIN32 interface. The source is naturally included....  
+I have designed myself a NMI triggering single-step execution adapter but that
+needs the debugger to work usefully atm.  
+Watch this space as they say...  
 
 ![Debugger screen shot](/debugger.jpg)
