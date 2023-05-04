@@ -75,9 +75,13 @@ I even built it a box as wires sprawling all over my desk got irritating...
 ![Box](/box.jpg)
 
 Darn it I built it a debugger with a built in terminal using good old C++ and
-the classic WIN32 interface. The source is naturally included....  
+the classic WIN32 interface. The Visual Studio VS2023 source is naturally
+included....  
 I have designed myself a NMI triggering single-step execution adapter but that
-needs the debugger to work usefully atm.  
-Watch this space as they say...  
+needs the debugger to work usefully atm. I got a PCB made and I have a bunch of
+spares if somebody want to avoid the hassle of making similar. Email to check
+then pay the postage and you can have them for free. There is one track to cut
+and run a wire to replace but I needed one and the PCB house put six on the
+board and sent me an extra board so I have a lot spare...  
 
 ![Debugger screen shot](/debugger.jpg)
