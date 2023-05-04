@@ -181,3 +181,7 @@ More debugger work. Traps now set and clear however I'm waiting on the
 NME/single step PCB to make them auto-rearm after use.
 The memory window uses name look up and offers hex-align as an option and a lot
 of visual work done on the debugger PC screens.
+
+0.1.34
+Hardware NMI for single step board installed and tested. PCB schematic updated.
+Test function on cmd_z

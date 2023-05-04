@@ -7,6 +7,7 @@
 	define	VERSION	"v0.1.33"		; version number for sign on message
 ;									  also used for the git commit message
 ;
+;
 ;	compile with
 ;			./make.ps1
 ;
@@ -1079,19 +1080,78 @@ cmd_y		ld		ix, 0					; default value
 ;===============================================================================
 ; Z  another thing being tested
 ;===============================================================================
-cmd_z		ld		ix, .buffer		; buffer
-			ld		b, 100			; size of buffer in WCHARs
-			ld		c, 3			; picky mode
-			call	getW
-			jp		nc, bad_end
-
-			call	stdio_str
-			db		"\r\n",0
-			ld		hl, .buffer
-			call	stdio_textW
+cmd_z		call	stdio_str
+			db		"\r\nNMI test: ",0
+			ld		hl, nmitest
+			ld		[0x67], hl
+			ld		a, 0xff
+			ld		[.saveB], a
+			ld		b, 0
+.z1			ld		a, 0x81
+			out		(MPGEN), a		; 12T
+			inc		b				; 4T
+			inc		b
+			inc		b			; switch at 32 scores 9
+			inc		b			; switch at 16 scores 1
+			inc		b			; 			17		  1
+			inc		b			;			18		  1
+			inc		b			;			19		  2
+			inc		b			;			20		  2
+			inc		b			;			21		  2
+			inc		b			;			22		  2
+			inc		b			;			23		  3
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b
+			inc		b			; that's 50 so 200T
+			ld		a, [.saveB]
+			call	stdio_byte
 			jp		good_end
 
-.buffer		ds		100 * 2
+.saveB		db		0
+
+nmitest		push	af
+			ld		a, b
+			ld		[cmd_z.saveB], a
+			ld		a, 0x01
+			out		(MPGEN), a
+			pop		af
+			retn
 
 ;===============================================================================
 ; KILL  the kill command

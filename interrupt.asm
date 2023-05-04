@@ -92,15 +92,15 @@ int1		di
 			adc		0
 			ld		h, a
 			ld		a, [hl]
-			out		(PIO+1), a
+			out		(LIGHTS), a
 .lr2
 ; switches to lights option
   if BIOSROM == 0
   			ld		a, [cmd_bits]
 			and		1					; bit 0 = 'A'
 			jr		z, .q3
-			in		a, (PIO_A)			; read switches
-			out		(PIO_B), a			; write leds
+			in		a, (SWITCHES)		; read switches
+			out		(LIGHTS), a			; write leds
 .q3
 	endif
 		endif

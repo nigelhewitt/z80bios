@@ -99,12 +99,12 @@ bool AddToolbar(HWND hParent)
 
 	TBBUTTON tbButtons[] = {
 		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
-		{ 0,	IDM_SEARCH,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Find"},
+		{ 0,	IDM_SEARCH,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Find"},
 		{ 1,	IDM_CONFIGURE,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Conf"},
 		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
 		{ 2,	IDM_TERMINAL,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Term"},
 		{ 3,	IDM_REGS,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Regs"},
-		{ 4,	IDM_MEMORY,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Mem"},
+		{ 4,	IDM_MEMORY,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Mem"},
 		{ 5,	IDM_TRAFFIC,	TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Traffic"},
 		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
 		{ 6,	IDM_RUN,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Run"},
@@ -357,7 +357,7 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 	w.cbClsExtra	= 0;
 	w.cbWndExtra	= 0;
 	w.hInstance		= hInstance;
-	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_Child));
+	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_FRAME));
 	w.hCursor		= LoadCursor(nullptr, IDC_ARROW);
 	w.hbrBackground	= reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
 	w.lpszMenuName	= MAKEINTRESOURCE(IDI_Z80debugger);
@@ -369,21 +369,23 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 	w.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
 	w.lpfnWndProc	= SOURCE::Proc;
 	w.cbWndExtra	= sizeof LONG_PTR;
-	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_Child));
+	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SOURCE));
 	w.hCursor		= LoadCursor(nullptr, IDC_ARROW);
 	w.hbrBackground	= nullptr;
 	w.lpszMenuName	= nullptr;
 	w.lpszClassName	= "Z80source";
+	w.hIconSm		= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL));
 	RegisterClassEx(&w);
 
 	// Register the terminal MDI child window
 	w.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
 	w.lpfnWndProc	= TERMINAL::Proc;
 	w.cbWndExtra	= sizeof LONG_PTR;
-	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_Child));
+	w.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_TERMINAL));
 	w.hCursor		= LoadCursor(nullptr, IDC_ARROW);
 	w.hbrBackground	= nullptr;
 	w.lpszMenuName	= nullptr;
+	w.hIconSm		= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL));
 	w.lpszClassName	= "Z80terminal";
 	RegisterClassEx(&w);
 

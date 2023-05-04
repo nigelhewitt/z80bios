@@ -66,6 +66,9 @@
     <ClInclude Include="safevector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="charset.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Z80debug.cpp">
@@ -101,6 +104,9 @@
     <ClCompile Include="mem.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="charset.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Z80debug.rc">
@@ -108,13 +114,19 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="small.ico">
-      <Filter>Resource Files</Filter>
-    </Image>
     <Image Include="Z80debug.ico">
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="toolbar.bmp">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="frame.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="source.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="terminal.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

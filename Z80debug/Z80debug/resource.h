@@ -4,9 +4,11 @@
 //
 #define IDD_ABOUTBOX                    100
 #define IDC_Z80debugger                 101
+#define IDI_FRAME						105
 #define IDI_Z80debugger                 106
-#define IDI_Child                       107
+#define IDI_SOURCE                      107
 #define IDI_SMALL                       108
+#define IDI_TERMINAL					109
 #define IDM_EXIT                        110
 #define IDM_ADDCHILD                    111
 #define IDM_ADDDIALOG                   112

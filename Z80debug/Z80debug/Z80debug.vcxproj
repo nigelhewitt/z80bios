@@ -131,6 +131,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="charset.h" />
     <ClInclude Include="mem.h" />
     <ClInclude Include="process.h" />
     <ClInclude Include="regs.h" />
@@ -150,6 +151,7 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="charset.cpp" />
     <ClCompile Include="mem.cpp" />
     <ClCompile Include="regs.cpp" />
     <ClCompile Include="serial.cpp" />
@@ -166,9 +168,11 @@
     <ResourceCompile Include="Z80debug.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="frame.ico" />
+    <Image Include="source.ico" />
+    <Image Include="terminal.ico" />
     <Image Include="toolbar.bmp" />
     <Image Include="Z80debug.ico" />
-    <Image Include="small.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -4,6 +4,7 @@
 #include "framework.h"
 #include "source.h"
 #include "util.h"
+#include "charset.h"
 #include "Z80debug.h"
 
 //=====================================================================================================
@@ -126,7 +127,9 @@ void SOURCE::Paint(HWND hWnd, HDC hdc)
 			SetBkColor(hdc, RGB(128,0,0));
 		}
 		const char* text = lines[i++].text;
-		TabbedTextOut(hdc, x, y, text, (int)strlen(text), 1, tabs, leftMargin);
+		WCHAR tempW[200]{};
+		mbtowide((PUTF8)text, (PUTF16)tempW, _countof(tempW));
+		TabbedTextOutW(hdc, x, y, tempW, (int)wcslen(tempW), 1, tabs, leftMargin);
 		SelectObject(hdc, oldFont);
 	}
 	DeleteObject(hb);
