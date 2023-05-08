@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.33"		; version number for sign on message
+	define	VERSION	"v0.1.35"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;
@@ -13,7 +13,7 @@
 ;
 ;   update to git repository
 ;		git add -u					move updates to staging area
-;   	git commit -m "0.1.31"		move to local repository, use version number
+;   	git commit -m "0.1.35"		move to local repository, use version number
 ;   	git push -u origin main		move to github
 ;
 ; NB: From v0.1.10 onwards I use the alternative [] form for an address
@@ -191,7 +191,8 @@ BIOS_START	equ		$				; where we actually start
 ;
 ;===============================================================================
 
-signon		db		"\r"
+signon		db		0x1e, "[0?"				; switch out the debugger
+			db		"\r"
 			RED								; optional ANSI colour coded
 			db		"Nigsoft Z80 BIOS Λ "	; note the UTF-8 extended character
 			db		VERSION					; so I can get an instant check on
@@ -1082,24 +1083,38 @@ cmd_y		ld		ix, 0					; default value
 ;===============================================================================
 cmd_z		call	stdio_str
 			db		"\r\nNMI test: ",0
+
 			ld		hl, nmitest
-			ld		[0x67], hl
-			ld		a, 0xff
+			ld		[0x67], hl		; set the NMI vector to local handler
+			ld		a, 0xff			; preload the 'reply'
 			ld		[.saveB], a
-			ld		b, 0
-.z1			ld		a, 0x81
+			ld		b, 0			; item to count
+
+.z1			ld		hl, .z2			; return address
+			push	hl
+			ld		hl, 0xabcd		; an example HL on stack
+			push	hl
+			ld		a, 0x99			; example AF on stack
+			push	af
+
+; this is a copy of what the debugger does:
+			ld		a, 0x81			; enable the NMI card
 			out		(MPGEN), a		; 12T
-			inc		b				; 4T
+			pop		af				; 10T
+			pop		hl				; 10T
+			ret						; 10T
+
+.z2			inc		b				; 4T
 			inc		b
-			inc		b			; switch at 32 scores 9
-			inc		b			; switch at 16 scores 1
-			inc		b			; 			17		  1
-			inc		b			;			18		  1
-			inc		b			;			19		  2
-			inc		b			;			20		  2
-			inc		b			;			21		  2
-			inc		b			;			22		  2
-			inc		b			;			23		  3
+			inc		b
+			inc		b				; 38 gave 3
+			inc		b				; 32 gave 1
+			inc		b				; 31 gave 1
+			inc		b				; 30 gave 1  << run at this
+			inc		b				; 29 gave 1
+			inc		b				; 28 gave 0
+			inc		b
+			inc		b
 			inc		b
 			inc		b
 			inc		b
@@ -1139,16 +1154,17 @@ cmd_z		call	stdio_str
 			inc		b
 			inc		b
 			inc		b			; that's 50 so 200T
-			ld		a, [.saveB]
-			call	stdio_byte
+			ld		a, [.saveB]	; recover the reply
+			call	stdio_byte	; and display it
 			jp		good_end
 
 .saveB		db		0
 
+; simple test NMI handler
 nmitest		push	af
-			ld		a, b
+			ld		a, b				; copy the state of B
 			ld		[cmd_z.saveB], a
-			ld		a, 0x01
+			ld		a, 0x01				; disable the NMI card
 			out		(MPGEN), a
 			pop		af
 			retn

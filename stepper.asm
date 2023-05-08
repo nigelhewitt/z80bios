@@ -9,7 +9,7 @@
 ; calculate how much filler is required to place this at the top of the image
 
 ;							   jmp   debug  goto  itab
-gap			equ		0x10000 - (1*3 + 2*10 + 4*7 + 8 + $)
+gap			equ		0x10000 - (1*3 + 2*13 + 4*7 + 8 + $)
 			ds		gap
 
  if gap>= 0

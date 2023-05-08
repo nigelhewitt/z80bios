@@ -363,7 +363,7 @@ packBCD		push	bc
 
 ;-------------------------------------------------------------------------------
 ; Convert dd/mm/yy to day-of-the-week
-; Basically work out the day number and modulus 7
+; Basically work out the day number in modulus 7
 ; !!!! In fact it dawns on me I can do all the maths in modulus7 !!!!
 ;-------------------------------------------------------------------------------
 ; length of months in modulus7
@@ -381,14 +381,14 @@ getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
 			ld		a, 0			; does not change Z flag
 			jr		nz, .gd0		; no, use zero
 			ld		a, b			; month
-			cp		2				; month<3
+			cp		3				; CY if month<=2
 			ld		a, 0			; as above
 			jr		c, .gd0			; yes so use zero
-			ld		a, 1
+			inc		a
 .gd0
 ; day of the first of the month
-			ld		ix, DOW
-			jr		.gd2			; start with the decrement as JAN=1
+			ld		ix, MONTHS
+			jr		.gd2			; start with the dec as JAN=1 with no add
 .gd1		add		[ix]
 			inc		ix
 .gd2		djnz	.gd1
@@ -400,7 +400,7 @@ getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
 			sra		c
 			add		c
 ; that gives us the day number
-			add		5				; 1/1/20 was Wednesday
+			add		5				; 1/1/20 was Saturday (so says Alexa) -1
 			jr		.gd4
 .gd3		sub		7				; <5 loops is way faster than any division
 .gd4		cp		7

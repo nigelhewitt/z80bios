@@ -198,13 +198,10 @@ f_debug		call	stdio_str
 			ld		ix, 0x2345
 			ld		iy, 0x3456
 			nop
-			SNAPT	"prior"
 			nop
-			SNAP
 			nop
 			call	debugSetup		; enter debug control mode
 			nop
-			SNAP
 			nop
 			ld		a, 0x55
 			out		(LIGHTS), a
@@ -212,7 +209,6 @@ f_debug		call	stdio_str
 			nop
 			rst		0x28
 			nop
-			SNAPT	"post2"
 			nop
 			xor		a
 			inc		a

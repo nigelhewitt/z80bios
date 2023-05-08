@@ -36,7 +36,10 @@
 ;
 ;===============================================================================
 
-startDebug	equ	$
+startDebug		equ		$
+magic_port		equ		MPGEN
+magic_set		equ		0x81
+magic_clear		equ		0x01
 
 ;===============================================================================
 ;
@@ -61,35 +64,49 @@ startDebug	equ	$
 ; client macro to be used by switcher.asm
 ;
 ; There will be two of these, one for the RST and the other for the NMI
+; They were initially intended to be two identical units on that did the
+; mapping for the RST and the other for the NMI.
+
 ; The PAGE0 vector points to the start of the macro so we have the return
 ; address on the stack. Then we push HL, AF and BC.
 ; Then load B with the return RAMn value
 ; The macro then switches to RAM5 so they must be aligned exactly.
-; RAM5 does the debugger functions and then switches back to the caller here
-; at exactly the same address so the code continues where it left off and
-; executes POP BC,AF,HL RET/RETN
+;
+; RAM5 does the debugger functions and then switches back to the caller here.
+; Rather than necessarily using the matching exit the RST exit just continues
+; while the NMI one fires the 'single step' device.
+; They both execute POP BC,AF,HL RET/RETN
 ;
 ; Because of all the alignment issues there is a lot of checking that flags up
 ; errors if something goes wrong.
 ;-------------------------------------------------------------------------------
 
+; to return to the caller jump to the start of the macro with the target RAM
+; hardware address in A
+
+; the vector on RST and NMI point to start+5
+
  	macro	MAKET	isNMI
 .p1			call	debugLoad
 			out		(MPGSEL3), a
+
 		if ($-.p1) != 5
 		 	DISPLAY "MAKET access address: 5 expected but got: ", /D, $-.p1
 			problem with 5
 		endif
-  			pop		bc, af, hl
-  		if isNMI
-  			retn			; a two byte code
-  		else
-  			ret				; a one byte code
-  			nop				; so padded to make the macro the same size
-  		endif
-		if ($-.p1) != 10
-		 	DISPLAY "MAKET size: 10 expected but got: ", /D, $-.p1
-			problem with 10
+			pop		bc
+		if isNMI
+			ld		a, magic_set
+			out		(magic_port), a
+		else
+			nop : nop: nop : nop
+		endif
+  			pop		af, hl
+  			ret
+
+		if ($-.p1) != 13
+		 	DISPLAY "MAKET size: 13 expected but got: ", /D, $-.p1
+			problem with 13
 		endif
   	endm
 
@@ -118,9 +135,9 @@ funcExit	out		(MPGSEL3), a
 			error message
 		endif
   			jp		funcRemote
-  			nop : nop
-		if ($-.p1) != 10
-		 	DISPLAY "MAKET size: 10 expected but got: ", /D, $-.p1
+  			nop : nop :nop :nop : nop
+		if ($-.p1) != 13
+		 	DISPLAY "MAKET size: 13 expected but got: ", /D, $-.p1
 			error message
 		endif
 			endm
@@ -136,7 +153,7 @@ funcExit	out		(MPGSEL3), a
 nmiLocal	push	hl, af, bc			; match the stack of the remote
 
 ; unset NMI trap hardware
-			ld		a, 1
+			ld		a, 0x01
 			out		(MPGEN), a
 
 ; record the return details
@@ -217,7 +234,7 @@ debugger	ld		a, b					; return RAM page
 			ld		[regs.SP16], sp			; SP (save addr16)
 
 ; localise the stack
-			ld		sp, DebuggerStack		; get a usable stack
+			ld		sp, DebuggerStack		; get a safe stack
 
 ; we need the savePages array to interpret the addr16 values
 			ld		hl, [Z.savePage]
@@ -271,11 +288,19 @@ debugger	ld		a, b					; return RAM page
 ; which were open to editing then either jump or exit via the page switch
 ;===============================================================================
 
+ssFlag		db		0
+
+singleStepExit
+			ld		a, 1
+			jr		debuggerExit.de1
 debuggerExit
+			xor		a
+.de1		ld		[ssFlag], a
+
 ; convert PC and SP back to addr16 in case they were edited
 ; return on not in map
  if 0
-get24	regs.SP20, c, hl
+			get24	regs.SP20, c, hl
 			call	c20to24
 			push	iy
 			CALLF	_c24to16
@@ -319,17 +344,39 @@ get24	regs.SP20, c, hl
 			ex		af, af'
 			ld		sp, [regs.SP16]
 
+; there are 4 ways out, local/remote normal/single-step
+			ld		a, [ssFlag]
+			or		a
+			jr		nz, .de3			; single step
+
+; Normal
 			ld		a, [regs.RET]
 			cp		BIOSRAM
 			jr		nz, .de2
 
-; local return
+; Normal Local return
 			pop		bc, af, hl
 			ret
 
-; Remote return
+; Normal Remote return
 .de2		ld		a, [regs.RET]
-			jp		rstExit			; page switch, POP BC AF HL RET
+			jp		rstExit			; switch, POP BC AF HL RET
+
+; Single Step
+.de3		ld		a, [regs.RET]
+			cp		BIOSRAM
+			jr		nz, .de4
+
+; Single Step Local return
+			pop		bc
+			ld		a, magic_set
+			out		(magic_port), a
+			pop		af, hl
+			ret
+
+; Single Step Remote return
+.de4		ld		a, [regs.RET]
+			jp		nmiExit			; switch, POP BC, trigger SS, POP AF HL RET
 
 ;===============================================================================
 ; debugger tools and utilities
@@ -517,43 +564,6 @@ freeTrap	call	unsetTrap
 			ret
 
 ;===============================================================================
-; singleStep	step on to the next instruction
-;				This might be used to do a 'proper' debugging step or
-;				it might just be used to get the current instruction done so we
-;				can replace the trap
-; WARNING: must only be called from the debugger with NOTHING pushed
-;===============================================================================
-
-magic_port		equ		MPGEN
-magic_set		equ		0x81
-magic_clear		equ		0x01
-
-singleStep	pop		hl					; our return address
-			ld		[.ssReturn], hl
-			pop		hl					; the debuggers return address
-			ld		[.ssReturn+2], hl
-			ld		[.ssIX], ix
-			pop		hl					; discard the SP copy
-			pop		iy, ix, hl, de, bc
-			ld		a, magic_set
-			out		(magic_port), a		; part of 11T
-			pop		af					; 10T
-			ret							; 10T and 27T (? later the NMI sets
-
-; and the NMI handler puts everything back on the stack and jumps to here
-.ss1		ld		a, magic_clear		; turn off the NMI
-			out		(magic_port), a
-			ld		ix, [.ssIX]
-			ld		hl, [.ssReturn+2]
-			push	hl
-			ld		hl, [.ssReturn]		; return address so we are 'normal'
-			push	hl
-			retn						; unwind the FF registers
-
-.ssReturn	dw		0
-.ssIX		dw		0
-
-;===============================================================================
 ; debugger	wait for and execute debugger commands
 ; NB: I have put a lot of 'man readable' stuff in for testing both ways so
 ; whitespace should just be ignored
@@ -588,10 +598,11 @@ commandList	db		'i'				; get information
 debuggerUI
 			ld		a, [regs.MODE]
 			or		a				; 0 = setup
-			jr		z, .db0b		; so skip the trap check
+			jr		z, .db3			; so skip the trap check
 			cp		1
-			jr		z, .db0b		; 1 = NMI
+			jr		z, .db3			; 1 = NMI
 
+; mode==2
 ; firstly inspect the PC to see if it was a trap
 ; The debugger passed us the addr16 and the PAGEn
 ; so get the PAGEn from the PC20
@@ -602,25 +613,25 @@ debuggerUI
 			ld		ix, traps
 			ld		b, NTRAPS
 			ld		de, TRAP
-.db0		ld		a, [ix+TRAP.page]
+.db1		ld		a, [ix+TRAP.page]
 			cp		c
-			jr		nz, .db0c
+			jr		nz, .db2
 			ld		a, [ix+TRAP.pc]
 			cp		l
-			jr		nz, .db0c
+			jr		nz, .db2
 			ld		a, [ix+TRAP.pc+1]
 			cp		h
-			jr		z, .db0a
-.db0c		add		ix, de
-			djnz	.db0
+			jr		z, .db4
+.db2		add		ix, de
+			djnz	.db1
 
 ; no match so it isn't a trap just an RST
 			ld		a, 2			; compiled in RST
-			push	af
-			jr		.db0b
+.db3		push	af
+			jr		.db5
 
 ; found  a trap
-.db0a		ld		a, NTRAPS+3
+.db4		ld		a, NTRAPS+3
 			sub		b				; gives trap number + 3
 			push	af				; save slot number
 
@@ -634,38 +645,38 @@ debuggerUI
 			put24	regs.PC20, c, hl
 
 
-.db0b		call	sendSignOn		; switch terminal to debugger mode
+.db5		call	sendSignOn		; switch terminal to debugger mode
 			ld		a, SIGNON_CMD
 			call	db_putc
 			pop		af
 			call	packB			; 0 for set up, 1=NMI, 2=compiled in RST
-									; 3-NTRAPS+2 a trap
+									; 3-(NTRAPS+2) a trap
 
 ; Start of command loop:
 ; commands (no command can be hex or we could get in a total mess)
-.db1		CRLF
+.db6		CRLF
 			ld		a, OK_CMD
 			call	db_putc
 
-.db1a		call	db_getc			; db_getc ignores white space but does do echo
+.db7		call	db_getc			; db_getc ignores white space but does do echo
 			call	ishex			; ignore hex if data is streaming
-			jr		c, .db1a
+			jr		c, .db7
 
 			ld		c, a			; hold the command in C
 			ld		hl, commandList
-.db2		ld		a, c
+.db8		ld		a, c
 			cp		[hl]			; test against the list
-			jr		z, .db3			; we have a match
+			jr		z, .db9			; we have a match
 			inc		hl
 			inc		hl
 			inc		hl
 			ld		a, [hl]
 			or		a
-			jr		nz, .db2
+			jr		nz, .db8
 			jr		db_bad_end
 
 ; found
-.db3		inc		hl				; step over the command char
+.db9		inc		hl				; step over the command char
 			ld		a, [hl]			; load the address
 			inc		hl
 			ld		h, [hl]
@@ -675,7 +686,7 @@ debuggerUI
 ; and the two usual returns
 db_good_end	ld		a, OK_CMD
 .ge1		call	db_putc
-			jr		debuggerUI.db1
+			jr		debuggerUI.db6
 
 db_some_end	jr		c, db_good_end
 db_bad_end	ld		a, BAD_CMD
@@ -802,8 +813,10 @@ cmd_exec
 ;-------------------------------------------------------------------------------
 ; 's' single step command
 cms_step
-			call	singleStep
-			jp		db_good_end
+			ld		a, OK_CMD
+			call	db_putc
+			call	sendSignOff
+			jp		singleStepExit
 
 ;-------------------------------------------------------------------------------
 ; 'z' close down command

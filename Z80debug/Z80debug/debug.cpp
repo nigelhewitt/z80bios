@@ -257,8 +257,10 @@ void DEBUG::idleMode()
 	case F_STEP:
 		flush();
 		sendCommand("s");		// step command
-		if(getBuffer(temp, sizeof temp))
-			SetStatus("IDLE");
+		if(getBuffer(temp, sizeof temp)){
+			state = S_RUN;
+			SetStatus("RUN");
+		}
 		break;
 	case F_KILL:
 		recycle();
