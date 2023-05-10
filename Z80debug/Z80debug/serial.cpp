@@ -106,4 +106,3 @@ bool SERIAL::post(char c)
 	}
 	return true;
 }
-

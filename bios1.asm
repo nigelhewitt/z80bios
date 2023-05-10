@@ -12,7 +12,7 @@
  			include		"macros.inc"
 			include		"vt.inc"
 
-BIOSROM		equ			1				; which ROM page are we compiling
+BIOSROM		equ			ROM1			; which ROM page are we compiling
 BIOSRAM		equ			RAM4
 
 			org		PAGE3
@@ -27,6 +27,7 @@ bios_functions
 			dw		f_loadcommand		; 5 LOAD command
 			dw		f_printCWD			; 6 print CWD
 			dw		f_setdrive			; 7 set drive
+			dw		f_flop				; 8 FDC tests
 bios_count	equ		($-bios_functions)/2
 
 

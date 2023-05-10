@@ -96,7 +96,13 @@ void TERMINAL::AddChar(char c)
 		case 'J':			// clear screen
 			// 0=cursor to end of screen, 1=cursor to beginning of screen,
 			// 2=clear screen and home, 3=clear screen and scroll back buffer
+			// currently I only use it for the 'cls' command
 			inputMode = 0;
+			nLines = 0;
+			nScroll = 0;
+			ZeroMemory(currentLine, sizeof currentLine);
+			currentColumn = 0;
+			lines.clear();
 			return;
 		}
 		// not understood so ignore

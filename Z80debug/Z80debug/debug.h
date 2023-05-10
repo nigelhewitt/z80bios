@@ -32,6 +32,7 @@ public:
 	void step();
 	void kill();
 	void pause();
+	void os();
 
 private:
 	// Traps

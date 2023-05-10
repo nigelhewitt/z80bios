@@ -18,6 +18,7 @@ private:
 		int page{};				// page number to interpret the lines
 		int fileID{};
 		HWND hSource{};			// window (if it exists)
+		bool minor{};			// if page==-1 there is another paged version
 	};
 	struct SDL {				// details from the SDL files
 		struct LINEREF {		// the lineno field contains optional start and finish columns

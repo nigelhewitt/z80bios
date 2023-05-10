@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.35"		; version number for sign on message
+	define	VERSION	"v0.1.36"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;
@@ -32,7 +32,7 @@
 		include		"macros.inc"	; macro library
 		include		"vt.inc"		; definitions of Z80 base memory
 
-BIOSROM		equ		0				; which ROM page we are compiling
+BIOSROM		equ		ROM0			; which ROM page we are compiling
 BIOSRAM		equ		RAM3
 
 ; This code image is in page 0 of the ROM so, on boot, it is replicated in all
@@ -542,6 +542,8 @@ cmd_list	db	"BOOT"
 			dw	cmd_fill
 			db	"FLAG"				; set bitflags
 			dw	cmd_flag
+			db	"FLOP"				; FDC tests
+			dw	cmd_flop
 			db	"HEX",0				; hex test
 			dw	cmd_hex
 			db	"IN",0,0			; input from a port
@@ -720,6 +722,12 @@ cmd_type	CALLFAR		TYPEcommand
 			jp			c, good_end
 			jp			bad_end
 
+;===============================================================================
+; FLOP
+;===============================================================================
+cmd_flop	CALLFAR		FLOPcommand
+			jp			c, good_end
+			jp			bad_end
 ;===============================================================================
 ; LOAD
 ;===============================================================================
@@ -995,13 +1003,15 @@ cmd_core
 			inc		hl
 			ld		[hl], RAM2
 			inc		hl
+
+			ld		a, 1
+			ld		[ram_test], a
 			ld		a, [ram_test]
 			or		a
+			ld		a, ROM0
 			jr		z, .co3
 			ld		a, RAM3
-			jr		.co4
-.co3		ld		a, ROM0
-.co4		ld		[hl], a
+.co3		ld		[hl], a
 			jp		good_end
 
 ;===============================================================================
@@ -1047,6 +1057,7 @@ cmd_time	AUTO	7				; 7 bytes of stack please
 			call	stdio_str
 			db		" secs",0
 			jp		good_end
+
 ;===============================================================================
 ; Y  the current thing being tested
 ;===============================================================================

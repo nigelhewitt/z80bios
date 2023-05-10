@@ -9,6 +9,7 @@ public:
 	~TERMINAL();
 	void AddChar(char c);					// add a character to the current line
 	void clear();							// clear screen
+	void top(){ BringWindowToTop(hTerminal); }
 
 private:
 	SafeQueue<char> inbound{};				// incoming bytes

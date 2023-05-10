@@ -111,6 +111,7 @@ bool AddToolbar(HWND hParent)
 		{ 7,	IDM_STEP,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Step"},
 		{ 8,	IDM_BREAK,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Break"},
 		{ 9,	IDM_KILL,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Kill"},
+		{ 10,	IDM_OS,			TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"OS"},
 		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
 		{ 100,	IDM_STATUS,		TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, (INT_PTR)"Status"}
 
@@ -143,7 +144,7 @@ bool AddToolbar(HWND hParent)
 
 	hStatus = CreateWindowEx(0, "BUTTON", "STOPPED",
 								WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-								390, 3, 200, 37,
+								420, 3, 200, 37,
 								hToolbar, nullptr, hInstance, nullptr);
 
 	// Resize the toolbar, and then show it.
@@ -180,14 +181,23 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 		AddToolbar(hWnd);
 
 		HMENU hSource = GetSubMenu(GetMenu(hWnd), SOURCEMENU);
-		int i = IDM_SOURCE;
+		int i = IDM_SOURCE, j=0;
 		for(auto &s : PROCESS::files){
 			char temp[100];
 			if(s.second.page==100)			// ie: an SDL file
  				sprintf_s(temp, sizeof temp, " %s", s.second.fn);
+			else if(s.second.minor){
+				++i;
+				continue;
+			}
 			else
 				sprintf_s(temp, sizeof temp, "%d %s", s.second.page, s.second.fn);
-			AppendMenu(hSource, MF_STRING, i++, temp);
+			int bb=0;
+			if(++j==25){
+				j = 0;
+				bb = MF_MENUBARBREAK;
+			}
+			AppendMenu(hSource, MF_STRING | bb, i++, temp);
 		}
 
 		if(!hClient)
@@ -281,6 +291,10 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 
 		case IDM_MEMORY:
 			new MEM;
+			return 0;
+
+		case IDM_OS:
+			debug->os();
 			return 0;
 
 		case IDM_ABOUT:

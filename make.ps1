@@ -9,7 +9,7 @@ Write-Host
 
 sjasmplus --lst=bios1.lst --raw=bios1.bin --fullpath --sld=bios1.sdl `
 	bios1.asm router.asm serial.asm stdio.asm maths.asm map.asm `
-	spi.asm sd.asm interrupt.asm debug.asm `
+	fdc.asm spi.asm sd.asm interrupt.asm debug.asm `
 	fat-struct.inc fat-drive.asm fat-clusters.asm fat-folder.asm fat-file.asm `
 	files.asm stepper.asm
 $error = $error -or $LastExitCode

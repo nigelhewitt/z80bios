@@ -7,6 +7,7 @@
 #include "process.h"
 #include "source.h"
 #include "mem.h"
+#include "terminal.h"
 #include "util.h"
 #include "Z80debug.h"
 
@@ -143,13 +144,14 @@ bool DEBUG::recycle()
 // the debugger working thread
 //=================================================================================================
 
-enum { F_RUN = 1, F_STEP, F_KILL, F_BREAK };
+enum { F_RUN = 1, F_STEP, F_KILL, F_BREAK, F_OS };
 int uiFlag{};
 
 void DEBUG::run()  { uiFlag = F_RUN; }
 void DEBUG::step() { uiFlag = F_STEP; }
 void DEBUG::kill() { uiFlag = F_KILL;}
 void DEBUG::pause(){ uiFlag = F_BREAK; }
+void DEBUG::os()   { uiFlag = F_OS; }
 
 void DEBUG::showStatus(byte type, bool force)
 {
@@ -267,6 +269,15 @@ void DEBUG::idleMode()
 		break;
 	case F_BREAK:
 		state = S_ENTERIDLE;	// refresh mem
+		break;
+	case F_OS:
+		flush();
+		sendCommand("z");
+		if(getBuffer(temp, sizeof temp)){
+			state = S_RUN;
+			SetStatus("OS");
+			terminal->top();	// bring to top
+		}
 		break;
 	}
 	uiFlag = 0;

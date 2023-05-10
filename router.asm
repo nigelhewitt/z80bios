@@ -90,7 +90,7 @@ transfer	ld		a, [Z.cr_ret]		; 0xff for a return
 			push	hl					; 11T
 			ld		hl, [Z.cr_af]		; 20T	AF saved by target
 			push	hl					; 11T
-			ld		a, BIOSROM
+			ld		a, BIOSRAM
 			ld		[Z.savePage+3], a
 			pop		af					; 10T
 			pop		hl					; 10T

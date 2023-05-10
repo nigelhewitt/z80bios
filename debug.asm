@@ -41,6 +41,8 @@ magic_port		equ		MPGEN
 magic_set		equ		0x81
 magic_clear		equ		0x01
 
+; !! Currently I have the NMI card set to 30
+
 ;===============================================================================
 ;
 ; This file is compiled into all 'ROM's so they can all redirect the RST
@@ -81,8 +83,9 @@ magic_clear		equ		0x01
 ; errors if something goes wrong.
 ;-------------------------------------------------------------------------------
 
-; to return to the caller jump to the start of the macro with the target RAM
-; hardware address in A
+; to return to the caller
+;		jump to the start of the macro
+;		with the target RAM hardware address in A
 
 ; the vector on RST and NMI point to start+5
 
@@ -98,11 +101,12 @@ magic_clear		equ		0x01
 		if isNMI
 			ld		a, magic_set
 			out		(magic_port), a
-		else
-			nop : nop: nop : nop
 		endif
   			pop		af, hl
   			ret
+		if !isNMI
+			nop : nop: nop : nop
+		endif
 
 		if ($-.p1) != 13
 		 	DISPLAY "MAKET size: 13 expected but got: ", /D, $-.p1
@@ -142,12 +146,18 @@ funcExit	out		(MPGSEL3), a
 		endif
 			endm
 
+;===============================================================================
+; input handlers
+;		handle the initial link from the RST/NMI/direct setup call
+;		manage the context and pass it to the debugger
+;===============================================================================
+
 ; We face two 'register on stack' situations
 ;
-; Local where the SP can be trusted because we didn't change any pages but
+; Local: where the SP can be trusted because we didn't change any pages but
 ; all that is on the stack is the return address for the RST/NMI
 ;
-; Remote where it can't be used as it probably will be in RAM3 and it
+; Remote: where it can't be used as it probably will be in RAM3 and it
 ; contains the return address of the RST/NMI, HL, AF and BC
 
 nmiLocal	push	hl, af, bc			; match the stack of the remote
@@ -242,6 +252,10 @@ debugger	ld		a, b					; return RAM page
 			ld		hl, [Z.savePage+2]
 			ld		[regs.PAGES+2], hl
 
+; now correct the page we are in so the banked copy will work
+			ld		a, BIOSRAM
+			ld		[Z.savePage+3], a
+
 ; now do the simple registers
 			ld		[regs.DE], de			; DE
 			ld		[regs.IX], ix			; IX
@@ -267,11 +281,11 @@ debugger	ld		a, b					; return RAM page
 
 			ld		hl, [regs.SP16]			; addr16
 			ld		de, regs.PAGES
-			call	c16to20					; to addr20
-			put24	regs.SP20, c, hl		; save source in C:HL
+			call	c16to20					; to addr20 in C:HL
+			put24	regs.SP20, c, hl		; save in regs
 
 			pop		de						; gives destination in B:DE
-			ld		ix, 8					; count is 4 dwords
+			ld		ix, 8					; count is 4 words
 			call	bank_ldir				; copy addr21 C:HL to addr21 B:DE
 											; for IX counts
 
@@ -343,6 +357,12 @@ debuggerExit
 			pop		af
 			ex		af, af'
 			ld		sp, [regs.SP16]
+
+; now restore the savePage values (must be after the call to bank_ldir)
+			ld		hl, [regs.PAGES]
+			ld		[Z.savePage], hl
+			ld		hl, [regs.PAGES+2]
+			ld		[Z.savePage+2], hl
 
 ; there are 4 ways out, local/remote normal/single-step
 			ld		a, [ssFlag]
@@ -605,11 +625,14 @@ debuggerUI
 ; mode==2
 ; firstly inspect the PC to see if it was a trap
 ; The debugger passed us the addr16 and the PAGEn
-; so get the PAGEn from the PC20
+; so get the PAGEn from the PC20 and mask address16 to address14
 			get24	regs.PC20, c, hl
 			call	c20to24			; gives us RAMn in C
 			ld		hl, [regs.PC16]	; and addr16 in HL
 			dec		hl				; back to trap address
+			ld		a, h
+			and		0x3f			; 14 bit address
+			ld		h, a
 			ld		ix, traps
 			ld		b, NTRAPS
 			ld		de, TRAP
@@ -620,6 +643,7 @@ debuggerUI
 			cp		l
 			jr		nz, .db2
 			ld		a, [ix+TRAP.pc+1]
+			and		0x3f			; 14 bit address
 			cp		h
 			jr		z, .db4
 .db2		add		ix, de
@@ -821,6 +845,8 @@ cms_step
 ;-------------------------------------------------------------------------------
 ; 'z' close down command
 cmd_close
+			ld		a, OK_CMD
+			call	db_putc
 			call	sendSignOff
 			jp		good_end
 
@@ -856,7 +882,7 @@ sendSignOn	ld		hl, .signon
 
 sendSignOff	ld		hl, .signoff
 			jr		text
-.signoff	db		0x1b, "[0?\r\n", 0
+.signoff	db		0x1b, "[0?", 0
 
 ; db_getc with skip white
 db_getc		call	serial_read

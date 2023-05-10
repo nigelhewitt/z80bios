@@ -362,3 +362,4 @@ ERR_BADFUNCTION			equ		15
 	define PrintCWD			RAM4,6		; print CWD
 	define SetDrive			RAM4,7		; set drive
 	define DEBGcommand		RAM5,8		; DEBG command
+	define FLOPcommand		RAM4,8		; FDC tests

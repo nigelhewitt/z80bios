@@ -366,55 +366,69 @@ packBCD		push	bc
 ; Basically work out the day number in modulus 7
 ; !!!! In fact it dawns on me I can do all the maths in modulus7 !!!!
 ;-------------------------------------------------------------------------------
-; length of months in modulus7
-;					J F M A M J J A S O N D
-MONTHS		db		3,0,3,2,3,2,3,3,2,3,2,3
-
 getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
 				; returns DOW(1-7) with Sunday=1
 				; uses A
-			push	ix
-			push	bc
-; start at 0, if this is a leap year and the month is >2 start at 1
-			ld		a, c			; year
-			and		0x03			; leap year?
-			ld		a, 0			; does not change Z flag
-			jr		nz, .gd0		; no, use zero
-			ld		a, b			; month
-			cp		3				; CY if month<=2
-			ld		a, 0			; as above
-			jr		c, .gd0			; yes so use zero
-			inc		a
-.gd0
-; day of the first of the month
-			ld		ix, MONTHS
-			jr		.gd2			; start with the dec as JAN=1 with no add
-.gd1		add		[ix]
-			inc		ix
-.gd2		djnz	.gd1
-; now add the day of month to get the day of the year(+1)
-			add		d				; OK this gives us +1 but it washes out
-; a year is 1 day long or 2 in a leap year in modulus7
-			add		c				; add years
-			sra		c				; divide year by 4 for leap years
-			sra		c
-			add		c
-; that gives us the day number
-			add		5				; 1/1/20 was Saturday (so says Alexa) -1
-			jr		.gd4
-.gd3		sub		7				; <5 loops is way faster than any division
-.gd4		cp		7
-			jr		nc, .gd3
-			inc		a				; convert to 1-7 format
-			pop		bc
-			pop		ix
+;
+; int DOW(int year, int month, int day){
+;    if (month < 3) {
+;        month += 12;
+;        year--;
+;    }
+;    int k = year % 100;
+;    int j = year / 100;	// 20
+;    int q = day;
+;    int m = month;
+;	// this expression hits a maximum of about 405
+;    return (q + 13*(m+1)/5 + k + k/4 + j/4 + 5*j + 6) % 7;
+;}
+;
+			SNAPT	"DOW"
+			push	hl
+			ld		a, b		; month
+			cp		3			; CY = month < 3
+			jr		nc, .d1		; jr if !(month < 3)
+			add		12			; month += 12
+			ld		b, a		; save month
+			dec		c			; year--
+.d1
+;	calculate 13*(month+1)/5
+			ld		a, b		; month
+			inc		a			; (m+1) <=13
+			ld		l, a		; *1
+			sla		l
+			sla		l			; *4
+			add		l			; *5
+			sla		l			; *8
+			add		l			; *13 (13*13)<=169
+
+			ld		h, 0
+.d2			cp		5			; /5
+			jr		c, .d3		; CY if a<5
+			sub		5
+			inc		h
+			jr		.d2
+.d3			ld		a, h		; <= 33
+
+			add		d			; +q <= 64
+			add		c			; +k <= 163
+			srl		c
+			srl		c
+			add		c			; +k/4 <=188
+			add		6			; +j/4+5*j+6=505 then mod 7 = 6
+.d4			cp		7
+			jr		c, .d6		; 0-6
+			sub		7
+			jr		.d4
+
+.d6			inc		a			; 1-7
+			pop		hl
 			ret
 
 ;-------------------------------------------------------------------------------
 ; unpack RTC block into text stdio so it can be redirected
 ;-------------------------------------------------------------------------------
 unpackRTC		; call with buffer pointer in IX
-				; do not break IY as it may be redirecting to stdio
 			push	hl
 			push	bc
 			push	de
@@ -541,8 +555,10 @@ packRTC			; call with HL=buffer, D=maxcount, E=index, IY=RTC buffer
 			cp		100
 			jp		nc, .pr2			; >= 99
 ; we have B=DD, C=MM, A=YY
+			push	af						; keep the unpacked value for DOW
 			call	packBCD					; pack A
 			ld		[iy+rtcdata.years], a	; years
+			pop		af
 			push	bc
 			push	de
 			ld		d, b

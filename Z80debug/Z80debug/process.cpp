@@ -23,6 +23,12 @@ PROCESS::PROCESS(const char* cwd)
 		do
 			ReadSDL(ffd.cFileName);
 		while(FindNextFile(hFind, &ffd) != 0);
+	// mark the page==-1 files that have a 'real' page so we can avoid listing them
+	for(std::pair<const int,FDEF> &x : files)
+		if(get<1>(x).page==-1)
+			for(std::pair<const int,FDEF> &y : files)
+				if(strcmp(get<1>(y).fn, get<1>(x).fn)==0 && get<1>(y).page!=-1)
+					get<1>(x).minor = true;
 }
 PROCESS::~PROCESS()
 {
@@ -50,7 +56,7 @@ int PROCESS::getFileName(const char* p, int& index, int page)
 		if(_stricmp(temp, files[i].fn)==0 && files[i].page==page)
 			return i;
 	// doesn't exist so add it
-	FDEF fdef{_strdup(temp), page, nextFileNumber, nullptr};
+	FDEF fdef{_strdup(temp), page, nextFileNumber, nullptr, false };
 	files.emplace(std::make_pair(nextFileNumber, fdef));
 	return nextFileNumber++;
 }

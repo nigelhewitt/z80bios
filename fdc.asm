@@ -1,9 +1,79 @@
 ;
 fdc_start		equ	$
 
-; NVH
+;-------------------------------------------------------------------------------
+; test FDC command
+;-------------------------------------------------------------------------------
+f_flop		nop
+			nop
+			call	FD_INIT
+			scf
+			ret						; should go to return
+
+MULT8		; HL = H * L
+			push	de
+			ld		e, l
+			call	mul8x8
+			pop		de
+			ret
+
+WRITESTR	push	hl
+			ld		hl, de
+			call	stdio_text
+			pop		hl
+			ret
+
+CPUSCL		db		8		; CPU MHZ-2
+
+DELAY		LD		A,(CPUSCL)
+.D1			DEC		A
+			JR		NZ,.D1
+			RET
+
+VDELAY		LD		A,(CPUSCL)
+.V1			DEC		A
+			JR		NZ,.V1
+			DEC		DE
+			LD		A,D
+			OR		E
+			JP		NZ, VDELAY
+			RET
+
+LDELAY		PUSH	AF, DE
+			LD		DE,31250
+			CALL	VDELAY
+			POP		DE, AF
+			RET
+
+JPHL		JP		(HL)
+
+; COMPUTE HL / DE = BC W/ REMAINDER IN HL & ZF
+DIV16
+		LD		A,H			; HL -> AC
+		LD		C,L			; ...
+		LD		HL,0		; INIT HL
+		LD		B,16		; INIT LOOP COUNT
+.DIV16A:
+		SCF
+		RL		C
+		RLA
+		ADC		HL,HL
+		SBC		HL,DE
+		JR		NC,.DIV16B
+		ADD		HL,DE
+		DEC		C
+.DIV16B:
+		DJNZ	.DIV16A		; LOOP AS NEEDED
+		LD		B,A			; AC -> BC
+		LD		A,H			; SET ZF
+		OR		L			; ... BASED ON REMAINDER
+		RET					; DONE
+;
 TRUE			equ	1
 FALSE			equ	0
+
+;===============================================================================
+
 
 FDMODE_DIO		equ	1
 FDMODE_DIO3		equ	2
@@ -51,26 +121,17 @@ BF_SYS          equ  0xF0
 BF_SYSGET_CPUINFO    equ    0xF0     ; GET CPU INFORMATION
 BF_SYSGET     .EQU    BF_SYS + 8      ; GET HBIOS INFO
  define FDC_LEN	13  ; table lengths
-DIO_FNCNT		equ	12
-
-; subroutines
-COUT			ret		; op char
-CIN				ret		; ip char
-stdio_scr		ret		; trailing string,0
-DIO_ADDENT		ret		; add entry to DIO table
-LDHLIYA			ret		; HL = IY+A (A trashed)
-HBX_BNKCPY		ret		; ?
+DIO_FNCNTx		equ	12
 
 ; trash data
 CB_CPUMHZ		db	CPUMHZ
-
 
 ;==================================================================================================
 ;   FLOPPY DISK DRIVER
 ;==================================================================================================
 ;
 ; PORTS
-;
+;								 matches the WD37C65C
 FDC_MSR		equ		0x30		; 8272 MAIN STATUS REGISTER
 FDC_DATA	equ		0x31		; 8272 DATA PORT
 FDC_DOR		equ		0x38		; DIGITAL OUTPUT REGISTER
@@ -186,26 +247,26 @@ FD_CFGTBL
 ;
 ; FDC STATUS CODE STRINGS
 ;
-FSS_OK			db	"OK$"
-FSS_NOTIMPL		db	"NOT IMPLEMENTED$"
-FSS_CMDERR		db	"COMMAND ERROR$"
-FSS_ERROR		db	"ERROR$"
-FSS_ABORT		db	"ABORT$"
-FSS_BUFMAX		db	"BUFFER EXCEEDED$"
-FSS_ABTERM		db	"ABNORMAL TERMINATION$"
-FSS_INVCMD		db	"INVALID COMMAND$"
-FSS_DSKCHG		db	"DISK CHANGE$"
-FSS_ENDCYL		db	"END OF CYLINDER$"
-FSS_DATAERR		db	"DATA ERROR$"
-FSS_OVERRUN		db	"OVERRUN$"
-FSS_NODATA		db	"NO DATA$"
-FSS_NOTWRIT		db	"NOT WRITABLE$"
-FSS_MISADR		db	"MISSING ADDRESS MARK$"
-FSS_TOFDCRDY	db	"FDC READY TIMEOUT$"
-FSS_TOSNDCMD	db	"SENDCMD TIMEOUT$"
-FSS_TOGETRES	db	"GET RESULTS TIMEOUT$"
-FSS_TOEXEC		db	"EXEC TIMEOUT$"
-FSS_TOSEEKWT	db	"SEEK WAIT TIMEOUT$"
+FSS_OK			db	"OK",0
+FSS_NOTIMPL		db	"NOT IMPLEMENTED",0
+FSS_CMDERR		db	"COMMAND ERROR",0
+FSS_ERROR		db	"ERROR",0
+FSS_ABORT		db	"ABORT",0
+FSS_BUFMAX		db	"BUFFER EXCEEDED",0
+FSS_ABTERM		db	"ABNORMAL TERMINATION",0
+FSS_INVCMD		db	"INVALID COMMAND",0
+FSS_DSKCHG		db	"DISK CHANGE",0
+FSS_ENDCYL		db	"END OF CYLINDER",0
+FSS_DATAERR		db	"DATA ERROR",0
+FSS_OVERRUN		db	"OVERRUN",0
+FSS_NODATA		db	"NO DATA",0
+FSS_NOTWRIT		db	"NOT WRITABLE",0
+FSS_MISADR		db	"MISSING ADDRESS MARK",0
+FSS_TOFDCRDY	db	"FDC READY TIMEOUT",0
+FSS_TOSNDCMD	db	"SENDCMD TIMEOUT",0
+FSS_TOGETRES	db	"GET RESULTS TIMEOUT",0
+FSS_TOEXEC		db	"EXEC TIMEOUT",0
+FSS_TOSEEKWT	db	"SEEK WAIT TIMEOUT",0
 ;
 ; FDC STATUS STRING TABLE
 ;
@@ -446,23 +507,23 @@ DCR_BR500	equ	00H		; 500KBPS
 ;
 ; FDC COMMAND STRINGS
 ;
-FCS_NOP			db	"NOP$"
-FCS_READ		db	"READ$"
-FCS_READDEL		db	"READDEL$"
-FCS_WRITE		db	"WRITE$"
-FCS_WRITEDEL	db	"WRITEDEL$"
-FCS_READTRK		db	"READTRK$"
-FCS_READID		db	"READID$"
-FCS_FMTTRK		db	"FMTTRK$"
-FCS_SCANEQ		db	"SCANEQ$"
-FCS_SCANLOEQ	db	"SCANLOEQ$"
-FCS_SCANHIEQ	db	"SCANHIEQ$"
-FCS_RECAL		db	"RECAL$"
-FCS_SENSEINT	db	"SENSEINT$"
-FCS_SPECIFY		db	"SPECIFY$"
-FCS_DRVSTAT		db	"DRVSTAT$"
-FCS_SEEK		db	"SEEK$"
-FCS_VERSION		db	"VER$"
+FCS_NOP			db	"NOP",0
+FCS_READ		db	"READ",0
+FCS_READDEL		db	"READDEL",0
+FCS_WRITE		db	"WRITE",0
+FCS_WRITEDEL	db	"WRITEDEL",0
+FCS_READTRK		db	"READTRK",0
+FCS_READID		db	"READID",0
+FCS_FMTTRK		db	"FMTTRK",0
+FCS_SCANEQ		db	"SCANEQ",0
+FCS_SCANLOEQ	db	"SCANLOEQ",0
+FCS_SCANHIEQ	db	"SCANHIEQ",0
+FCS_RECAL		db	"RECAL",0
+FCS_SENSEINT	db	"SENSEINT",0
+FCS_SPECIFY		db	"SPECIFY",0
+FCS_DRVSTAT		db	"DRVSTAT",0
+FCS_SEEK		db	"SEEK",0
+FCS_VERSION		db	"VER",0
 ;
 ; FDC COMMAND TABLE
 ;
@@ -485,34 +546,38 @@ FCT_ENTSIZ	equ	$ - FCT
 		db	CFD_VERSION		:	dw	FCS_VERSION
 FCT_COUNT	equ	(($ - FCT) / FCT_ENTSIZ)	; # ENTRIES IN TABLE
  ENDIF
-;
+;===============================================================================
 ; DRIVER FUNCTION TABLE
-;
-FD_FNTBL:
+;===============================================================================
+FD_FNTBL
 	dw	FD_STATUS
 	dw	FD_RESET
 	dw	FD_SEEK
 	dw	FD_READ
 	dw	FD_WRITE
-	dw	FD_VERIFY
-	dw	FD_FORMAT
-	dw	FD_DEVICE
-	dw	FD_MEDIA
-	dw	FD_DEFMED
-	dw	FD_CAP
-	dw	FD_GEOM
- IF (($ - FD_FNTBL) != (DIO_FNCNT * 2))
+	dw	FD_VERIFY		;
+	dw	FD_FORMAT		;
+	dw	FD_DEVICE		;
+	dw	FD_MEDIA		;
+	dw	FD_DEFMED		;
+	dw	FD_CAP			;
+	dw	FD_GEOM			;
+ IF (($ - FD_FNTBL) != (DIO_FNCNTx * 2))
 	display	"*** INVALID FD FUNCTION TABLE ***\n"
  ENDIF
-;
-FD_VERIFY:
-FD_FORMAT:
-FD_DEFMED:
-	CALL	PANIC			; INVALID SUB-FUNCTION
-;
-;
-;
-FD_DEVICE:
+
+;===============================================================================
+; Invalid functions
+;===============================================================================
+FD_VERIFY
+FD_FORMAT
+FD_DEFMED
+	jp		bad_end			; INVALID SUB-FUNCTION
+
+;===============================================================================
+; FD_DEVICE
+;===============================================================================
+FD_DEVICE
 	LD	D,DIODEV_FD		; D := DEVICE TYPE
 	LD	E,(IY+FD_DEV)		; E := PHYSICAL DEVICE NUMBER
  IF (FDMEDIA == FDM720)
@@ -532,9 +597,9 @@ FD_DEVICE:
  ENDIF
 	XOR	A			; SIGNAL SUCCESS
 	RET
-;
+;===============================================================================
 ; FD_MEDIA
-;
+;===============================================================================
 FD_MEDIA:
 		LD		A,E				; GET FLAGS
 		OR		A				; SET FLAGS
@@ -623,9 +688,9 @@ FD_MEDIA4:
 		LD		E,A			; MOVE MEDIA VALUE TO E
 		XOR		A			; SIGNAL SUCCESS
 		RET
-;
-;
-;
+;===============================================================================
+;  FD_CAP
+;===============================================================================
 FD_CAP:
 		CALL	FD_GEOM		; GET GEOMETRY
 		; HL=TRACKS, D=HEADS, E=SECTORS
@@ -639,40 +704,39 @@ FD_CAP:
 		LD		DE,0		; HI WORD ALWAYS ZERO
 		XOR		A			; SIGNAL SUCCESS
 		RET					; DONE
-;
-;
-;
-FD_GEOM:
+;===============================================================================
+; FD_GEOM
+;===============================================================================
+FD_GEOM
 		LD		A,(IY+FD_MEDTYP)	; GET CURRENT MEDIA TYPE
-		RLCA				; TABLE IS 4 BYTE ENTRIES
-		RLCA				; A = A * 4
-		LD		HL,FCD_TBL		; HL = START OF TABLE
-		LD		D,0			; SET DE TO TABLE OFFSET
+		RLCA						; TABLE IS 4 BYTE ENTRIES
+		RLCA						; A = A * 4
+		LD		HL,FCD_TBL			; HL = START OF TABLE
+		LD		D,0					; SET DE TO TABLE OFFSET
 		LD		E,A
-		ADD		HL,DE			; OFFSET BASED ON DESIRED MEDIA
-		CALL	JPHL			; CALL THE TABLE ENTRY (SEE FCD_TBL)
+		ADD		HL,DE				; OFFSET BASED ON DESIRED MEDIA
+		CALL	JPHL				; CALL THE TABLE ENTRY (SEE FCD_TBL)
 		; HL NOW POINTS TO START OF DESIRED MEDIA INFO
-		LD		A,(HL)			; GET TRACKS
-		INC		HL			; POINT TO HEADS
-		LD		D,(HL)			; GET HEADS
-		SET		7,D			; SET LBA CAPABILITY BIT
-		INC		HL			; POINT TO SECTORS
-		LD		E,(HL)			; GET SECTORS
-		LD		L,A			; L := TRACKS
-		LD		H,0			; HI WORD OF TRACKS IS ALWAYS ZERO
-		XOR		A			; SIGNAL SUCCESS
-		RET				; DONE
-;
+		LD		A,(HL)				; GET TRACKS
+		INC		HL					; POINT TO HEADS
+		LD		D,(HL)				; GET HEADS
+		SET		7,D					; SET LBA CAPABILITY BIT
+		INC		HL					; POINT TO SECTORS
+		LD		E,(HL)				; GET SECTORS
+		LD		L,A					; L := TRACKS
+		LD		H,0					; HI WORD OF TRACKS IS ALWAYS ZERO
+		XOR		A					; SIGNAL SUCCESS
+		RET							; DONE
+;===============================================================================
 ; FD_INIT
-;
-FD_INIT:
-		CALL	NEWLINE			; FORMATTING
-		call	stdio_scr
-		db		"FD: IO=0x",0
-		LD		A,FDC_MSR
-		CALL	PRTHEXBYTE
-		call	stdio_scr
-		db		" UNITS=2", 0
+;===============================================================================
+FD_INIT
+		call	stdio_str
+		db		"\r\nFD: IO=0x",0
+		LD		A, FDC_MSR
+		CALL	stdio_byte
+		call	stdio_str
+		db		" Units=2", 0
 ;
 ; SETUP THE DISPATCH TABLE ENTRIES
 ;
@@ -683,7 +747,7 @@ FD_INIT0:
 		LD		BC,FD_FNTBL		; BC := FUNC TABLE ADR
 		PUSH	IY				; CFG ENTRY POINTER
 		POP		DE				; COPY TO DE
-		CALL	DIO_ADDENT		; ADD ENTRY, BC IS NOT DESTROYED
+;;;;????? CALL	DIO_ADDENT		; ADD ENTRY, BC IS NOT DESTROYED
 		CALL	FD_INITUNIT		; DO UNIT INITIALIZATION
 		LD		BC,FD_CFGSIZ	; SIZE OF CFG ENTRY
 		ADD		IY,BC			; BUMP IY TO NEXT ENTRY
@@ -706,20 +770,20 @@ FD_INIT0:
 		LD		(FCD_FDCRDY),A
 ;
 		RET
-;
+;===============================================================================
 ; UNIT INITIALIZATION
-;
-FD_INITUNIT:
+;===============================================================================
+FD_INITUNIT
 		LD		(IY+FD_STAT),0			; CLEAR STATUS
 		LD		(IY+FD_MEDTYP),FDMEDIA	; SET DEFAULT MEDIA TYPE
 		LD		(IY+FD_CURTRK),0xFE		; SPECIAL VALUE FOR CURTRK
 		RET
-;
+;===============================================================================
 ; FD_IDLE QUIESCES THE FLOPPY SUBSYSTEM (MOTOR OFF)
 ; AFTER BEING CALLED ENOUGH TIMES...
 ; SHOULD IT INVALIDATE THE BUFFER???
-;
-FD_IDLE:
+;===============================================================================
+FD_IDLE
 		LD		BC,(FCD_IDLECNT)
 		LD		A,B
 		OR		C
@@ -733,10 +797,10 @@ FD_IDLE:
 
 		CALL	FC_MOTOROFF			; COUNTER JUST EXPIRED, SHUTDOWN MOTOR!
 		RET
-;
+;===============================================================================
 ; FD_STATUS
-;
-FD_STATUS:
+;===============================================================================
+FD_STATUS
 		LD		A,(IY+FD_CURTRK)	; A = CURRENT TRACK
 
 		CP		0FFH				; IS CURRENT TRACK = $FF?
@@ -748,16 +812,16 @@ FD_STATUS:
 FD_STATUS1:
 		OR		A					; A ALREADY = $FF, JUST SET FLAGS
 		RET
-;
-;
-;
+;===============================================================================
+; FD_RESET
+;===============================================================================
 FD_RESET:
 		XOR	A			; ALWAYS OK
 		RET
-;
+;===============================================================================
 ; FD_CLRDSKCHG
-;
-FD_CLRDSKCHG:
+;===============================================================================
+FD_CLRDSKCHG
 		; PROCESS ANY PENDING DISK CHANGE NOTIFICATIONS
 		LD		B,5
 FD_CLRDSKCHG1:
@@ -768,12 +832,12 @@ FD_CLRDSKCHG1:
 		CP		FRC_DSKCHG
 		RET		NZ			; NO MORE DISK CHANGE NOTIFICATIONS
 		DJNZ	FD_CLRDSKCHG1
-;
+;===============================================================================
 ; FD_WTSEEK
 ;
 ; WAIT FOR PENDING SEEK OPERATION TO COMPLETE BY POLLING SENSEINT
 ; AND WAITING FOR ABTERM OR OK.
-;
+;===============================================================================
 FD_WTSEEK:
 		LD		BC,1000H
 
@@ -797,9 +861,9 @@ FD_RETRC:
 		LD		A,(FST_RC)
 		OR		A
 		RET						; TIMEOUT/FAILED
-;
+;===============================================================================
 ; FD_FDCRESET
-;
+;===============================================================================
 FD_FDCRESET:
 		CALL	FC_RESETFDC
 		CALL	FD_CLRDSKCHG
@@ -824,11 +888,11 @@ FD_FDCRESET1:
 		POP		IY					; RESTORE IY
 
 		RET
-;
+;===============================================================================
 ; FD_DRIVERESET
 ;
 ; ATTEMPT TO FULLY RESET FLOPPY DRIVE, PRIMARILY RECALIBRATE
-;
+;===============================================================================
 FD_DRIVERESET:
 		CALL	FC_SPECIFY
 		RET		NZ					; ERROR, BAIL OUT
@@ -847,9 +911,9 @@ FD_DRIVERESET:
 
 		CALL	FD_WTSEEK
 		RET
-;
-;
-;
+;===============================================================================
+; FD_SEEK
+;===============================================================================
 FD_SEEK:
 		; DE:HL CONTAINS EITHER LBA OR CHS
 		BIT		7,D				; TEST LBA BIT
@@ -889,15 +953,17 @@ FD_SEEK9:						; NOT LBA, JUST SAVE THE CHS VALUE IN CFG ENTRY
 		CALL	ST32			; SAVE HST IN CFG ENTRY
 		XOR		A				; SIGNAL SUCCESS
 		RET
-;
-FD_READ:
-		CALL	HB_DSKREAD		; HOOK HBIOS DISK READ SUPERVISOR
+;===============================================================================
+; FD_READ
+;===============================================================================
+FD_READ
+;		CALL	HB_DSKREAD		; HOOK HBIOS DISK READ SUPERVISOR
 		LD		(FD_DSKBUF),HL	; SAVE DISK BUFFER ADDRESS
 		LD		A,DOP_READ
 		JR		FD_RW
 ;
 FD_WRITE:
-		CALL	HB_DSKWRITE		; HOOK HBIOS DISK WRITE SUPERVISOR
+;		CALL	HB_DSKWRITE		; HOOK HBIOS DISK WRITE SUPERVISOR
 		LD		(FD_DSKBUF),HL	; SAVE DISK BUFFER ADDRESS
 		LD		A,DOP_WRITE
 		JR		FD_RW
@@ -960,9 +1026,10 @@ FD_RW4:
 		LD		HL,(FD_DSKBUF)	; CURRENT DMA TO HL
 		OR		A				; SET FLAGS BASED ON RETURN CODE
 		RET						; AND RETURN, A HAS RETURN CODE
-
-;
-FD_RUN:
+;===============================================================================
+; FD_RUN
+;===============================================================================
+FD_RUN
 		; UPDATE DRIVE SELECTION
 		LD		A,(IY+FD_DEV)		; GET UNIT
 		LD		(FCD_DS),A			; UPDATE FCD_DS TO NEW VALUE
@@ -998,10 +1065,10 @@ FD_RETRY:
 		LD		A,(FST_RC)
 		OR		A				; OTHERWISE SET FLAGS BASED ON RC (IN A)
 		RET						; AND GIVE UP
-;
-;
-;
-FD_START:
+;===============================================================================
+; FD_START
+;===============================================================================
+FD_START
 		LD		A,(FCD_FDCRDY)
 		CP		TRUE
 		CALL	NZ,FD_FDCRESET
@@ -1065,7 +1132,7 @@ FD_RUN1:
 		JR		Z,FC_WRITE
 		CP		DOP_READID
 		JR		Z,FC_READID
-		CALL	PANIC
+		jp		bad_end
 
 FD_RUNCHK:
  IF (DSKYENABLE)
@@ -1754,27 +1821,31 @@ FC_PRTFST:
 FC_PRTFST0:	; START OF LOOP
 		LD		C,(HL)
 		CP		C
-		JR		Z,FC_PRTFST1		; FOUND CODE
+		JR		Z,FC_PRTFST1	; FOUND CODE
 
 		ADD		HL,DE			; POINT TO NEXT ENTRY
 		DJNZ	FC_PRTFST0		; CHECK NEXT ENTRY TILL COUNT IS ZERO
 
 		; NO MATCHING ENTRY, PRINT THE HEX VALUE
-		CALL	PC_SPACE
-		CALL	PC_LBKT
-		CALL	PRTHEXBYTE
-		CALL	PC_RBKT
+		CALL	stdio_str
+		db		" (",0
+		CALL	stdio_byte
+		call	stdio_str
+		db		")", 0
 		JR		FC_PRTFSTX
 
 FC_PRTFST1:	; ENTRY FOUND, PRINT IT
-		CALL	PC_SPACE
+		ld		a, ' '
+		call	stdio_putc
 		INC		HL
 		LD		E,(HL)
 		INC		HL
 		LD		D,(HL)
-		CALL	PC_LBKT
+		ld		a, '('
+		call	stdio_putc
 		CALL	WRITESTR
-		CALL	PC_RBKT
+		ld		a, ')'
+		call	stdio_putc
 
 
 FC_PRTFSTX:
@@ -1805,10 +1876,11 @@ FCPC_LOOP:	; START OF LOOP
 		DJNZ	FCPC_LOOP		; CHECK NEXT ENTRY TILL COUNT IS ZERO
 
 		; NO MATCHING ENTRY, PRINT THE HEX VALUE
-		CALL	PC_SPACE
-		CALL	PC_LBKT
-		CALL	PRTHEXBYTE
-		CALL	PC_RBKT
+		call	stdio_str
+		db		" (", 0
+		call	stdio_byte
+		call	stdio_str
+		db		")",0
 		JR		FCPC_EXIT
 
 FCPC_MATCH:	; ENTRY FOUND, PRINT IT
@@ -1856,18 +1928,14 @@ FC_PRTRESULTS:
 		JR		FCPR_EXIT
 
 FCPR2:
-		CALL	NEWLINE
-
-		LD		DE,FDSTR_FD
-		CALL	WRITESTR
-		CALL	PC_COLON
-		CALL	PC_SPACE
+		CALL	stdio_str
+		db		"\r\nFD: ", 0
 
 		CALL	FC_PRTCMD
 
 		LD		A,(FCP_LEN)
 		LD		DE,FCP_BUF
-		CALL	PRTHEXBUF
+		CALL	stdio_byte
 
 		LD		DE,FDSTR_ARROW
 		CALL	WRITESTR
@@ -1884,17 +1952,17 @@ FCPR_EXIT:
 ;
 ; STRING CONSTANTS
 ;
-FDSTR_ARROW		db		" -->$"
-FDSTR_NORESP	db		"DRIVE NOT RESPONDING$"
-FDSTR_FD		db		"FD$"
+FDSTR_ARROW		db		" -->",0
+FDSTR_NORESP	db		"DRIVE NOT RESPONDING",0
+FDSTR_FD		db		"FD",0
  IF (FDTRACE >= 3)
-FDSTR_MOTON		db		"\r\nMOTOR ON$"
-FDSTR_MOTOFF	db		"\r\nMOTOR OFF$"
-FDSTR_MOTDELAY	db		"\r\nMOTOR DELAY$"
-FDSTR_DOR		db		"DOR$"
-FDSTR_DCR		db		"DCR$"
-FDSTR_RESETFDC	db		"\r\nRESET FDC$"
-FDSTR_SELECT	db		"\r\nSELECT: $"
+FDSTR_MOTON		db		"\r\nMOTOR ON",0
+FDSTR_MOTOFF	db		"\r\nMOTOR OFF",0
+FDSTR_MOTDELAY	db		"\r\nMOTOR DELAY",0
+FDSTR_DOR		db		"DOR",0
+FDSTR_DCR		db		"DCR",0
+FDSTR_RESETFDC	db		"\r\nRESET FDC",0
+FDSTR_SELECT	db		"\r\nSELECT: ",0
  ENDIF		; (FDTRACE >= 3)
  ENDIF		; (FDTRACE > 0)
 ;
@@ -1950,6 +2018,7 @@ FD_CURHDS		db		0		; CURRENT HEADS
 ;==================================================================================================
 ; DISK READ HELPER
 ;==================================================================================================
+ if 0
 ;
 ; IMPLEMENTS MULTI SECTOR READS AND I/O TO/FROM
 ; BANKED RAM VIA BOUNCE BUFFER
@@ -1990,9 +2059,9 @@ HB_DSKREAD0:
 ;
  IF 1
 		; RAM BANK RANGE CHECK
-		LD		A,D			; GET TGT BANK
+		LD		A,D				; GET TGT BANK
 		CP		BID_RAMN		; BANK IN RANGE 0-N?
-		CALL	NC,PANIC		; IF >N, PANIC
+		jp		NC, bad_end		; IF >N, PANIC
  ENDIF
 ;
 		; SAVE TGT BUF BNK/ADR
@@ -2078,9 +2147,9 @@ HB_DSKWRITE0:
 ;
  IF 1
 		; RAM BANK RANGE CHECK
-		LD		A,D			; GET TGT BANK
+		LD		A,D				; GET TGT BANK
 		CP		BID_RAMN		; BANK IN RANGE 0-N?
-		CALL	NC,PANIC		; IF >N, PANIC
+		jp		NC, bad_end		; IF >N, PANIC
  ENDIF
 ;
 		; SAVE TGT BUF BNK/ADR
@@ -2158,11 +2227,11 @@ HB_DSKFN:
  IF (LEDENABLE & LEDDISKIO)
 		LED($FF)
  ENDIF
-		LD		E,1			; ONE SECTOR
+		LD		E,1				; ONE SECTOR
 HB_DSKFNADR	.EQU	$+1
-		CALL	PANIC			; READ ONE SECTOR
+		jp		bad_end			; READ ONE SECTOR
  IF (DIAGENABLE & DIAGDISKIO)
-		DIAG(0)				; CLEAR DIAG LEDS
+		DIAG(0)					; CLEAR DIAG LEDS
  ENDIF
  IF (LEDENABLE & LEDDISKIO)
 		LED($00)
@@ -2177,6 +2246,7 @@ HB_WRKBUF	ds		512		;
 HB_SRCBNK	db		BID_USR	;
 HB_DSTBNK	db		BID_USR	;
 
+ endif
  if SHOW_MODULE
 	 	DISPLAY "fdc size: ", /D, $-fdc_start
  endif

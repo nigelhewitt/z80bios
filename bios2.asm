@@ -12,7 +12,7 @@
  			include		"macros.inc"
 			include		"vt.inc"
 
-BIOSROM		equ			2				; which ROM page are we compiling
+BIOSROM		equ			ROM2			; which ROM page are we compiling
 BIOSRAM		equ			RAM5
 
 			org		PAGE3
