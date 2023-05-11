@@ -735,9 +735,9 @@ cmd_info
 ; '+s slot page address' COMMAND: set a trap
 cmd_trap
 			call	unpackB			; slot in A
-			jr		nc, db_bad_end		; not hex
+			jr		nc, db_bad_end	; not hex
 			call	getSlot			; point IX to the slot
-			jr		nc, db_bad_end		; no such slot
+			jr		nc, db_bad_end	; no such slot
 
 			call	unpackB			; get the page in A
 			jr		nc, db_bad_end
@@ -778,7 +778,17 @@ cmd_getregs
 ;-------------------------------------------------------------------------------
 ; 't' COMMAND set registers
 cmd_setregs
-			jp		db_bad_end
+			ld		hl, regs		; point to REGSAVE regs
+			ld		b, REGSAVE/2	; size in WORDS
+.sr1		ex		de, hl
+			call	unpackW			; unpack into A
+			ex		de, hl
+			ld		[hl], e
+			inc		hl
+			ld		[hl], d
+			inc		hl
+			djnz	.sr1
+			jp		db_good_end
 
 ;-------------------------------------------------------------------------------
 ; g address20 count8 COMMAND: get memory

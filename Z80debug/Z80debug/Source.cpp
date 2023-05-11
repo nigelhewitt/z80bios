@@ -11,14 +11,14 @@
 // add a new source Window
 //=====================================================================================================
 
-SOURCE::SOURCE(const char* title, int _fileID, int _page)
+SOURCE::SOURCE(std::string title, int _fileID, int _page)
 {
 	fileID	= _fileID;
 	page	= _page;
 	if(!process->files.contains(fileID)) return;
 
 	PROCESS::FDEF* fdef = &process->files[fileID];
-	fname = _strdup(fdef->fn);
+	fname = fdef->fn;
 
 
 	if(IsIconic(hFrame)){
@@ -36,7 +36,7 @@ SOURCE::SOURCE(const char* title, int _fileID, int _page)
 
 	MDICREATESTRUCT mcs{};					// do not use CreateWindow() for MDI children
 	mcs.szClass	= "Z80source";
-	mcs.szTitle	= title;
+	mcs.szTitle	= title.c_str();
 	mcs.hOwner	= hInstance;
 	mcs.x		= CW_USEDEFAULT;
 	mcs.y		= CW_USEDEFAULT;
@@ -60,7 +60,6 @@ SOURCE::~SOURCE()
 {
 	process->files[fileID].hSource = nullptr;
 	SendMessage(hSource, WM_MDIDESTROY, (WPARAM)hSource, 0);
-	delete[] fname;
 }
 
 void SOURCE::Paint(HWND hWnd, HDC hdc)
@@ -126,7 +125,7 @@ void SOURCE::Paint(HWND hWnd, HDC hdc)
 			SetTextColor(hdc, RGB(255,255,255));
 			SetBkColor(hdc, RGB(128,0,0));
 		}
-		const char* text = lines[i++].text;
+		const char* text = lines[i++].text.c_str();
 		WCHAR tempW[200]{};
 		mbtowide((PUTF8)text, (PUTF16)tempW, _countof(tempW));
 		TabbedTextOutW(hdc, x, y, tempW, (int)wcslen(tempW), 1, tabs, leftMargin);
@@ -145,12 +144,13 @@ void SOURCE::PopUp(int file, int line, int highlight)
 {
 	PROCESS::FDEF &fdef = PROCESS::files[file];
 	if(fdef.hSource==nullptr){
-		char temp[200];
-		sprintf_s(temp, sizeof temp, "Source: %d %s (%d)", PROCESS::files[file].page, PROCESS::files[file].fn, file);
+		std::string temp = std::format("Source: {} {} ({})", PROCESS::files[file].page, PROCESS::files[file].fn, file);
 		SOURCE *s = new SOURCE(temp, file, PROCESS::files[file].page);
 	}
-	if(fdef.hSource)
+	if(fdef.hSource){
 		SendMessage(fdef.hSource, regMessage, 0, (LPARAM)(MAKELONG(line,highlight)));
+		BringWindowToTop(fdef.hSource);
+	}
 }
 void SOURCE::SetScroll(HWND hWnd)
 {
@@ -196,7 +196,7 @@ LRESULT CALLBACK SOURCE::Proc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 		SetWindowLongPtr(hWnd, 0, (LONG_PTR)sd);
 
 		FILE *fin;
-		if(fopen_s(&fin, sd->fname, "r")==0){
+		if(fopen_s(&fin, sd->fname.c_str(), "r")==0){
 			// just a tweak to get over the UTF8 signature
 			BYTE b1=fgetc(fin), b2=fgetc(fin), b3=fgetc(fin);
 			if(b1!=0xef || b2!=0xbb || b3!=0xbf)
@@ -206,11 +206,10 @@ LRESULT CALLBACK SOURCE::Proc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 				int i = (int)strlen(temp);
 				if(i>1 && temp[i-1]=='\n') temp[i-1]=0;
 				SOURCELINE sl;
-				sl.text = _strdup(temp);
+				sl.text = temp;
 				sl.trap = 0;
 				sl.address = -1;
 				sd->lines.push_back(sl);
-				sl.text = nullptr;			// do not delete as that was a copy
 			}
 			fclose(fin);
 			// get the number of the page -1 version of this file if it exists

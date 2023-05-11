@@ -141,6 +141,24 @@ bool DEBUG::recycle()
 	return false;
 }
 //=================================================================================================
+// check if the registers have been updates and if so send them
+//=================================================================================================
+void DEBUG::do_regs()
+{
+	if(regs->changed()){
+		sendCommand("t %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x %04x"
+					" %04x %04x %04x %04x %04x",
+					regs->r1.W[0],  regs->r1.W[1],  regs->r1.W[2],  regs->r1.W[3],
+					regs->r1.W[4],  regs->r1.W[5],  regs->r1.W[6],  regs->r1.W[7],
+					regs->r1.W[8],  regs->r1.W[9],  regs->r1.W[10], regs->r1.W[11],
+					regs->r1.W[12], regs->r1.W[13], regs->r1.W[14], regs->r1.W[15],
+					regs->r1.W[16], regs->r1.W[17]);
+		char temp[20];
+		getBuffer(temp, sizeof temp, 500);				// should get back "?"
+	}
+	flush();
+}
+//=================================================================================================
 // the debugger working thread
 //=================================================================================================
 
@@ -249,6 +267,7 @@ void DEBUG::idleMode()
 	case 0:
 		break;
 	case F_RUN:
+		do_regs();
 		flush();
 		sendCommand("k");		// continue command
 		if(getBuffer(temp, sizeof temp)){
@@ -257,6 +276,7 @@ void DEBUG::idleMode()
 		}
 		break;
 	case F_STEP:
+		do_regs();
 		flush();
 		sendCommand("s");		// step command
 		if(getBuffer(temp, sizeof temp)){
@@ -271,6 +291,7 @@ void DEBUG::idleMode()
 		state = S_ENTERIDLE;	// refresh mem
 		break;
 	case F_OS:
+		do_regs();
 		flush();
 		sendCommand("z");
 		if(getBuffer(temp, sizeof temp)){

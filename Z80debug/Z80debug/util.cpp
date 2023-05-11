@@ -26,92 +26,101 @@ void error(DWORD err)
 // ini file handlers
 //=================================================================================================
 
-static const char* getIniFile()
+std::string getIniFile()
 {
-	static char IniFileName[MAX_PATH]{};
+	static std::string IniFileName{};
 
-	if(*IniFileName==0){
-		GetModuleFileName(hInstance, IniFileName, sizeof IniFileName);
-		char *p = strrchr(IniFileName, '.');
+	if(IniFileName.empty()){
+		char temp[MAX_PATH];
+		GetModuleFileName(hInstance, temp, sizeof temp);
+		char *p = strrchr(temp, '.');
 		strcpy(p, ".ini");
+		IniFileName = temp;
 	}
 	return IniFileName;
 }
-char* GetProfile(const char* section, const char* key, const char* def)
+std::string GetProfile(std::string section, std::string key, std::string def)
 {
 	static char temp[500];
-	GetPrivateProfileString(section, key, def, temp, sizeof temp, getIniFile());
+	GetPrivateProfileString(section.c_str(), key.c_str(), def.c_str(), temp, sizeof temp, getIniFile().c_str());
 	return temp;
 }
-void PutProfile(const char* section, const char* key, const char* value)
+bool GetProfile(std::string section, std::string key, bool def)
 {
-	WritePrivateProfileString(section, key, value, getIniFile());
+	std::string d = def ? "true" : "false";
+	std::string res = GetProfile(section, key, d);
+	return res[0]=='t';
+}
+int GetProfile(std::string section, std::string key, int def)
+{
+	try{
+		std::string d = std::format("{}", def);
+		std::string res = GetProfile(section, key, d);
+		return std::stoi(res);
+	}
+	catch(...){			// std::stoi throws on error
+		return def;
+	}
+}
+void PutProfile(std::string section, std::string key, std::string value)
+{
+	WritePrivateProfileString(section.c_str(), key.c_str(), value.c_str(), getIniFile().c_str());
+}
+//=================================================================================================
+// comparei case insensitive compare:	returns -1/0/1
+//		return 1 if a>b					ie: a comes lexically after b
+//=================================================================================================
+int comparei(std::string a, std::string b)
+{
+	size_t na = a.length(), nb = b.length(), nc = min(na, nb);
+	for(size_t i=0; i<nc; ++i){
+		if(std::tolower(a[i]) > std::tolower(b[i])) return  1;
+		if(std::tolower(a[i]) < std::tolower(b[i])) return -1;
+	}
+	// at the end of the shortest string...
+	if(na>nb) return  1;		// a is longer so a is after b
+	if(na<nb) return -1;
+	return 0;					// they are identical
 }
 //=================================================================================================
 // ComboBox drop down list save and restore
 //=================================================================================================
 
-//inline LRESULT PostDlgItemMessage(HWND hDlg, UINT id, UINT msg, WPARAM wParam, LPARAM lParam)
-//{
-//	return PostMessage(GetDlgItem(hDlg, id), msg, wParam, lParam);
-//}
 #define MAX_DROPS	10
 
 // load a dialog box from the Profile
 void DropLoad(HWND hDlg, UINT id)
 {
 	SendDlgItemMessage(hDlg, id, CB_RESETCONTENT, 0, 0);
-	char section[20];
-	sprintf_s(section, sizeof section, "DropBox-%d", id);
+	std::string section = std::format("DropBox-{0}", id);
 
 	for(int i=0; i<MAX_DROPS; ++i){
-		char item[10];
-		sprintf_s(item, sizeof item, "T%d", i+1);
-		char* text = GetProfile(section, item, "");
-		if(*text)
-			SendDlgItemMessage(hDlg, id, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+		std::string item = std::format("T{0}", i+1);
+		std::string text = GetProfile(section, item, "");
+		if(!text.empty())
+			SendDlgItemMessage(hDlg, id, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
 	}
 }
 // add a new item to the profile
-void DropSave(UINT id, const char* text)
+void DropSave(UINT id, std::string text)
 {
-	char section[20];
-	sprintf_s(section, sizeof section, "DropBox-%d", id);
+	std::string section = std::format("DropBox-{0}", id);
 
 	// read in the current list
-	char* items[MAX_DROPS]{};
-	int nItems=0, nFound=-1;
+	std::vector<std::string> items{};
 
 	for(int i=0; i<MAX_DROPS; ++i){
-		char item[10];
-		sprintf_s(item, sizeof item, "T%d", i+1);
-		char *p = GetProfile(section, item, "");
-		items[i] = *p ? _strdup(p) : nullptr;
-		if(items[i]){
-			++nItems;
-			if(strcmp(items[i], text)==0)
-				nFound = i;
-		}
+		std::string item = std::format("T{0}", i+1);
+		std::string p = GetProfile(section, item, "");
+		if(!p.empty() && p!=text)
+			items.push_back(p);
 	}
+	items.insert(items.begin(), text);		// insert at the beginning
 
-	if(nFound==0) return;					// already saved and is at the top, job finished
-
-	// Now move the old ones down to make room for the new one at the top.
-	// If it was found move the ones above it down so it moves to the top
-	int bottom = nFound==-1 ? MAX_DROPS-1: nFound;
-
-	for(int i=bottom; i>0; --i)				// move everybody down
-		items[i] = items[i-1];
-	items[0] = _strdup(text);				// insert new item at the top
-
-	for(int i=0; i<MAX_DROPS; ++i){
-		char item[10];
-		sprintf_s(item, sizeof item, "T%d", i+1);
-		if(items[i])
+	for(int i=0; i<MAX_DROPS && i<items.size(); ++i){
+		std::string item = std::format("T{0}", i+1);
+		if(!items[i].empty())
 			PutProfile(section, item, items[i]);
-		else
-			PutProfile(section, item, nullptr);
-		delete items[i];
 	}
 }
 
@@ -134,28 +143,29 @@ static int CALLBACK BrowseForFolderCallback(HWND hwnd,UINT uMsg,LPARAM lp, LPARA
 	}
 	return 0;
 }
-bool GetFolder(HWND hWnd, char *buffer, int cb, const char* title)
+bool GetFolder(HWND hWnd, std::string &buffer, std::string title)
 {
 	BROWSEINFO bi;
-	char szPath[MAX_PATH + 1];
+	char szPath[MAX_PATH+1], szBuffer[MAX_PATH+1];
 	LPITEMIDLIST pidl;
 	bool bResult = false;
 	LPMALLOC pMalloc;
+	strcpy_s(szBuffer, sizeof szBuffer, buffer.c_str());
 
 	if(SUCCEEDED(SHGetMalloc(&pMalloc))){
 		bi.hwndOwner		= hWnd;
 		bi.pidlRoot			= nullptr;
 		bi.pszDisplayName	= nullptr;
-		bi.lpszTitle		= title;
+		bi.lpszTitle		= title.c_str();
 		bi.ulFlags			= BIF_STATUSTEXT; //BIF_EDITBOX
 		bi.lpfn				= BrowseForFolderCallback;
-		bi.lParam			= (LPARAM)buffer;
+		bi.lParam			= (LPARAM)szBuffer;
 
 		pidl = SHBrowseForFolder(&bi);
 		if(pidl){
 			if(SHGetPathFromIDList(pidl, szPath)){
 				bResult = true;
-				strcpy(buffer, szPath);
+				buffer = szPath;
 			}
 			pMalloc->Free(pidl);
 			pMalloc->Release();
@@ -170,8 +180,9 @@ bool GetFolder(HWND hWnd, char *buffer, int cb, const char* title)
 static INT_PTR CALLBACK Config(HWND hDlg, UINT uMessage, WPARAM wParam, LPARAM lParam)
 {
 	static int tBaud[] = { 1200, 2400, 4800, 9600, 14400, 19200, 28800, 38400, 57600, 115200 };
-	char temp[100], *t;
-	int i, j, index;
+	char temp[100];
+	int i, j, index=0;
+	std::string t;
 
 	switch(uMessage){
 	case WM_INITDIALOG:
@@ -183,7 +194,7 @@ static INT_PTR CALLBACK Config(HWND hDlg, UINT uMessage, WPARAM wParam, LPARAM l
 			DWORD nn = sizeof(cc);
 			if(GetDefaultCommConfig(temp, &cc, &nn)){
 				SendDlgItemMessage(hDlg, IDC_PORT, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(temp));
-				if(lstrcmp(temp, t)==0) index = j;		// save the index of our previous port
+				if(lstrcmp(temp, t.c_str())==0) index = j;		// save the index of our previous port
 				++j;
 			}
 		}
@@ -195,20 +206,21 @@ static INT_PTR CALLBACK Config(HWND hDlg, UINT uMessage, WPARAM wParam, LPARAM l
 		for(auto b : tBaud){
 			wsprintf(temp, "%d", b);
 			SendDlgItemMessage(hDlg, IDC_BAUD, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(temp));
-			if(strcmp(temp, t)==0) index = i;
+			if(strcmp(temp, t.c_str())==0) index = i;
 			++i;
 		}
 		SendDlgItemMessage(hDlg, IDC_BAUD, CB_SETCURSEL, index, 0);
-		SetDlgItemText(hDlg, IDC_FOLDER, GetProfile("setup", "folder", ""));
+		SetDlgItemText(hDlg, IDC_FOLDER, GetProfile("setup", "folder", "").c_str());
 		return TRUE;
 
 	case WM_COMMAND:
 		switch(LOWORD(wParam)){
 		case IDC_FOLDERBROWSE:
-			char fn[MAX_PATH];
-			GetDlgItemText(hDlg, IDC_FOLDER, fn, sizeof fn);
-			if(GetFolder(hDlg, fn, sizeof fn, "Select working folder"))
-				SetDlgItemText(hDlg, IDC_FOLDER, fn);
+			char temp[MAX_PATH];
+			GetDlgItemText(hDlg, IDC_FOLDER, temp, sizeof temp);
+			t = temp;
+			if(GetFolder(hDlg, t, "Select working folder"))
+				SetDlgItemText(hDlg, IDC_FOLDER, t.c_str());
 			return TRUE;
 
 		case IDOK:

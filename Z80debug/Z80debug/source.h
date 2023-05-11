@@ -5,19 +5,19 @@
 
 class SOURCE {
 public:
-	SOURCE(const char* title, int fileID, int _page);
+	SOURCE(std::string title, int fileID, int _page);
 	~SOURCE();
 	static void PopUp(int file, int line, int highlight=0);
 
 private:
 	struct SOURCELINE {
-		const char* text{};
+		std::string text{};
 		int hiLight{};
 		bool canTrap{};
 		int trap{};		// 0=no trap,  1-n
 		int address{-1};
 	};
-	const char* fname{};
+	std::string fname{};
 	int page{};
 	int fileID{};
 	std::vector<SOURCELINE> lines{};

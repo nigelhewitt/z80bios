@@ -13,6 +13,7 @@ public:
 	static void ShowRegs();
 	void unpackRegs(const char* text);
 	HWND hwnd(){ return hRegs; }
+
 protected:
 	union R1{
 		__declspec(align(1)) struct R2 {
@@ -30,6 +31,7 @@ protected:
 		WORD W[18]{};
 		R1(){};
 	} r1, rbak;
+	bool changed(){ return memcmp(&r1, &rbak, sizeof R1)!=0; }
 #pragma warning( pop )
 
 private:

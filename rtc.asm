@@ -367,7 +367,7 @@ packBCD		push	bc
 ; !!!! In fact it dawns on me I can do all the maths in modulus7 !!!!
 ;-------------------------------------------------------------------------------
 getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
-				; returns DOW(1-7) with Sunday=1
+				; returns DOW(1-7) in A with Sunday=1
 				; uses A
 ;
 ; int DOW(int year, int month, int day){
@@ -383,7 +383,6 @@ getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
 ;    return (q + 13*(m+1)/5 + k + k/4 + j/4 + 5*j + 6) % 7;
 ;}
 ;
-			SNAPT	"DOW"
 			push	hl
 			ld		a, b		; month
 			cp		3			; CY = month < 3
@@ -426,7 +425,7 @@ getDOW			; call with D=day(1-31), B=month(1-12), C=two digit year(0-99)
 			ret
 
 ;-------------------------------------------------------------------------------
-; unpack RTC block into text stdio so it can be redirected
+; unpack RTC block into text
 ;-------------------------------------------------------------------------------
 unpackRTC		; call with buffer pointer in IX
 			push	hl

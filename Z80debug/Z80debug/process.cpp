@@ -2,6 +2,7 @@
 //
 
 #include "framework.h"
+#include "util.h"
 #include "process.h"
 
 PROCESS* process{};
@@ -27,7 +28,7 @@ PROCESS::PROCESS(const char* cwd)
 	for(std::pair<const int,FDEF> &x : files)
 		if(get<1>(x).page==-1)
 			for(std::pair<const int,FDEF> &y : files)
-				if(strcmp(get<1>(y).fn, get<1>(x).fn)==0 && get<1>(y).page!=-1)
+				if(get<1>(y).fn==get<1>(x).fn && get<1>(y).page!=-1)
 					get<1>(x).minor = true;
 }
 PROCESS::~PROCESS()
@@ -43,28 +44,27 @@ PROCESS::~PROCESS()
 int PROCESS::getFileName(const char* p, int& index, int page)
 {
 	// first extract the file name
-	char temp[100];
+	std::string temp;
 	int i;
-	for(i=0; i<sizeof(temp)-1 && p[index] && p[index]!='|'; temp[i++] = p[index++]);
-	temp[i] = 0;
+	for(i=0; p[index] && p[index]!='|'; temp += p[index++]);
 	if(p[index]) ++index;		// move over the |
 
-	if(strlen(temp)==0) return 0;
+	if(temp.empty()) return 0;
 
 	// then find it in the map (running the map backwards)
 	for(i=0; i<files.size(); ++i)
-		if(_stricmp(temp, files[i].fn)==0 && files[i].page==page)
+		if(comparei(temp, files[i].fn)==0 && files[i].page==page)
 			return i;
 	// doesn't exist so add it
-	FDEF fdef{_strdup(temp), page, nextFileNumber, nullptr, false };
+	FDEF fdef{ temp, page, nextFileNumber, nullptr, false };
 	files.emplace(std::make_pair(nextFileNumber, fdef));
 	return nextFileNumber++;
 }
 int PROCESS::getFileNameUnpaged(int file)
 {
-	const char *fn = files[file].fn;
+	std::string fn = files[file].fn;
 	for(int i=0; i<files.size(); ++i)
-		if(files[i].page==-1 && strcmp(files[i].fn, fn)==0)
+		if(files[i].page==-1 && comparei(files[i].fn, fn)==0)
 			return i;
 	return -1;
 }

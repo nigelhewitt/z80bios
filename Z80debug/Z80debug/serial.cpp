@@ -20,7 +20,7 @@ SERIAL::~SERIAL()
 	delete sd;
 	KillTimer(nullptr, 25);
 }
-bool SERIAL::setup(const char* port, int baud)
+bool SERIAL::setup(std::string port, int baud)
 {
 	if(sd) delete sd;
 	sd = new SERIALDRV(port, baud);

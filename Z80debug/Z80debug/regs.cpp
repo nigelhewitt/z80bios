@@ -53,6 +53,14 @@ void REGS::doReg20(HWND hDlg, UINT id, int value20, int value16)
 void REGS::save(UINT id, UINT v)
 {
 	switch(id){
+	case IDC_AH:
+	case IDC_AD:
+		r1.r2.A = v;
+		break;
+	case IDC_AHA:
+	case IDC_ADA:
+		r1.r2.AD = v;
+		break;
 	case IDC_BCH:
 	case IDC_BCD:
 	case IDC_RESTORE_BC:

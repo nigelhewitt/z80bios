@@ -53,7 +53,7 @@ private:
 	void idleMode();
 	void runMode();
 	void trapMode();
-
+	void do_regs();
 
 	std::thread *deb{};
 	bool runOK{true};

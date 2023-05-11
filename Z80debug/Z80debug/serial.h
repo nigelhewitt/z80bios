@@ -14,7 +14,7 @@ class SERIAL {
 public:
 	SERIAL();
 	~SERIAL();
-	bool setup(const char* port, int baud);
+	bool setup(std::string port, int baud);
 	// characters to be transmitted
 	void putc(char c){ tx.enqueue(c); };
 

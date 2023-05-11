@@ -16,7 +16,7 @@
 // Serial port stuff
 //=================================================================================================
 
-SERIALDRV::SERIALDRV(LPCSTR name, int baud)
+SERIALDRV::SERIALDRV(std::string name, int baud)
 {
 	open(name, baud);
 }
@@ -28,22 +28,21 @@ SERIALDRV::~SERIALDRV()
 // Hardware oriented routines
 //=================================================================================================
 
-bool SERIALDRV::open(LPCSTR name, int baud)
+bool SERIALDRV::open(std::string name, int baud)
 {
-	if(name==nullptr || *name==0) return false;
-	strcpy_s(szPortName, sizeof(szPortName), name);
+	if(name.empty()) return false;
+	PortName = name;
 	nBaud = baud;
 	_ok = false;
 	iBuffer = 0;
 	nBuffer = 0;
 
-	if(szPortName[0]==0) return _ok;
+	if(PortName.empty()) return _ok;
 
-	char nx[20]="";
-	if(strlen(szPortName)>4)									// special handling for COM10+
-		strcpy_s(nx, sizeof(nx), "\\\\.\\");
-	strcat_s(nx, sizeof(nx), szPortName);
-	handle = CreateFile(nx, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	std::string nx = PortName;
+	if(nx.length()>4)									// special handling for COM10+
+		nx = "\\\\.\\" + PortName;
+	handle = CreateFile(nx.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if(handle==INVALID_HANDLE_VALUE){
 bad:
 		err = GetLastError();

@@ -11,14 +11,14 @@
 
 class SERIALDRV {
 public:
-	SERIALDRV(LPCSTR name, int baud);					// the constructor takes port name and baud rate and then opens
+	SERIALDRV(std::string name, int baud);			// the constructor takes port name and baud rate and then opens
 	~SERIALDRV();
 
-	bool		open(LPCSTR name, int baud);
-	bool		reopen(){ return open(szPortName, nBaud); }
+	bool		open(std::string name, int baud);
+	bool		reopen(){ return open(PortName, nBaud); }
 	bool		close();
 	bool		ok(){ return _ok; }
-	const char*	port(){ return szPortName; }
+	std::string	port(){ return PortName; }
 	int			baud(){ return nBaud; }
 	DWORD		error();							// return windows error stuff
 	bool		send(LPCSTR s, size_t cb=0);		// send data a block of stuff, if it is null terminated leave off cb
@@ -27,7 +27,6 @@ public:
 	bool		gets(char*, size_t cb);				// get a string that did have a \r at the end
 	int			get(char*, size_t cb);				// get anything (even nulls)
 	void		flush(){ iBuffer = nBuffer = 0; }
-	void		record(const char *str);
 
 	bool		getDTR(){ return dtr; }
 	bool		getRTS(){ return rts; }
@@ -39,7 +38,7 @@ private:
 	int		write(LPCSTR buffer, size_t cbBuffer);	// write data
 	bool	poll();									// poll the receiver
 
-	char	szPortName[20]{};						// port name
+	std::string	PortName{};							// port name
 	int		nBaud;
 	DCB		dcb;
 	HANDLE	handle;

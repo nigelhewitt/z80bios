@@ -26,7 +26,7 @@ INT_PTR TRAFFIC::Proc(HWND hDlg, UINT wMessage, WPARAM wParam,  LPARAM lParam)
 	switch(LOWORD(wMessage)){
 	case WM_INITDIALOG:
 		SetTimer(hDlg, 0, 200, nullptr);
-		always = GetProfile("setup", "show-traffic", "false")[0]=='t';
+		always = GetProfile("setup", "show-traffic", false);
 		SendDlgItemMessage(hDlg, IDC_ALWAYS, BM_SETCHECK, always ? BST_CHECKED : BST_UNCHECKED, 0);
 		return TRUE;
 

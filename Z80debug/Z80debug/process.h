@@ -6,25 +6,27 @@ class PROCESS {
 public:
 	PROCESS(const char* dir);
 	~PROCESS();
-	const char* getFileName(int file){ return files[file].fn; }
+	std::string getFileName(int file){ return files[file].fn; }
 	std::tuple<int, int, int, int>FindDefinition(const char* item);
 	std::tuple<int, int, int, int>FindTrace(WORD address16);
 
 private:
 	// files: rather than have 15000 copies of the same string for the filename
-	//		  I use a number being the key of the map
+	//		  I use a number being the key of a map
 	struct FDEF {				// definition of a file as displayed by SOURCE
-		const char* fn{};		// name
-		int page{};				// page number to interpret the lines
-		int fileID{};
+		std::string fn{};		// name
+		int  page{};			// page number to interpret the lines
+		int  fileID{};
 		HWND hSource{};			// window (if it exists)
 		bool minor{};			// if page==-1 there is another paged version
 	};
+	inline static std::map<int, FDEF>files{};	// files
+
 	struct SDL {				// details from the SDL files
 		struct LINEREF {		// the lineno field contains optional start and finish columns
 			int file{};
 			int line{};
-			int start{};		// I don't try to use them because I don't think they are set
+			int start{};		// I don't try to use these because I don't think they are set
 			int end{};
 		};
 		LINEREF source{};		// the source file that references
@@ -34,11 +36,9 @@ private:
 		char  type{};			// type of field (see assembler help)
 		const char* data[10]{};	// optional comma delimited more data (type dependant)
 	};
-	inline static int nextFileNumber{};
-
-protected:
-	inline static std::map<int, FDEF>files{};	// files
 	inline static std::vector<SDL> sdl{};		// accumulated wisdom of the ages
+
+	inline static int nextFileNumber{};
 
 private:
 	// workers for reading SDL files

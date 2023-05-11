@@ -18,7 +18,7 @@
 //		IMPORTANT CONCEPT
 //
 // THere are three threads
-//		The windows UI with all it's stops and starts
+//		The windows UI with all its stops and starts
 //		The serial data IO
 //		The debugger
 //
@@ -185,13 +185,13 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 		for(auto &s : PROCESS::files){
 			char temp[100];
 			if(s.second.page==100)			// ie: an SDL file
- 				sprintf_s(temp, sizeof temp, " %s", s.second.fn);
+ 				sprintf_s(temp, sizeof temp, " %s", s.second.fn.c_str());
 			else if(s.second.minor){
 				++i;
 				continue;
 			}
 			else
-				sprintf_s(temp, sizeof temp, "%d %s", s.second.page, s.second.fn);
+				sprintf_s(temp, sizeof temp, "%d %s", s.second.page, s.second.fn.c_str());
 			int bb=0;
 			if(++j==25){
 				j = 0;
@@ -207,15 +207,14 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 
 		// create the working subsystems
 		{
-			char* temp = GetProfile("setup", "baud", "9600");
-			int nBaud = strtol(temp, nullptr, 10);
-			temp = GetProfile("setup", "port", "COM8");
+			std::string port = GetProfile("setup", "port", "COM8");
+			int baud = GetProfile("setup", "baud", 9600);
 			serial = new SERIAL;
-			serial->setup(temp, nBaud);
+			serial->setup(port.c_str(), baud);
 
 			terminal = new TERMINAL;
 			debug = new DEBUG;
-			if(GetProfile("setup", "show-traffic", "false")[0]=='t')
+			if(GetProfile("setup", "show-traffic", false))
 				TRAFFIC::ShowTraffic(hWnd);
 		}
 		SetStatus("WAITING FOR HOST");
@@ -231,7 +230,7 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			if(f.hSource)
 				SetWindowPos(f.hSource, HWND_TOP, 0,0,0,0,SWP_NOMOVE|SWP_NOREPOSITION);
 			else{
-				sprintf_s(temp, sizeof temp, "Source: %d %s", f.page, f.fn);
+				sprintf_s(temp, sizeof temp, "Source: %d %s", f.page, f.fn.c_str());
 				new SOURCE(temp, id, f.page);
 			}
 			return 0;
@@ -406,7 +405,7 @@ int APIENTRY WinMain(	_In_ HINSTANCE		hInstance,
 	// Perform application initialization:
 	::hInstance = hInstance;			// Store instance handle in our global variable
 
-	char* cwd = _strdup(GetProfile("setup", "folder", "D:"));
+	char* cwd = _strdup(GetProfile("setup", "folder", "D:").c_str());
 	SetCurrentDirectory(cwd);
 	process = new PROCESS(cwd);			// and load the files
 
