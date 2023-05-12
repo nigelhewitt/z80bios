@@ -20,7 +20,7 @@
 #define IDM_TRAFFIC                     119
 #define IDM_RUN                         120
 #define IDM_STEP                        121
-#define IDM_KILL                        122
+#define IDM_RESET                       122
 #define IDM_MEMORY                      123
 #define IDM_BREAK                       124
 #define IDD_SEARCH                      130

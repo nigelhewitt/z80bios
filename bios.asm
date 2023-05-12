@@ -4,7 +4,7 @@
 ;				For the Zeta 2.2 board
 ;				© Nigel Hewitt 2023
 ;
-	define	VERSION	"v0.1.37"		; version number for sign on message
+	define	VERSION	"v0.1.38"		; version number for sign on message
 ;									  also used for the git commit message
 ;
 ;

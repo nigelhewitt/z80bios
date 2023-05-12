@@ -132,7 +132,7 @@ bool DEBUG::recycle()
 	AddTraffic("\r\nRECYCLE\r\n");
 	// eat the incoming queue until things stop for half a second
 	for(int i=0; i<10; ++i){
-		while(getc(500));
+		getc(500);
 		sendCommand("q");			// doesn't exist
 		char temp[20];
 		getBuffer(temp, sizeof temp, 500);				// should get back "?"
@@ -162,14 +162,14 @@ void DEBUG::do_regs()
 // the debugger working thread
 //=================================================================================================
 
-enum { F_RUN = 1, F_STEP, F_KILL, F_BREAK, F_OS };
+enum { F_RUN = 1, F_STEP, F_RESET, F_BREAK, F_OS };
 int uiFlag{};
 
-void DEBUG::run()  { uiFlag = F_RUN; }
-void DEBUG::step() { uiFlag = F_STEP; }
-void DEBUG::kill() { uiFlag = F_KILL;}
-void DEBUG::pause(){ uiFlag = F_BREAK; }
-void DEBUG::os()   { uiFlag = F_OS; }
+void DEBUG::run()	{ std::lock_guard<std::mutex> lock(mx); uiFlag = F_RUN; }
+void DEBUG::step()	{ std::lock_guard<std::mutex> lock(mx); uiFlag = F_STEP; }
+void DEBUG::reset()	{ std::lock_guard<std::mutex> lock(mx); uiFlag = F_RESET;}
+void DEBUG::pause()	{ std::lock_guard<std::mutex> lock(mx); uiFlag = F_BREAK; }
+void DEBUG::os()	{ std::lock_guard<std::mutex> lock(mx); uiFlag = F_OS; }
 
 void DEBUG::showStatus(byte type, bool force)
 {
@@ -263,45 +263,52 @@ void DEBUG::idleMode()
 {
 	char temp[100];
 
-	switch(uiFlag){
-	case 0:
-		break;
-	case F_RUN:
-		do_regs();
-		flush();
-		sendCommand("k");		// continue command
-		if(getBuffer(temp, sizeof temp)){
-			state = S_RUN;
-			SetStatus("RUN");
+	{
+		std::lock_guard<std::mutex> lock(mx);
+		switch(uiFlag){
+		case 0:
+			break;
+		case F_RUN:
+			do_regs();
+			flush();
+			sendCommand("k");		// continue command
+			if(getBuffer(temp, sizeof temp)){
+				state = S_RUN;
+				SetStatus("RUN");
+			}
+			uiFlag = 0;
+			break;
+		case F_STEP:
+			do_regs();
+			flush();
+			sendCommand("s");		// step command
+			if(getBuffer(temp, sizeof temp)){
+				state = S_RUN;
+				SetStatus("RUN");
+			}
+			uiFlag = 0;
+			break;
+		case F_RESET:
+			recycle();
+			uiFlag = 0;
+			break;
+		case F_BREAK:
+			state = S_ENTERIDLE;	// refresh mem
+			uiFlag = 0;
+			break;
+		case F_OS:
+			do_regs();
+			flush();
+			sendCommand("z");
+			if(getBuffer(temp, sizeof temp)){
+				state = S_RUN;
+				SetStatus("OS");
+				terminal->top();	// bring to top
+			}
+			uiFlag = 0;
+			break;
 		}
-		break;
-	case F_STEP:
-		do_regs();
-		flush();
-		sendCommand("s");		// step command
-		if(getBuffer(temp, sizeof temp)){
-			state = S_RUN;
-			SetStatus("RUN");
-		}
-		break;
-	case F_KILL:
-		recycle();
-		break;
-	case F_BREAK:
-		state = S_ENTERIDLE;	// refresh mem
-		break;
-	case F_OS:
-		do_regs();
-		flush();
-		sendCommand("z");
-		if(getBuffer(temp, sizeof temp)){
-			state = S_RUN;
-			SetStatus("OS");
-			terminal->top();	// bring to top
-		}
-		break;
 	}
-	uiFlag = 0;
 
 	// check for a trap request
 	if(debug->nPleaseSetTrap){

@@ -30,7 +30,7 @@ public:
 	// UI inputs
 	void run();
 	void step();
-	void kill();
+	void reset();
 	void pause();
 	void os();
 
@@ -46,6 +46,7 @@ private:
 	int nPleaseFreeTrap{};
 
 	// debugger process thread
+	mutable std::mutex mx;				// to safe the command path
 	void debugger();					// the thread routine
 	void showStatus(byte type, bool force=false);
 	void setupMode();

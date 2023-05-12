@@ -55,6 +55,15 @@ do you are rather missing the point. This is just my safety backup as I work
 and to others I just expect it to be a pile of source code to be mined to write
 their own systems. That's what real open source is for isn't it?
 
+**It's a 'work in progress', so what's missing?**
+
+Well the whole FDC system is not working but I've got a new(er) FDD on order
+because I suspect the current one is a dud.  
+The FAT system is read only as I wanted the debugger running before I started
+on that extension.  
+The debugger does not reset a trap after trapping on it. The fix for that should
+be implemented soon as it will use the single step system.  
+
 Have fun.
 
 Most of what you might need to know is in the code comments.  

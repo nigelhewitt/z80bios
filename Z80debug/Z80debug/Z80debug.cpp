@@ -110,10 +110,10 @@ bool AddToolbar(HWND hParent)
 		{ 6,	IDM_RUN,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Run"},
 		{ 7,	IDM_STEP,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Step"},
 		{ 8,	IDM_BREAK,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Break"},
-		{ 9,	IDM_KILL,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Kill"},
+		{ 9,	IDM_RESET,		TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"Reset"},
 		{ 10,	IDM_OS,			TBSTATE_ENABLED, buttonStyles,	{0}, 0, (INT_PTR)"OS"},
 		{ 0,	0,				TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, 0},
-		{ 100,	IDM_STATUS,		TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, (INT_PTR)"Status"}
+		{ 110,	IDM_STATUS,		TBSTATE_ENABLED, BTNS_SEP,		{0}, 0, (INT_PTR)"Status"}
 
 	};
 	const int numButtons	= _countof(tbButtons);
@@ -144,7 +144,7 @@ bool AddToolbar(HWND hParent)
 
 	hStatus = CreateWindowEx(0, "BUTTON", "STOPPED",
 								WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-								420, 3, 200, 37,
+								430, 2, 200, 38,
 								hToolbar, nullptr, hInstance, nullptr);
 
 	// Resize the toolbar, and then show it.
@@ -280,8 +280,8 @@ LRESULT CALLBACK FrameWndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lP
 			debug->step();
 			return 0;
 
-		case IDM_KILL:
-			debug->kill();
+		case IDM_RESET:
+			debug->reset();
 			return 0;
 
 		case IDM_BREAK:
